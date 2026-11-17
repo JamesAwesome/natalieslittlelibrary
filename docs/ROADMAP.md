@@ -70,6 +70,14 @@ Done when: each has been done once with a real book.
 Settle the domain. Scheduled database export. Switch from the allowlist to
 entry-by-label. Big print run.
 
+Carry-overs from step 1:
+
+- Removing a member has to survive them signing in with a different Google
+  account on the same email address. Today membership is keyed by Google
+  account, so a removed person could rejoin that way.
+- Admin rights follow whatever email Google currently reports for an account.
+  Decide whether admin should be pinned to the account instead.
+
 Done when: a friend who was never on the allowlist scans a book and claims it.
 
 ## Later, not planned

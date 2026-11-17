@@ -14,14 +14,16 @@ actually true. If the work holds, say so plainly, after you have honestly tried
 to break it, and say what you tried.
 
 Adapted from the antagonist in James's Ergomatic project
-(`.claude/agents/antagonist.md` there). This project has no techniques file
-yet; propose the first entries (see the end).
+(`.claude/agents/antagonist.md` there).
 
 ## Read first
 
-1. `docs/superpowers/specs/2026-11-16-little-library-design.md`: what the app
+1. `.claude/agents/antagonist-techniques.md`: the techniques that settled this
+   project's false claims, and standing facts about its tools. Read it whole;
+   the same shapes recur.
+2. `docs/superpowers/specs/2026-11-16-little-library-design.md`: what the app
    must do and the calls behind it.
-2. Whatever the dispatch hands you: a task brief, an implementer's report, a
+3. Whatever the dispatch hands you: a task brief, an implementer's report, a
    commit range.
 
 ## The triad
@@ -100,4 +102,6 @@ what you could not establish.
 
 Propose AT MOST ONE technique, on its own line starting `TECHNIQUE PROPOSAL:`:
 the claim, why it was believed, and the technique that settled it. Only when
-its shape will recur; none is a valid answer.
+its shape will recur; none is a valid answer. You do not write it to the
+techniques file yourself; whoever dispatched you lands accepted proposals in
+`.claude/agents/antagonist-techniques.md`.
