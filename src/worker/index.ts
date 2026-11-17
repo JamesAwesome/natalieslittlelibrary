@@ -15,6 +15,10 @@ function membershipFor(env: Env): Membership {
   });
 }
 
+// Responses here differ per person (cookies, current member); never let a cache keep them.
+app.use("/api/*", async (c, next) => { await next(); c.res.headers.set("cache-control", "no-store"); });
+app.use("/auth/*", async (c, next) => { await next(); c.res.headers.set("cache-control", "no-store"); });
+
 app.get("/api/health", (c) => c.json({ ok: true }));
 app.get("/api/me", async (c) => c.json({ member: await membershipFor(c.env).currentMember(c.req.raw) }));
 app.get("/auth/login", (c) => membershipFor(c.env).beginLogin(c.req.query("returnTo") ?? null));

@@ -81,3 +81,10 @@ test("logout by GET is not allowed", async () => {
   const res = await exports.default.fetch("https://books.test/auth/logout");
   expect(res.status).toBe(404);
 });
+
+test("me and login are marked no-store", async () => {
+  const me = await exports.default.fetch("https://books.test/api/me");
+  expect(me.headers.get("cache-control")).toBe("no-store");
+  const login = await exports.default.fetch("https://books.test/auth/login", { redirect: "manual" });
+  expect(login.headers.get("cache-control")).toBe("no-store");
+});

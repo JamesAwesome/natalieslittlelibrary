@@ -27,7 +27,7 @@ export function googleProvider(opts: {
   fetch?: typeof fetch;
 }): IdentityProvider {
   const doFetch: typeof fetch = opts.fetch ?? ((input, init) => fetch(input, init));
-  const redirectUri = `${opts.siteUrl}/auth/callback`;
+  const redirectUri = new URL("/auth/callback", opts.siteUrl).toString();
 
   return {
     async authorizationUrl(state, codeVerifier) {
@@ -48,6 +48,7 @@ export function googleProvider(opts: {
     async exchange(code, codeVerifier): Promise<Identity> {
       const res = await doFetch(TOKEN_URL, {
         method: "POST",
+        redirect: "error", // never replay the secret, code and verifier to another URL
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           code,

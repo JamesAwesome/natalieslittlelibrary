@@ -69,6 +69,7 @@ test("the token call sends the code, verifier, and secret as a form post", async
   expect(Object.fromEntries(body)).toEqual({
     code: "code-1", client_id: "test-client", client_secret: "test-secret",
     redirect_uri: "https://books.test/auth/callback", grant_type: "authorization_code", code_verifier: "verifier-1" });
+  expect(calls[0].init?.redirect).toBe("error");
   expect(new Headers(calls[0].init?.headers).get("content-type")).toContain("application/x-www-form-urlencoded");
 });
 
@@ -119,4 +120,13 @@ test.each([
   ["a network failure", (async () => { throw new TypeError("offline"); }) as typeof fetch],
 ])("exchange throws on %s", async (_name, fetchStub) => {
   await expect(google(fetchStub).exchange("c", "v")).rejects.toThrow();
+});
+
+test.each(["https://books.test", "https://books.test/"])("siteUrl %s yields one callback URL everywhere", async (siteUrl) => {
+  const calls: Call[] = [];
+  const p = googleProvider({ clientId: "test-client", clientSecret: "test-secret", siteUrl,
+    fetch: recording(respond(200, { id_token: idToken(good) }), calls) });
+  expect((await p.authorizationUrl("s", "v")).searchParams.get("redirect_uri")).toBe("https://books.test/auth/callback");
+  await p.exchange("c", "v");
+  expect(new URLSearchParams(String(calls[0].init?.body)).get("redirect_uri")).toBe("https://books.test/auth/callback");
 });

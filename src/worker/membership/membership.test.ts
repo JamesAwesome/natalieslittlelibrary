@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, expect, test } from "vitest";
 import { createMembership, type Identity, type Membership, type MembershipConfig } from "./index";
 import { fakeProvider } from "./testing";
+import { googleProvider } from "./index";
 import type { Member } from "../../shared/types";
 
 const natalie: Identity = { provider: "google", subject: "g-1", email: "natalie@example.com",
@@ -231,4 +232,75 @@ test("returnTo is cleaned again at callback time", async () => {
   const res = await m.completeLogin(new Request(`https://books.test/auth/callback?code=x&state=${state}`,
     { headers: { cookie: `${name}=${state}.${verifier}.${evil}` } }));
   expect(res.headers.get("location")).toBe("/");
+});
+
+async function begin(m: Membership) {
+  const res = await m.beginLogin(null);
+  return { res, state: new URL(res.headers.get("location")!).searchParams.get("state")! };
+}
+
+function callback(state: string, cookie: string, query = "code=x"): Request {
+  return new Request(`https://books.test/auth/callback?${query}&state=${encodeURIComponent(state)}`, { headers: { cookie } });
+}
+
+test("the verifier and state given to the provider at login are the ones used at the callback", async () => {
+  const provider = fakeProvider(natalie);
+  const m = make({ provider });
+  const { res, state } = await begin(m);
+  await m.completeLogin(callback(state, cookies(res)));
+  expect(provider.authorizations).toHaveLength(1);
+  expect(provider.authorizations[0].state).toBe(state);
+  expect(provider.exchanges).toHaveLength(1);
+  expect(provider.exchanges[0].codeVerifier).toBe(provider.authorizations[0].codeVerifier);
+});
+
+test("a callback whose state differs from the one issued never reaches the provider", async () => {
+  const provider = fakeProvider(natalie);
+  const m = make({ provider });
+  const { res } = await begin(m);
+  const out = await m.completeLogin(callback("A".repeat(43), cookies(res)));
+  expect(out.headers.get("location")).toBe("/?refused=failed");
+  expect(provider.exchanges).toHaveLength(0);
+});
+
+test("each login gets its own verifier and state", async () => {
+  const provider = fakeProvider(natalie);
+  const m = make({ provider });
+  await begin(m);
+  await begin(m);
+  const [a, b] = provider.authorizations;
+  expect(a.codeVerifier).not.toBe(b.codeVerifier);
+  expect(a.state).not.toBe(b.state);
+  expect(a.codeVerifier).not.toBe(a.state);
+});
+
+test("with the real Google adapter, the challenge at login matches the verifier at exchange", async () => {
+  let posted: URLSearchParams | undefined;
+  const stub = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    posted = new URLSearchParams(String(init?.body));
+    const seg = (o: object) => btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const id_token = `${seg({ alg: "none" })}.${seg({ iss: "https://accounts.google.com", aud: "test-client", sub: "g-1",
+      email: "natalie@example.com", email_verified: true, name: "Natalie" })}.sig`;
+    return new Response(JSON.stringify({ id_token }), { status: 200 });
+  }) as typeof fetch;
+  const m = make({ provider: googleProvider({ clientId: "test-client", clientSecret: "s", siteUrl: "https://books.test", fetch: stub }) });
+  const { res, state } = await begin(m);
+  const challenge = new URL(res.headers.get("location")!).searchParams.get("code_challenge")!;
+  const out = await m.completeLogin(callback(state, cookies(res)));
+  expect(out.headers.get("location")).toBe("/");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(posted!.get("code_verifier")!));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  expect(expected).toBe(challenge);
+});
+
+test("cancelling on Google's consent screen is refused without calling the provider", async () => {
+  const provider = fakeProvider(natalie);
+  const m = make({ provider });
+  const { res, state } = await begin(m);
+  const out = await m.completeLogin(callback(state, cookies(res), "error=access_denied"));
+  expect(out.headers.get("location")).toBe("/?refused=failed");
+  const set = out.headers.getSetCookie();
+  expect(set.some((c) => /lib_session=/.test(c))).toBe(false);
+  expect(set.some((c) => /lib_login=;/.test(c) && c.includes("Max-Age=0"))).toBe(true);
+  expect(provider.exchanges).toHaveLength(0);
 });
