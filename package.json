@@ -10,8 +10,9 @@
     "typecheck": "tsc -b",
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:client": "vitest run --config vitest.client.config.ts",
-    "test": "pnpm test:worker && pnpm test:client",
-    "db:generate": "node scripts/db-generate.mjs",
+    "test": "pnpm db:check && pnpm test:worker && pnpm test:client",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "node scripts/db-check.mjs",
     "types": "wrangler types"
   },
   "keywords": [],

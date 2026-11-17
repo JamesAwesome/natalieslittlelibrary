@@ -11,6 +11,6 @@
     "ADMIN_EMAILS": "natalie@example.com"
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "little-library", "database_id": "test-dummy-id", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "little-library", "database_id": "test-dummy-id", "migrations_dir": "drizzle", "migrations_pattern": "drizzle/*/migration.sql" }
   ]
 }

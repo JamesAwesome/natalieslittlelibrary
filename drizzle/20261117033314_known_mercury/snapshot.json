@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "91e0927c-53b1-4348-859f-c703c2b5c4d5",
+  "id": "51e520a2-aa05-4966-97c7-e7de52cc852d",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -52,7 +52,7 @@
       "table": "members",
       "name": "id",
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
@@ -112,7 +112,7 @@
       "table": "sessions",
       "name": "token_hash",
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,

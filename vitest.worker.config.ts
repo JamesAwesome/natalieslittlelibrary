@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest(async () => {
-      const migrations = await readD1Migrations("./migrations");
+      const migrations = await readD1Migrations({ migrationsDir: "./drizzle", migrationsPattern: "drizzle/*/migration.sql" });
       return {
         wrangler: { configPath: "./wrangler.test.jsonc" },
         miniflare: { bindings: { TEST_MIGRATIONS: migrations } },

@@ -7,7 +7,7 @@ CREATE TABLE `identities` (
 );
 --> statement-breakpoint
 CREATE TABLE `members` (
-	`id` text PRIMARY KEY,
+	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`email` text NOT NULL,
 	`picture_url` text,
@@ -16,7 +16,7 @@ CREATE TABLE `members` (
 );
 --> statement-breakpoint
 CREATE TABLE `sessions` (
-	`token_hash` text PRIMARY KEY,
+	`token_hash` text PRIMARY KEY NOT NULL,
 	`member_id` text NOT NULL,
 	`expires_at` integer NOT NULL,
 	CONSTRAINT `fk_sessions_member_id_members_id_fk` FOREIGN KEY (`member_id`) REFERENCES `members`(`id`)
