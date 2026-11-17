@@ -9,7 +9,7 @@ Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superp
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Run the app locally at http://localhost:5173 |
-| `pnpm test` | Check the schema is migrated, then run worker and client tests |
+| `pnpm test` | Check `src/worker/db/schema.ts` matches the committed migrations, then run the worker and client suites |
 | `pnpm typecheck` | Type-check everything |
 | `pnpm lint` | Lint everything |
 | `pnpm build` | Build the app |
@@ -21,7 +21,7 @@ To change the schema: edit `src/worker/db/schema.ts`, run `pnpm db:generate`, co
 
 ## Local development
 
-Copy `.dev.vars.example` to `.dev.vars` and fill it in (it is gitignored). Without it every `/api` and `/auth` route returns 500 and the page just shows the signed-out state.
+Copy `.dev.vars.example` to `.dev.vars` and fill it in (it is gitignored). Without it `/api/me` and the `/auth` routes return 500 and the page just shows the signed-out state; `/api/health` still answers.
 
 ## One-time setup
 
@@ -29,14 +29,25 @@ Do these in order.
 
 - [ ] **Cloudflare.** Run `pnpm wrangler login`, then `pnpm wrangler d1 create little-library`. Paste the returned id over `PLACEHOLDER` in `wrangler.jsonc` and commit it: until it is committed, the CI deploy fails at the migration step. The custom domain in `wrangler.jsonc` needs `waffle.haus` to be an active zone on the account and no existing CNAME on `books`.
 - [ ] **Google.** In Google Cloud Console, create an OAuth client of type "Web application" with two redirect URIs: `https://books.waffle.haus/auth/callback` and `http://localhost:5173/auth/callback`. Copy the client id and secret into `.dev.vars`, along with `ALLOWLIST_EMAILS` and `ADMIN_EMAILS` (comma-separated).
-- [ ] **Secrets.** Run `pnpm wrangler secret put` for each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`.
-- [ ] **GitHub deploy credentials.** Make a Cloudflare API token with these permissions: account-level Workers Scripts Edit and D1 Edit, and zone access limited to the `waffle.haus` zone only (not all zones). Do not start from the "Edit Cloudflare Workers" template: it has no D1 permission, so the migration step would fail. The custom-domain route needs access to that zone; this list comes from Cloudflare's docs, and the exact zone permission for attaching a custom domain was not confirmed, so the first deploy is the test. In GitHub, create an environment named `production` and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to it. Required reviewers and environment secrets need a public repository on GitHub's Free and Pro plans; this repo is private, so if environment secrets are not available, add the two as repository secrets instead. There is no approval gate on a private repo, which is why deploys are run by hand (see Deploying).
+- [ ] **Secrets.** Run `pnpm wrangler secret put` for each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`. The first one offers to create the Worker; that is expected, answer yes.
+- [ ] **GitHub deploy credentials.** Make a Cloudflare API token with these permissions: account-level Workers Scripts Edit and D1 Edit, and zone access limited to the `waffle.haus` zone only (not all zones). Do not start from the "Edit Cloudflare Workers" template: it has no D1 permission, so the migration step would fail. The custom-domain route needs access to that zone; this list comes from Cloudflare's docs, and the exact zone permission for attaching a custom domain was not confirmed, so the first deploy is the test. In GitHub, create an environment named `production` and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to it. Required reviewers and environment secrets need a public repository on GitHub's Free and Pro plans; this repo is private, so if environment secrets are not available, add the two as repository secrets instead. There is no approval gate on a private repo, which is why a deploy is a deliberate tag rather than a merge (see Deploying).
 - [ ] **Verify locally.** Run `pnpm wrangler d1 migrations apply DB --local`, then `pnpm dev`. Sign in at http://localhost:5173 with an allowlisted account and see `Hi, <name>`. Sign out. Sign in with an account that is not on the list and see the invite-only message.
 - [ ] **First deploy and phone check.** Do the first deploy locally from a terminal, not CI: a non-interactive deploy takes over an existing DNS record for `books.waffle.haus`, or that hostname from another Worker, without asking, whereas a terminal deploy prompts. Run `pnpm wrangler d1 migrations apply DB --remote`, then `pnpm run deploy`. On a phone, open `https://books.waffle.haus`, sign in with an allowlisted account and see the greeting; try a non-allowlisted account and see the refusal. That is step 1's "done when".
 
 ## Deploying
 
-Merging to `main` does not deploy. A deploy happens when someone runs the CI workflow by hand from the Actions tab, choosing the `main` branch (it applies migrations, then deploys), or runs `pnpm run deploy` locally. The workflow's `deploy` job refuses any other branch and any push or pull request.
+Merging to `main` does not deploy. A release is a deliberate tag. On an up-to-date `main`:
+
+```
+git tag -a v0.1.0 -m "First deploy"
+git push origin v0.1.0
+```
+
+CI runs the checks, then the `deploy` job refuses a lightweight tag or a tag whose commit is not on `main`, applies migrations, and deploys. The very first deploy is still done locally from a terminal (see the last setup step), because of the DNS takeover described there.
+
+Tags are the release record: never move or reuse one. A bad release is fixed by a new tag.
+
+Protecting `main` (require a pull request and the `app` check, block force-pushes) is a repository setting, not something the workflow does. On GitHub Free it is only available for public repositories.
 
 Migrations are applied before the new code goes out, and nothing rolls back if the deploy then fails. So every migration must work with the code that is already deployed: add things first, remove them in a later release. If a migration goes wrong, D1 Time Travel is the way back ([docs](https://developers.cloudflare.com/d1/reference/time-travel/); the free plan keeps 7 days).
 

@@ -21,7 +21,7 @@ The plan below is the original; the build differs in these ways.
 - `Cache-Control: no-store` on `/api/*` and `/auth/*`.
 - The redirect URI is built with `new URL`, and the token request refuses redirects.
 - A fifth refusal reason, `unavailable`, covers a database outage during sign-in.
-- The deploy job runs by hand (`workflow_dispatch` on `main`) rather than on every push, because required reviewers are not available on a private repo.
+- The deploy job runs when an annotated `vX.Y.Z` tag on `main` is pushed, so `main` can be protected and a release is a deliberate act.
 
 ## Global Constraints
 

@@ -7,7 +7,7 @@ start a step until the one before it has been tried for real.
 
 ## 0. Phone test (throwaway)
 
-Answer three questions before building anything:
+Answer four questions before building anything:
 
 - Does ISBN barcode scanning work in the browser on Natalie's iPhone and on an
   Android phone?
@@ -42,6 +42,14 @@ cache.
 
 Done when: Natalie labels five books, James claims one by scanning it with his
 camera, and Natalie sees that he has it.
+
+Carry-overs from step 1:
+
+- Resolve the member once per `/api/*` request in middleware so the ledger can ask who is calling.
+- A shared test helper that empties all tables.
+- A public member shape without email (members see names, not addresses).
+- A refusal should keep `returnTo` so a person is not bounced off the book page they scanned.
+- Decide whether a database outage should look different from being signed out.
 
 ## 3. Collections
 

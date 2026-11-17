@@ -43,7 +43,7 @@ test("the authorization URL carries the client, callback, scope, and PKCE challe
   expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
   expect(Object.fromEntries(url.searchParams)).toMatchObject({
     client_id: "test-client", redirect_uri: "https://books.test/auth/callback",
-    response_type: "code", scope: "openid email profile", state: "state-1", code_challenge_method: "S256" });
+    response_type: "code", scope: "openid email profile", prompt: "select_account", state: "state-1", code_challenge_method: "S256" });
   expect(url.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
 });
 

@@ -38,6 +38,7 @@ export function googleProvider(opts: {
         redirect_uri: redirectUri,
         response_type: "code",
         scope: "openid email profile",
+        prompt: "select_account",
         state,
         code_challenge: base64UrlEncode(new Uint8Array(digest)),
         code_challenge_method: "S256",

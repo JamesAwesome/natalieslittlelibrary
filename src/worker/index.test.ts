@@ -88,3 +88,16 @@ test("me and login are marked no-store", async () => {
   const login = await exports.default.fetch("https://books.test/auth/login", { redirect: "manual" });
   expect(login.headers.get("cache-control")).toBe("no-store");
 });
+
+test("a callback without a login cookie is refused as failed, uncached", async () => {
+  const res = await exports.default.fetch("https://books.test/auth/callback?code=x&state=y", { redirect: "manual" });
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toBe("/?refused=failed");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+});
+
+test("logout without a session answers 204, uncached", async () => {
+  const res = await exports.default.fetch("https://books.test/auth/logout", { method: "POST" });
+  expect(res.status).toBe(204);
+  expect(res.headers.get("cache-control")).toBe("no-store");
+});
