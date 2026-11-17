@@ -30,9 +30,17 @@ test.each([
   ["removed", "This account no longer has access."],
   ["unverified", "Google hasn't verified that email address yet."],
   ["failed", "Sign-in didn't finish. Please try again."],
+  ["unavailable", "The library is having trouble right now. Please try again later."],
   ["something-else", "Sign-in didn't finish. Please try again."],
 ])("refusal %s is explained", (reason, text) => {
   render(<Home member={null} refused={reason as RefusalReason} onLogout={() => {}} returnTo="/" />);
   expect(screen.getByRole("alert")).toHaveTextContent(text);
   expect(screen.getByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a notice is shown as an alert while signed in", () => {
+  render(<Home member={{ id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true }}
+    refused={null} onLogout={() => {}} returnTo="/" notice="Couldn't sign out." />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Couldn't sign out.");
+  expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
 });

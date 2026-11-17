@@ -6,18 +6,27 @@ import { Home } from "./screens/Home";
 function readLocation() {
   const params = new URLSearchParams(location.search);
   const refused = params.get("refused") as RefusalReason | null;
+  const hadRefused = params.has("refused");
   params.delete("refused");
   const query = params.toString();
-  return { refused, returnTo: location.pathname + (query ? `?${query}` : "") };
+  const returnTo = location.pathname + (query ? `?${query}` : "");
+  return { refused, hadRefused, returnTo, cleanUrl: returnTo + location.hash };
 }
 
 export function App() {
   // Read once: the refusal is shown, then dropped from the address bar so a reload does not repeat it.
-  const [{ refused, returnTo }] = useState(readLocation);
+  const [{ refused, hadRefused, returnTo, cleanUrl }] = useState(readLocation);
   const [member, setMember] = useState<Member | null | undefined>(undefined);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    history.replaceState(null, "", returnTo);
+    if (hadRefused) {
+      try {
+        history.replaceState(null, "", cleanUrl);
+      } catch {
+        // An odd path (e.g. "//x") can make this throw; the page must still render.
+      }
+    }
     let live = true;
     getMe().then(
       (m) => live && setMember(m),
@@ -26,7 +35,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [returnTo]);
+  }, [hadRefused, cleanUrl]);
 
   if (member === undefined) return <h1>Natalie's Little Library</h1>;
 
@@ -35,8 +44,13 @@ export function App() {
       member={member}
       refused={refused}
       returnTo={returnTo}
+      notice={notice}
       onLogout={() => {
-        logout().then(() => location.reload());
+        setNotice(undefined);
+        logout().then(
+          () => location.reload(),
+          () => setNotice("Couldn't sign out. Check your connection and try again."),
+        );
       }}
     />
   );

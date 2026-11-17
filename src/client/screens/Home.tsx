@@ -5,6 +5,7 @@ const refusalText: Record<RefusalReason, string> = {
   removed: "This account no longer has access.",
   unverified: "Google hasn't verified that email address yet.",
   failed: "Sign-in didn't finish. Please try again.",
+  unavailable: "The library is having trouble right now. Please try again later.",
 };
 
 function explain(refused: string): string {
@@ -16,13 +17,15 @@ export function Home(props: {
   refused: RefusalReason | null;
   returnTo: string;
   onLogout: () => void;
+  notice?: string;
 }) {
-  const { member, refused, returnTo, onLogout } = props;
+  const { member, refused, returnTo, onLogout, notice } = props;
   return (
     <>
       <h1>Natalie's Little Library</h1>
       {member ? (
         <>
+          {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
           <p>Hi, {member.name}</p>
           <button type="button" onClick={onLogout}>Sign out</button>
         </>

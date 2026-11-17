@@ -3,8 +3,8 @@ import type { Member } from "../shared/types";
 export async function getMe(): Promise<Member | null> {
   const res = await fetch("/api/me");
   if (!res.ok) throw new Error(`/api/me failed: ${res.status}`);
-  const body = (await res.json()) as { member: Member | null };
-  return body.member;
+  const body = (await res.json()) as { member?: Member | null };
+  return body.member ?? null;
 }
 
 export async function logout(): Promise<void> {
