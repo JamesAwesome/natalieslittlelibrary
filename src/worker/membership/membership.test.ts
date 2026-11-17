@@ -52,17 +52,27 @@ test("signing in returns the person to the page they came from", async () => {
   expect(res.headers.get("location")).toBe("/b/abc123");
 });
 
-test.each(["//evil.example", "https://evil.example", "/\\evil.example", "/auth/login", "evil"])(
-  "returnTo %s is replaced with /", async (bad) => {
+const badReturnTos = ["//evil.example", "https://evil.example", "/\\evil.example", "/auth/login", "evil",
+  "/\t/evil.example", "/\n/evil.example", "/\r/evil.example"];
+
+test.each(badReturnTos)(
+  "returnTo %j is replaced with /", async (bad) => {
     const res = await signIn(make(), bad);
     expect(res.headers.get("location")).toBe("/");
   });
+
+test("no returnTo can send the browser to another origin", async () => {
+  for (const bad of badReturnTos) {
+    const res = await signIn(make(), bad);
+    expect(new URL(res.headers.get("location")!, "https://books.test").origin).toBe("https://books.test");
+  }
+});
 
 test("someone not on the allowlist is refused and gets no session", async () => {
   const m = make({ provider: fakeProvider({ ...natalie, subject: "g-2", email: "stranger@example.com" }) });
   const res = await signIn(m);
   expect(res.headers.get("location")).toBe("/?refused=not-invited");
-  expect(res.headers.getSetCookie().some((c) => c.startsWith("lib_session=") && !c.includes("Max-Age=0"))).toBe(false);
+  expect(res.headers.getSetCookie().some((c) => /lib_session=/.test(c) && !c.includes("Max-Age=0"))).toBe(false);
   expect(await asMember(m, res)).toBeNull();
 });
 
@@ -150,4 +160,75 @@ test("cookies are Secure on https and not on http", async () => {
   expect((await signIn(make())).headers.getSetCookie().join(";")).toContain("Secure");
   const local = make({ config: { ...config, siteUrl: "http://localhost:5173" } });
   expect((await signIn(local)).headers.getSetCookie().join(";")).not.toContain("Secure");
+});
+
+test("an allowlisted person who is not an admin is not an admin", async () => {
+  const m = make({ config: { ...config, admins: "someone-else@example.com" } });
+  expect(await asMember(m, await signIn(m))).toMatchObject({ email: "natalie@example.com", isAdmin: false });
+});
+
+test("beginLogin sets the login cookie with exact attributes", async () => {
+  const [c] = (await make().beginLogin(null)).headers.getSetCookie();
+  expect(c).toMatch(/^__Host-lib_login=[^;]+; HttpOnly; SameSite=Lax; Path=\/; Max-Age=600; Secure$/);
+  const [local] = (await make({ config: { ...config, siteUrl: "http://localhost:5173" } }).beginLogin(null)).headers.getSetCookie();
+  expect(local).toMatch(/^lib_login=[^;]+; HttpOnly; SameSite=Lax; Path=\/auth; Max-Age=600$/);
+});
+
+test("completeLogin sets the session cookie with exact attributes and clears the login cookie", async () => {
+  const cs = (await signIn(make())).headers.getSetCookie();
+  expect(cs).toHaveLength(2);
+  expect(cs.find((c) => c.startsWith("__Host-lib_session=")))
+    .toMatch(/^__Host-lib_session=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Lax; Path=\/; Max-Age=7776000; Secure$/);
+  expect(cs.find((c) => c.startsWith("__Host-lib_login=")))
+    .toBe("__Host-lib_login=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure");
+});
+
+test("a refusal clears the login cookie", async () => {
+  const m = make({ provider: fakeProvider(new Error("no")) });
+  const cs = (await signIn(m)).headers.getSetCookie();
+  expect(cs).toEqual(["__Host-lib_login=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure"]);
+});
+
+test("logout clears the session cookie", async () => {
+  const out = await make().logout(new Request("https://books.test/auth/logout", { method: "POST" }));
+  expect(out.headers.getSetCookie()).toEqual(["__Host-lib_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure"]);
+});
+
+test("on https a session cookie without the __Host- prefix is not honoured", async () => {
+  const m = make();
+  const token = /__Host-lib_session=([^;]+)/.exec((await signIn(m)).headers.getSetCookie().join(";"))![1];
+  const req = (cookie: string) => new Request("https://books.test/", { headers: { cookie } });
+  expect(await m.currentMember(req(`lib_session=${token}`))).toBeNull();
+  expect(await m.currentMember(req(`__Host-lib_session=${token}`))).not.toBeNull();
+});
+
+test("a session is expired at exactly 90 days", async () => {
+  let t = 0;
+  const m = make({ now: () => t });
+  const res = await signIn(m);
+  t = 90 * 86_400_000;
+  expect(await asMember(m, res)).toBeNull();
+});
+
+test("currentMember returns null rather than throwing when the database fails", async () => {
+  const m = make();
+  const res = await signIn(m);
+  const broken = make({ db: { prepare() { throw new Error("db down"); } } as unknown as D1Database });
+  expect(await asMember(broken, res)).toBeNull();
+});
+
+test("the provider's email is lower-cased before the allowlist check", async () => {
+  const m = make({ provider: fakeProvider({ ...natalie, email: "Natalie@Example.com" }) });
+  expect((await signIn(m)).headers.get("location")).toBe("/");
+});
+
+test("returnTo is cleaned again at callback time", async () => {
+  const m = make();
+  const begin = await m.beginLogin(null);
+  const [name, value] = cookies(begin).split("=");
+  const [state, verifier] = value.split(".");
+  const evil = btoa("//evil.example").replace(/=+$/, "");
+  const res = await m.completeLogin(new Request(`https://books.test/auth/callback?code=x&state=${state}`,
+    { headers: { cookie: `${name}=${state}.${verifier}.${evil}` } }));
+  expect(res.headers.get("location")).toBe("/");
 });

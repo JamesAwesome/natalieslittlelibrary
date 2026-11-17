@@ -26,8 +26,6 @@ export interface Membership {
   logout(request: Request): Promise<Response>;
 }
 
-const LOGIN_COOKIE = "lib_login";
-const SESSION_COOKIE = "lib_session";
 const LOGIN_MAX_AGE_S = 600;
 const SESSION_MS = 90 * 86_400_000;
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url
@@ -100,11 +98,18 @@ export function createMembership(deps: {
   const now = deps.now ?? Date.now;
   const allowlist = emailList(deps.config.allowlist);
   const admins = emailList(deps.config.admins);
-  const secure = deps.config.siteUrl.startsWith("https:") ? "; Secure" : "";
+  // The one place cookie names and scope are decided. On https the __Host- prefix
+  // makes browsers refuse cookies with a Domain attribute, so a sibling site
+  // cannot plant a lookalike. The prefix requires Path=/ and Secure.
+  const https = deps.config.siteUrl.startsWith("https:");
+  const secure = https ? "; Secure" : "";
+  const SESSION_COOKIE = https ? "__Host-lib_session" : "lib_session";
+  const LOGIN_COOKIE = https ? "__Host-lib_login" : "lib_login";
+  const LOGIN_PATH = https ? "/" : "/auth";
 
   const setCookie = (name: string, value: string, path: string, maxAge: number) =>
     `${name}=${value}; HttpOnly; SameSite=Lax; Path=${path}; Max-Age=${maxAge}${secure}`;
-  const clearLogin = () => setCookie(LOGIN_COOKIE, "", "/auth", 0);
+  const clearLogin = () => setCookie(LOGIN_COOKIE, "", LOGIN_PATH, 0);
   const clearSession = () => setCookie(SESSION_COOKIE, "", "/", 0);
 
   function redirect(location: string, cookies: string[]): Response {
@@ -150,7 +155,7 @@ export function createMembership(deps: {
     const target = cleanReturnTo(returnTo);
     const value = `${state}.${verifier}.${toBase64Url(new TextEncoder().encode(target))}`;
     const url = await deps.provider.authorizationUrl(state, verifier);
-    return redirect(url.toString(), [setCookie(LOGIN_COOKIE, value, "/auth", LOGIN_MAX_AGE_S)]);
+    return redirect(url.toString(), [setCookie(LOGIN_COOKIE, value, LOGIN_PATH, LOGIN_MAX_AGE_S)]);
   }
 
   async function admit(identity: Identity): Promise<string> {
