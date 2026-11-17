@@ -13,3 +13,21 @@ test("migrations created the tables", async () => {
   ).all();
   expect(results.map((r) => r.name)).toEqual(["identities", "members", "sessions"]);
 });
+
+test("me is null when signed out", async () => {
+  const res = await exports.default.fetch("https://books.test/api/me");
+  expect(await res.json()).toEqual({ member: null });
+});
+
+test("login redirects to Google with our client id", async () => {
+  const res = await exports.default.fetch("https://books.test/auth/login?returnTo=/b/abc", { redirect: "manual" });
+  expect(res.status).toBe(302);
+  const to = new URL(res.headers.get("location")!);
+  expect(to.hostname).toBe("accounts.google.com");
+  expect(to.searchParams.get("client_id")).toBe("test-client");
+});
+
+test("logout by GET is not allowed", async () => {
+  const res = await exports.default.fetch("https://books.test/auth/logout");
+  expect(res.status).toBe(404);
+});
