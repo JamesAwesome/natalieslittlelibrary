@@ -45,7 +45,9 @@ git push origin v0.1.0
 
 CI runs the checks, then the `deploy` job refuses a lightweight tag or a tag whose commit is not on `main`, applies migrations, and deploys. The very first deploy is still done locally from a terminal (see the last setup step), because of the DNS takeover described there.
 
-Tags are the release record: never move or reuse one. A bad release is fixed by a new tag.
+Tags are the release record: never move or reuse one. A bad release is fixed by a new tag. CI refuses any tag that is not the highest version, so re-running an old release's workflow does not redeploy it; to roll back, tag the older commit with a new, higher version.
+
+These checks live in the workflow file of the tagged commit, so they stop mistakes, not a person with write access who edits the workflow; GitHub-enforced limits (protected branches, deployment rules, environment secrets) need a public repository or a paid plan.
 
 Protecting `main` (require a pull request and the `app` check, block force-pushes) is a repository setting, not something the workflow does. On GitHub Free it is only available for public repositories.
 

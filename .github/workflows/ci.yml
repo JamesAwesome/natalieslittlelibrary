@@ -56,6 +56,13 @@ jobs:
             echo "::error::$TAG points at a commit that is not on main"
             exit 1
           fi
+          git fetch --force --tags origin
+          tags=$(git tag -l 'v*.*.*' --sort=-v:refname)
+          newest=${tags%%$'\n'*}
+          if [ "$TAG" != "$newest" ]; then
+            echo "::error::$TAG is not the newest release ($newest is); to roll back, tag the older commit with a new, higher version"
+            exit 1
+          fi
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 11.17.0
