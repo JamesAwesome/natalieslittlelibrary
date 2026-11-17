@@ -1,0 +1,14 @@
+# Natalie's personal reading data (reviews, ratings, history). Never commit.
+storygraph_export.csv
+*.csv
+
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# agent scratch
+.superpowers/
