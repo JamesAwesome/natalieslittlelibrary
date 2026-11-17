@@ -227,6 +227,12 @@ What follows from that:
   real phones before anything else is built.
 - Label scanning for claims needs no in-page scanner at all: the phone's
   camera opens the link. The in-page scanner is only for pairing and returns.
+- Google refuses sign-in inside embedded browsers (in-app webviews), so a label
+  link opened from inside another app cannot complete login. The phone's own
+  camera and browser are the supported path, and the app must tell people in an
+  embedded browser to open the link in Safari or Chrome
+  ([Google's policy](https://developers.google.com/identity/protocols/oauth2/policies),
+  "Use secure browsers").
 
 ## Structure
 
