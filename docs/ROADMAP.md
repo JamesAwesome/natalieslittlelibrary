@@ -60,6 +60,16 @@ Done when: a friend who was never on the allowlist scans a book and claims it.
 Cover-photo recognition. A second login provider. Due dates. Borrow requests.
 Notifications.
 
+## Known hazards
+
+- Drizzle rebuilds a table to make a column nullable (and similar changes),
+  and that migration begins with `PRAGMA foreign_keys=OFF`. D1 does not allow
+  turning foreign keys off, so the migration fails on a database that already
+  has rows; this was demonstrated locally during step 1. Before the first
+  schema change after real data exists, work out a rebuild recipe and test it
+  against a populated local database. See
+  [D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/).
+
 ## Decisions still open
 
 - Final domain (blocks step 5, and any label meant to last).

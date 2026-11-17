@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-16-little-library-design.md` (roadmap: `docs/ROADMAP.md`, step 1). This plan covers step 1 only. Each later roadmap step gets its own plan.
 
+## Changes made during execution
+
+The plan below is the original; the build differs in these ways.
+
+- Session cookies are `__Host-`-prefixed on https (`__Host-lib_session`, `__Host-lib_login`), with the login cookie at `Path=/`. Plain names on http.
+- Migrations are read from `drizzle/` directly by Wrangler; there is no `migrations/` copy and no copy script.
+- `db:check` guards against schema drift and is part of `pnpm test`.
+- Primary-key columns are NOT NULL.
+- `Cache-Control: no-store` on `/api/*` and `/auth/*`.
+- The redirect URI is built with `new URL`, and the token request refuses redirects.
+
 ## Global Constraints
 
 - Workers Free plan: 10 ms CPU per request. No password hashing, PDF, or image work in the Worker.
