@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "little-library",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-11-16",
+  "vars": {
+    "SITE_URL": "https://books.test",
+    "GOOGLE_CLIENT_ID": "test-client",
+    "GOOGLE_CLIENT_SECRET": "test-secret",
+    "ALLOWLIST_EMAILS": "natalie@example.com",
+    "ADMIN_EMAILS": "natalie@example.com"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "little-library", "database_id": "test-dummy-id", "migrations_dir": "migrations" }
+  ]
+}
