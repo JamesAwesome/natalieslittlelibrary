@@ -304,3 +304,28 @@ test("cancelling on Google's consent screen is refused without calling the provi
   expect(set.some((c) => /lib_login=;/.test(c) && c.includes("Max-Age=0"))).toBe(true);
   expect(provider.exchanges).toHaveLength(0);
 });
+
+const brokenDb = { prepare() { throw new Error("db down"); }, batch() { throw new Error("db down"); } } as unknown as D1Database;
+
+test("a database outage during sign-in is reported as unavailable, with no session", async () => {
+  const healthy = make();
+  const begin = await healthy.beginLogin(null);
+  const state = new URL(begin.headers.get("location")!).searchParams.get("state")!;
+  const res = await make({ db: brokenDb }).completeLogin(
+    new Request(`https://books.test/auth/callback?code=x&state=${state}`, { headers: { cookie: cookies(begin) } }));
+  expect(res.headers.get("location")).toBe("/?refused=unavailable");
+  expect(res.headers.getSetCookie()).toEqual(["__Host-lib_login=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure"]);
+});
+
+test("beginLogin does not touch the database", async () => {
+  const res = await make({ db: brokenDb }).beginLogin(null);
+  expect(res.status).toBe(302);
+});
+
+test("logout still clears the cookie and answers 204 when the database fails", async () => {
+  const res = await signIn(make());
+  const out = await make({ db: brokenDb }).logout(
+    new Request("https://books.test/auth/logout", { method: "POST", headers: { cookie: cookies(res) } }));
+  expect(out.status).toBe(204);
+  expect(out.headers.getSetCookie()).toEqual(["__Host-lib_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure"]);
+});

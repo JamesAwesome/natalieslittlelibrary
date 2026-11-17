@@ -218,7 +218,13 @@ export function createMembership(deps: {
 
       const returnTo = cleanReturnTo(new TextDecoder().decode(fromBase64Url(encodedReturn)));
       const identity = await deps.provider.exchange(code, verifier);
-      const token = await admit(identity);
+      let token: string;
+      try {
+        token = await admit(identity);
+      } catch (e) {
+        if (e instanceof Refusal) throw e;
+        throw new Refusal("unavailable"); // admit fails otherwise only on the database
+      }
       return redirect(returnTo, [setCookie(SESSION_COOKIE, token, "/", SESSION_MS / 1000), clearLogin()]);
     } catch (e) {
       return refuse(e instanceof Refusal ? e.reason : "failed");
