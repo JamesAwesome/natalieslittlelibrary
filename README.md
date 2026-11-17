@@ -49,7 +49,13 @@ Tags are the release record: never move or reuse one. A bad release is fixed by 
 
 These checks live in the workflow file of the tagged commit, so they stop mistakes, not a person with write access who edits the workflow; GitHub-enforced limits (protected branches, deployment rules, environment secrets) need a public repository or a paid plan.
 
-Protecting `main` (require a pull request and the `app` check, block force-pushes) is a repository setting, not something the workflow does. On GitHub Free it is only available for public repositories.
+This repository is public, and three repository settings keep it safe. They are not in the code, so recreate them if the repository is ever moved or rebuilt:
+
+- **A ruleset named "protect main"** on the default branch: changes arrive by pull request, the `app` check must pass on an up-to-date branch, and force-pushes and deletion are blocked, with no bypass for admins.
+- **Pull requests from collaborators only** (Settings → General → Pull Requests). Outside pull requests are not accepted.
+- **Actions → "Require approval for all external contributors"**, so no outside code runs in CI without a person approving it first.
+
+Do not loosen these while the deploy job holds a Cloudflare token. On GitHub Free, rulesets are only available for public repositories.
 
 Migrations are applied before the new code goes out, and nothing rolls back if the deploy then fails. So every migration must work with the code that is already deployed: add things first, remove them in a later release. If a migration goes wrong, D1 Time Travel is the way back ([docs](https://developers.cloudflare.com/d1/reference/time-travel/); the free plan keeps 7 days).
 
