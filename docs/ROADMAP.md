@@ -7,15 +7,21 @@ start a step until the one before it has been tried for real.
 
 ## 0. Phone test (throwaway)
 
-Answer three questions before building anything:
+Answer four questions before building anything:
 
 - Does ISBN barcode scanning work in the browser on Natalie's iPhone and on an
   Android phone?
 - How small can a printed QR label be and still scan in poor light?
 - Scan ten of Natalie's books: how many barcodes match the ISBN in her
   StoryGraph export?
+- Does Google sign-in complete when a link is opened from the phone's camera,
+  and what happens inside another app's built-in browser (a link tapped in
+  Instagram or Messenger, a third-party scanner app)? Google refuses sign-in
+  in embedded browsers and shows its own error page
+  ([policy](https://developers.google.com/identity/protocols/oauth2/policies),
+  "Use secure browsers").
 
-Done when: all three have answers and a label size is chosen. The code is
+Done when: all four have answers and a label size is chosen. The code is
 thrown away.
 
 ## 1. Skeleton
@@ -29,10 +35,21 @@ anyone else is refused.
 ## 2. The core loop
 
 Print a sheet of blank labels. Pair a book by scanning its ISBN then a label.
-Copy page. Claim. Mark returned. History.
+Copy page. Claim. Mark returned. History. The copy page detects an embedded
+browser and tells the person to open it in Safari or Chrome before offering
+sign-in; pages refetch who is signed in when restored from the back-forward
+cache.
 
 Done when: Natalie labels five books, James claims one by scanning it with his
 camera, and Natalie sees that he has it.
+
+Carry-overs from step 1:
+
+- Resolve the member once per `/api/*` request in middleware so the ledger can ask who is calling.
+- A shared test helper that empties all tables.
+- A public member shape without email (members see names, not addresses).
+- A refusal should keep `returnTo` so a person is not bounced off the book page they scanned.
+- Decide whether a database outage should look different from being signed out.
 
 ## 3. Collections
 
@@ -53,12 +70,36 @@ Done when: each has been done once with a real book.
 Settle the domain. Scheduled database export. Switch from the allowlist to
 entry-by-label. Big print run.
 
+Carry-overs from step 1:
+
+- Removing a member has to survive them signing in with a different Google
+  account on the same email address. Today membership is keyed by Google
+  account, so a removed person could rejoin that way.
+- Admin rights follow whatever email Google currently reports for an account.
+  Decide whether admin should be pinned to the account instead.
+
 Done when: a friend who was never on the allowlist scans a book and claims it.
 
 ## Later, not planned
 
 Cover-photo recognition. A second login provider. Due dates. Borrow requests.
 Notifications.
+
+## Known hazards
+
+- Drizzle rebuilds a table to make a column nullable (and similar changes),
+  and that migration begins with `PRAGMA foreign_keys=OFF`. D1 does not allow
+  turning foreign keys off, so the migration fails on a database that already
+  has rows; this was demonstrated locally during step 1. Before the first
+  schema change after real data exists, work out a rebuild recipe and test it
+  against a populated local database. See
+  [D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/).
+- A migration that fails after it applied, or a deploy that fails after the
+  migration, leaves new schema under old code and nothing rolls back. Every
+  migration must work with the code already deployed (add first, remove in a
+  later release). D1 Time Travel is the way back
+  ([docs](https://developers.cloudflare.com/d1/reference/time-travel/); the
+  free plan keeps 7 days).
 
 ## Decisions still open
 

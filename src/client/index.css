@@ -1,0 +1,60 @@
+:root {
+  --bg: #fffaf2;
+  --fg: #2b2118;
+  --accent: #8a3b12;
+  --accent-fg: #ffffff;
+  --alert-bg: #fde8e4;
+  --alert-fg: #7a1f12;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1712;
+    --fg: #f3e9dc;
+    --accent: #e08a55;
+    --accent-fg: #1d1712;
+    --alert-bg: #4a211a;
+    --alert-fg: #ffd9d1;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+#root {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 16px;
+}
+
+button,
+a.button {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.refusal {
+  margin: 0 0 16px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--alert-fg);
+}

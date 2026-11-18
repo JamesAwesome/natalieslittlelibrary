@@ -1,0 +1,56 @@
+{
+  "name": "natalieslittlelibrary",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "deploy": "pnpm build && wrangler deploy",
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:client": "vitest run --config vitest.client.config.ts",
+    "test": "pnpm db:check && pnpm test:worker && pnpm test:client",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "node scripts/db-check.mjs",
+    "types": "wrangler types"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.17.0",
+      "onFail": "download"
+    }
+  },
+  "type": "module",
+  "dependencies": {
+    "drizzle-orm": "1.0.0-rc.5",
+    "hono": "^4.13.18",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.69.1",
+    "@cloudflare/vitest-plugin": "^1.8.2",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.12",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "drizzle-kit": "1.0.0-rc.5",
+    "eslint": "^10.15.0",
+    "jsdom": "^31.0.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.162.0"
+  },
+  "private": true
+}
