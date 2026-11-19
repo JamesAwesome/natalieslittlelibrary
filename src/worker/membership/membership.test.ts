@@ -4,6 +4,7 @@ import { createMembership, type Identity, type Membership, type MembershipConfig
 import { fakeProvider } from "./testing";
 import { googleProvider } from "./index";
 import type { Member } from "../../shared/types";
+import { resetDatabase } from "../../../test/reset";
 
 const natalie: Identity = { provider: "google", subject: "g-1", email: "natalie@example.com",
   emailVerified: true, name: "Natalie", pictureUrl: null };
@@ -33,11 +34,7 @@ function asMember(m: Membership, res: Response): Promise<Member | null> {
 }
 
 beforeEach(async () => {
-  await env.DB.batch([
-    env.DB.prepare("delete from sessions"),
-    env.DB.prepare("delete from identities"),
-    env.DB.prepare("delete from members"),
-  ]);
+  await resetDatabase(env.DB);
 });
 
 test("an allowlisted person signs in and is recognised", async () => {

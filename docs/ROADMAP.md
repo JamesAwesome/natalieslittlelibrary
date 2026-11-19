@@ -7,22 +7,26 @@ start a step until the one before it has been tried for real.
 
 ## 0. Phone test (throwaway)
 
-Answer four questions before building anything:
+Done, apart from one item that has to wait for a deployed app. Results from
+the test on an iPhone (2026-11-17):
 
-- Does ISBN barcode scanning work in the browser on Natalie's iPhone and on an
-  Android phone?
-- How small can a printed QR label be and still scan in poor light?
-- Scan ten of Natalie's books: how many barcodes match the ISBN in her
-  StoryGraph export?
-- Does Google sign-in complete when a link is opened from the phone's camera,
-  and what happens inside another app's built-in browser (a link tapped in
-  Instagram or Messenger, a third-party scanner app)? Google refuses sign-in
-  in embedded browsers and shows its own error page
-  ([policy](https://developers.google.com/identity/protocols/oauth2/policies),
-  "Use secure browsers").
+- ISBN scanning works in the browser on iOS with a bundled decoder, at about
+  55 ms a frame. iOS has no built-in decoder.
+- Single frames are unreliable: one barcode gave four different numbers, all
+  passing the check digit. Pairing needs three matching frames and a title
+  confirmation.
+- Labels default to 1×1 inch, on a sheet chosen from a list of common sizes.
 
-Done when: all four have answers and a label size is chosen. The code is
-thrown away.
+Dropped: the label size sheet (James chose 1×1 inch) and the test of matching
+ten of Natalie's books against her StoryGraph ISBNs (James: "we don't need to
+scan her personal books").
+
+Still open: whether Google sign-in completes from inside another app's
+built-in browser (a link tapped in Instagram or Messenger, a third-party
+scanner app). Google refuses sign-in in embedded browsers
+([policy](https://developers.google.com/identity/protocols/oauth2/policies),
+"Use secure browsers"). This can only be tried after the app is deployed.
+The code is thrown away.
 
 ## 1. Skeleton
 
@@ -57,6 +61,16 @@ My collection, what I'm holding, other members' shelves. StoryGraph import.
 
 Done when: Natalie's ~240 books show in her collection and she can label them
 without typing.
+
+Notes carried in from step 0 and step 2:
+
+- How well StoryGraph ISBNs match real barcodes is unknown, so the import must
+  not depend on it. Keep the "is it this one?" and pick-from-unlabelled paths.
+- Shelf and collection views must not include label codes. A code is the proof
+  of having the book in hand, and `CopyView.code` would hand it to anyone
+  browsing a shelf.
+- Lookups for an import must be batched. Open Library asks clients not to send
+  hundreds of single-book requests.
 
 ## 4. Owner tools
 
