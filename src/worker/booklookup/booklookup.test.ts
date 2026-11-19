@@ -145,12 +145,75 @@ test("a cache table error does not stop the lookup", async () => {
   await expect(createBookLookup({ db: broken, sources: [a] }).lookup(ISBN)).resolves.toEqual(A);
 });
 
-test("a cache row that cannot be read is treated as a miss", async () => {
-  await env.DB.prepare("insert into book_lookups (isbn, title, authors, cover_url, source, fetched_at) values (?, ?, ?, null, 'x', 1)")
-    .bind(ISBN, "Old", "not json")
+async function insertRow(title: string, authors: string, cover: string | null): Promise<void> {
+  await env.DB.prepare("insert into book_lookups (isbn, title, authors, cover_url, source, fetched_at) values (?, ?, ?, ?, 'x', 1)")
+    .bind(ISBN, title, authors, cover)
     .run();
+}
+
+test("a cache row is cleaned on the way out, and no request is made", async () => {
+  await insertRow("y".repeat(400), '{"not":"an array"}', "https://evil.example/p.gif");
   const a = returns("a", A);
-  expect(await createBookLookup({ db: env.DB, sources: [a] }).lookup(ISBN)).toEqual(A);
+  const book = await createBookLookup({ db: env.DB, sources: [a] }).lookup(ISBN);
+  expect(book).toEqual({ isbn: ISBN, title: "y".repeat(300), authors: [], coverUrl: null });
+  expect(a.calls).toEqual([]);
+});
+
+test("a cache row whose authors are not JSON is read with no authors", async () => {
+  await insertRow("Old", "not json", null);
+  expect(await createBookLookup({ db: env.DB, sources: [returns("a", A)] }).lookup(ISBN)).toEqual({
+    isbn: ISBN, title: "Old", authors: [], coverUrl: null,
+  });
+});
+
+function hangingDb(hang: "read" | "write"): D1Database {
+  const never = () => new Promise<never>(() => {});
+  return {
+    prepare(sql: string) {
+      const isRead = sql.trim().toLowerCase().startsWith("select");
+      const stmt = {
+        bind: () => stmt,
+        first: () => (hang === "read" && isRead ? never() : Promise.resolve(null)),
+        run: () => (hang === "write" && !isRead ? never() : Promise.resolve({})),
+      };
+      return stmt;
+    },
+  } as unknown as D1Database;
+}
+
+test("a cache read that never settles is a miss: the source still answers", async () => {
+  const started = Date.now();
+  const book = await createBookLookup({ db: hangingDb("read"), sources: [returns("a", A)], timeoutMs: 20 }).lookup(ISBN);
+  expect(book).toEqual(A);
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
+test("a cache write that never settles is ignored: the found book is returned", async () => {
+  const started = Date.now();
+  const book = await createBookLookup({ db: hangingDb("write"), sources: [returns("a", A)], timeoutMs: 20 }).lookup(ISBN);
+  expect(book).toEqual(A);
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
+test("no timer is left pending after a lookup", async () => {
+  const set = vi.spyOn(globalThis, "setTimeout");
+  const cleared = vi.spyOn(globalThis, "clearTimeout");
+  const a = returns("a", A);
+  await createBookLookup({ db: env.DB, sources: [a], timeoutMs: 50 }).lookup(ISBN);
+  const ids = set.mock.results.map((r) => r.value);
+  expect(ids.length).toBeGreaterThan(0);
+  for (const id of ids) expect(cleared).toHaveBeenCalledWith(id);
+  await new Promise((r) => setTimeout(r, 80));
+  expect(a.signals[0].aborted).toBe(false);
+});
+
+test("a value that is not a string is null with no request", async () => {
+  const a = returns("a", A);
+  const lookup = createBookLookup({ db: env.DB, sources: [a] });
+  for (const raw of [undefined, null, 9798855427974, {}, ["9798855427974"]]) {
+    expect(await lookup.lookup(raw as unknown as string)).toBeNull();
+  }
+  expect(a.calls).toEqual([]);
 });
 
 test("an ISBN-10 is looked up and cached as its ISBN-13", async () => {

@@ -14,7 +14,9 @@ export function safeCoverUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   try {
     const u = new URL(raw);
-    return u.protocol === "https:" && u.hostname === COVER_HOST ? raw : null;
+    const ok = u.protocol === "https:" && u.hostname === COVER_HOST && !u.username && !u.password && !u.port;
+    // The parsed form, so `https:host/x` (no slashes) is stored as the absolute address a browser would not misread.
+    return ok ? u.href : null;
   } catch {
     return null;
   }
