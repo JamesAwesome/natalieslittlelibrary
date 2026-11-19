@@ -91,6 +91,13 @@ test("neither name nor given_name gives 'A reader', never part of the email", as
   }
 });
 
+test("a blank name or given_name falls through to the next fallback", async () => {
+  const a = await google(respond(200, { id_token: idToken({ ...good, name: "   ", given_name: "Nat" }) })).exchange("c", "v");
+  expect(a.name).toBe("Nat");
+  const b = await google(respond(200, { id_token: idToken({ ...good, name: "  ", given_name: " \t " }) })).exchange("c", "v");
+  expect(b.name).toBe("A reader");
+});
+
 test("a missing picture becomes null", async () => {
   const id = await google(respond(200, { id_token: idToken({ ...good, picture: undefined }) })).exchange("c", "v");
   expect(id.pictureUrl).toBeNull();

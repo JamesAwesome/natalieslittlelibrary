@@ -3,6 +3,7 @@ import { beforeEach, expect, test } from "vitest";
 import { createMembership, type Identity, type Membership, type MembershipConfig } from "./index";
 import { fakeProvider, signInAs } from "./testing";
 import { googleProvider } from "./index";
+import { cleanReturnTo, toPage } from "./membership";
 import type { Member } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
 
@@ -414,4 +415,38 @@ test("signInAs gives a cookie that identify accepts", async () => {
   const { member, cookie } = await signInAs(env.DB, natalie, { admins: natalie.email });
   expect(member).toMatchObject({ name: "Natalie", email: "natalie@example.com" });
   expect(await make().identify(req(cookie))).toEqual({ status: "member", member });
+});
+
+test("cleanReturnTo and toPage: direct guards", () => {
+  expect(cleanReturnTo("/.//evil.example//x")).toBe("/");
+  expect(toPage("//evil.example//x")).toBe("/");
+  expect(toPage("/.//evil.example", "failed")).toBe("/?refused=failed");
+});
+
+test.each(["//x", "/\\x", "https://evil.example/", "//evil.example//x", "/.//evil.example//x", "\\\\x"])(
+  "toPage(%j) resolves on-site and not protocol-relative", (hostile) => {
+    for (const refused of [undefined, "failed" as const]) {
+      const out = toPage(hostile, refused, "https://books.test");
+      const u = new URL(out, "https://books.test");
+      expect(u.origin).toBe("https://books.test");
+      expect(u.pathname.startsWith("//")).toBe(false);
+    }
+  });
+
+test.each(["/%61uth/login", "/%61%75th/x", "/%2e/%61uth", "/%E0%A4%A", "/%", "/a%zz"])(
+  "cleanReturnTo(%j) is refused", (bad) => {
+    expect(cleanReturnTo(bad)).toBe("/");
+  });
+
+test("cleanReturnTo: a double-encoded /auth is a literal after one decode, so it is kept as given", () => {
+  expect(cleanReturnTo("/%2561uth/login")).toBe("/%2561uth/login");
+  expect(decodeURI("/%2561uth/login").startsWith("/auth")).toBe(false);
+});
+
+test("a bad state sends the refusal to /, even when the login had a returnTo", async () => {
+  const m = make();
+  const begin = await m.beginLogin("/b/abc");
+  const res = await m.completeLogin(new Request("https://books.test/auth/callback?code=x&state=wrong",
+    { headers: { cookie: cookies(begin) } }));
+  expect(res.headers.get("location")).toBe("/?refused=failed");
 });
