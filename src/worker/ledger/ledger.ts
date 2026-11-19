@@ -1,4 +1,5 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
+import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
 import { availableActions } from "./rules";
@@ -47,7 +48,8 @@ function person(r: PersonRow): Person {
 function cleanText(s: unknown, max: number): string | null {
   if (typeof s !== "string") return null;
   const t = s.trim();
-  return t.length >= 1 && t.length <= max ? t : null;
+  const length = Array.from(t).length;
+  return length >= 1 && length <= max ? t : null;
 }
 
 export function createLedger(deps: LedgerDeps): Ledger {
@@ -148,15 +150,17 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   async function add(owner: Member, input: AddInput): Promise<CopyView | Rejection> {
+    if (typeof input !== "object" || input === null || typeof input.code !== "string") return { rejected: "invalid" };
     const code = parseLabelLink(input.code);
-    const form = input.book;
+    const form = input.book as unknown as Record<string, unknown> | null;
+    if (typeof form !== "object" || form === null) return { rejected: "invalid" };
     let isbn: string | null = null;
     let title = "";
     let authors: string[] = [];
-    if (form && "isbn" in form) {
+    if ("isbn" in form) {
       isbn = typeof form.isbn === "string" ? toIsbn13(form.isbn) : null;
       if (isbn === null) return { rejected: "invalid" };
-    } else if (form && "title" in form) {
+    } else if ("title" in form) {
       const t = cleanText(form.title, MAX_TITLE);
       if (t === null || !Array.isArray(form.authors) || form.authors.length > MAX_AUTHORS) return { rejected: "invalid" };
       const cleaned = form.authors.map((a) => cleanText(a, MAX_AUTHOR));
@@ -176,9 +180,14 @@ export function createLedger(deps: LedgerDeps): Ledger {
     if (isbn !== null) {
       const existing = await db.prepare("select 1 as found from books where isbn = ?").bind(isbn).first();
       if (!existing) {
-        const found = await lookup(isbn);
-        if (!found) return { rejected: "book-not-found" };
-        newBook = found;
+        let facts: ReturnType<typeof cleanBookFacts> = null;
+        try {
+          facts = cleanBookFacts(await lookup(isbn));
+        } catch {
+          // A lookup that fails is the same as a book it cannot find.
+        }
+        if (!facts) return { rejected: "book-not-found" };
+        newBook = { isbn, ...facts };
       }
     } else {
       newBook = { isbn: null, title, authors, coverUrl: null };

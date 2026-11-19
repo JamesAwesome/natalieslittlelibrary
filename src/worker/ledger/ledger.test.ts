@@ -88,6 +88,20 @@ test("random bytes at or above 248 are discarded, never mapped", async () => {
   expect(calls.length).toBeGreaterThan(1);
 });
 
+test("a byte of exactly 248 is discarded and 247 is kept", async () => {
+  const calls: number[][] = [];
+  const randomBytes = (n: number) => {
+    const b = new Uint8Array(n);
+    if (calls.length === 0) b.fill(248, 0, 8).fill(247, 8);
+    calls.push([...b]);
+    return b;
+  };
+  const { ledger } = make({ randomBytes });
+  const [l] = ok(await ledger.mintLabels(natalie, 1));
+  expect(l.code).toBe("zzzzzzzz22"); // 247 % 31 = 30 = "z"; 248 would have given "2"
+  expect(calls).toHaveLength(2);
+});
+
 test("adding by ISBN makes a copy owned and held by the adder", async () => {
   const { ledger } = make();
   const [code] = await mint(ledger);
@@ -100,7 +114,12 @@ test("adding by ISBN makes a copy owned and held by the adder", async () => {
     actions: [],
   });
   expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
-  expect(copy.history.every((h) => h.actor.id === natalie.id && h.at === 1000)).toBe(true);
+  expect(copy.history[0]).toEqual({
+    at: 1000, type: "labelled", actor: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
+  });
+  expect(copy.history[1]).toEqual({
+    at: 1000, type: "added", actor: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
+  });
   expect(asCopy(await ledger.view(code, sam)).actions).toEqual(["claim"]);
 });
 
@@ -135,7 +154,7 @@ test("the label can be given as a link in capitals", async () => {
 test.each([
   ["a label that was never minted", "label-unknown"],
   ["a label already on a book", "label-in-use"],
-])("adding to %s is refused", async (which, reason) => {
+])("adding to %s is refused", async (_which, reason) => {
   const { ledger } = make();
   const [code] = await mint(ledger);
   ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
@@ -143,7 +162,6 @@ test.each([
   expect(await ledger.add(sam, { code: target, book: { isbn: EMMA.isbn! } })).toEqual({ rejected: reason });
   expect(await count("copies")).toBe(1);
   expect(await count("events")).toBe(2);
-  expect(which).toBeTruthy();
 });
 
 test("a code that is not a label is label-unknown", async () => {
@@ -289,4 +307,79 @@ test("no view contains an email address", async () => {
   expect(JSON.stringify(added)).not.toContain("@");
   expect(JSON.stringify(await ledger.view(code, sam))).not.toContain("@");
   expect(JSON.stringify(await ledger.view(code, null))).not.toContain("@");
+});
+
+const lookupReturning = (v: unknown) => vi.fn(async () => v as BookInfo | null);
+
+async function addWith(v: unknown) {
+  const { ledger } = make({ lookup: lookupReturning(v) });
+  const [code] = await mint(ledger);
+  return { ledger, code, result: await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }) };
+}
+
+test("a bad cover from the lookup is stored as null", async () => {
+  const { result } = await addWith({ ...DUNE, coverUrl: "javascript:alert(1)" });
+  expect(ok(result).book.coverUrl).toBeNull();
+  expect((await env.DB.prepare("select cover_url from books").first<{ cover_url: string | null }>())!.cover_url).toBeNull();
+});
+
+test("a 5000-character title from the lookup is stored cut to 300", async () => {
+  const { result } = await addWith({ ...DUNE, title: "x".repeat(5000) });
+  expect(ok(result).book.title).toHaveLength(300);
+  expect((await env.DB.prepare("select title from books").first<{ title: string }>())!.title).toHaveLength(300);
+});
+
+test("undefined authors from the lookup are stored as an empty list", async () => {
+  const { result } = await addWith({ isbn: DUNE.isbn, title: "Dune", coverUrl: null });
+  expect(ok(result).book.authors).toEqual([]);
+});
+
+test.each([[{ isbn: DUNE.isbn, authors: ["A"], coverUrl: null }], [{ title: "  " }], [undefined]])(
+  "a lookup returning %j is book-not-found and writes nothing", async (v) => {
+    const { ledger, code, result } = await addWith(v);
+    expect(result).toEqual({ rejected: "book-not-found" });
+    for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+    expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+  });
+
+test("a lookup that throws is book-not-found", async () => {
+  const { ledger } = make({ lookup: async () => { throw new Error("down"); } });
+  const [code] = await mint(ledger);
+  expect(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "book-not-found" });
+  expect(await count("books")).toBe(0);
+});
+
+test("the book is stored under the requested ISBN even when the lookup says another", async () => {
+  const { result } = await addWith({ ...DUNE, isbn: "9780141439587" });
+  expect(ok(result).book.isbn).toBe(DUNE.isbn);
+  expect((await env.DB.prepare("select isbn from books").first<{ isbn: string }>())!.isbn).toBe(DUNE.isbn);
+});
+
+test("titles and authors are counted in characters, not UTF-16 units", async () => {
+  const { ledger } = make();
+  const [a, b] = await mint(ledger, 2);
+  ok(await ledger.add(natalie, { code: a, book: { title: "📚".repeat(300), authors: ["📚".repeat(200)] } }));
+  expect(await ledger.add(natalie, { code: b, book: { title: "📚".repeat(301), authors: [] } })).toEqual({ rejected: "invalid" });
+  expect(await ledger.add(natalie, { code: b, book: { title: "T", authors: ["📚".repeat(201)] } })).toEqual({ rejected: "invalid" });
+});
+
+test.each([
+  ["code is not a string", { code: 5, book: { isbn: DUNE.isbn } }],
+  ["code is missing", { book: { isbn: DUNE.isbn } }],
+  ["book is missing", { code: "CODE" }],
+  ["book is null", { code: "CODE", book: null }],
+  ["book is a string", { code: "CODE", book: "Dune" }],
+  ["book has neither isbn nor title", { code: "CODE", book: {} }],
+  ["isbn is a number", { code: "CODE", book: { isbn: 9780441172719 } }],
+  ["title is a number", { code: "CODE", book: { title: 5, authors: [] } }],
+  ["authors is a string", { code: "CODE", book: { title: "T", authors: "A" } }],
+  ["authors is missing", { code: "CODE", book: { title: "T" } }],
+  ["an author is a number", { code: "CODE", book: { title: "T", authors: [5] } }],
+  ["input is null", null],
+])("add answers invalid, not a throw, when %s", async (_name, raw) => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  const input = raw && typeof raw === "object" && (raw as { code?: unknown }).code === "CODE" ? { ...raw, code } : raw;
+  expect(await ledger.add(natalie, input as never)).toEqual({ rejected: "invalid" });
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
 });
