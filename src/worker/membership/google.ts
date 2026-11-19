@@ -86,7 +86,8 @@ export function googleProvider(opts: {
         subject: c.sub,
         email: c.email,
         emailVerified: c.email_verified === true || c.email_verified === "true",
-        name: nonEmptyString(c.name) ? c.name : c.email.split("@")[0],
+        // Members see each other's names, never addresses: no part of the email is a fallback.
+        name: nonEmptyString(c.name) ? c.name : nonEmptyString(c.given_name) ? c.given_name : "A reader",
         pictureUrl: nonEmptyString(c.picture) ? c.picture : null,
       };
     },

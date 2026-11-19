@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, test } from "vitest";
 import { createMembership, type Identity, type Membership, type MembershipConfig } from "./index";
-import { fakeProvider } from "./testing";
+import { fakeProvider, signInAs } from "./testing";
 import { googleProvider } from "./index";
 import type { Member } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
@@ -325,4 +325,93 @@ test("logout still clears the cookie and answers 204 when the database fails", a
     new Request("https://books.test/auth/logout", { method: "POST", headers: { cookie: cookies(res) } }));
   expect(out.status).toBe(204);
   expect(out.headers.getSetCookie()).toEqual(["__Host-lib_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure"]);
+});
+
+const dotForms = ["/.//evil.example", "/..//evil.example", "/%2e//evil.example", "/.%2e//evil.example",
+  "/%2E%2E//evil.example", "/b/..//evil.example", "/./auth/login", "/b/../auth/login", "/%2e/auth/login"];
+
+function staysOnSite(location: string) {
+  const u = new URL(location, "https://books.test");
+  expect(u.origin).toBe("https://books.test");
+  expect(u.pathname.startsWith("//")).toBe(false);
+  expect(u.pathname.startsWith("/auth")).toBe(false);
+}
+
+const stranger: Identity = { ...natalie, subject: "g-2", email: "stranger@example.com" };
+
+test.each([...badReturnTos, ...dotForms])("returnTo %s: the success redirect stays on the site", async (bad) => {
+  staysOnSite((await signIn(make(), bad)).headers.get("location")!);
+});
+
+test.each([...badReturnTos, ...dotForms])("returnTo %s: the refusal redirect stays on the site", async (bad) => {
+  const res = await signIn(make({ provider: fakeProvider(stranger) }), bad);
+  const location = res.headers.get("location")!;
+  staysOnSite(location);
+  expect(new URL(location, "https://books.test").searchParams.get("refused")).toBe("not-invited");
+});
+
+test.each([
+  ["/b/abc", "/b/abc?refused=not-invited"],
+  ["/b/abc?x=1", "/b/abc?x=1&refused=not-invited"],
+  ["/b/abc?refused=failed", "/b/abc?refused=not-invited"],
+  ["/b/abc#frag", "/b/abc?refused=not-invited"],
+  [null, "/?refused=not-invited"],
+])("a refusal after returnTo %s lands on %s", async (returnTo, expected) => {
+  const res = await signIn(make({ provider: fakeProvider(stranger) }), returnTo);
+  expect(res.headers.get("location")).toBe(expected);
+});
+
+test("a login cookie holding a dot-segment returnTo still cannot send anyone off-site", async () => {
+  for (const provider of [fakeProvider(natalie), fakeProvider(stranger)]) {
+    const m = make({ provider });
+    const begin = await m.beginLogin(null);
+    const [name, value] = cookies(begin).split("=");
+    const [state, verifier] = value.split(".");
+    for (const evil of dotForms) {
+      const encoded = btoa(evil).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const res = await m.completeLogin(new Request(`https://books.test/auth/callback?code=x&state=${state}`,
+        { headers: { cookie: `${name}=${state}.${verifier}.${encoded}` } }));
+      staysOnSite(res.headers.get("location")!);
+    }
+  }
+});
+
+function req(cookie?: string): Request {
+  return new Request("https://books.test/", cookie ? { headers: { cookie } } : {});
+}
+
+test("identify: a valid session is a member", async () => {
+  const m = make();
+  const res = await signIn(m);
+  expect(await m.identify(req(cookies(res)))).toMatchObject({ status: "member",
+    member: { name: "Natalie", email: "natalie@example.com", isAdmin: true } });
+});
+
+test.each(["no cookie", "a malformed token", "an unknown token", "an expired session", "a removed member"])(
+  "identify: %s is signed-out", async (kind) => {
+    let t = 0;
+    const m = make({ now: () => t });
+    const res = await signIn(m);
+    let cookie: string | undefined;
+    if (kind === "a malformed token") cookie = "__Host-lib_session=short";
+    else if (kind === "an unknown token") cookie = `__Host-lib_session=${"A".repeat(43)}`;
+    else if (kind === "an expired session") { t = 91 * 86_400_000; cookie = cookies(res); }
+    else if (kind === "a removed member") {
+      await env.DB.prepare("update members set removed_at = 1").run();
+      cookie = cookies(res);
+    }
+    expect(await m.identify(req(cookie))).toEqual({ status: "signed-out" });
+  });
+
+test("identify: a database that throws is unavailable, and currentMember is still null", async () => {
+  const res = await signIn(make());
+  const broken = make({ db: { prepare() { throw new Error("db down"); } } as unknown as D1Database });
+  expect(await broken.identify(req(cookies(res)))).toEqual({ status: "unavailable" });
+  expect(await broken.currentMember(req(cookies(res)))).toBeNull();
+});
+
+test("signInAs gives a cookie that identify accepts", async () => {
+  const { member, cookie } = await signInAs(env.DB, natalie, { admins: natalie.email });
+  expect(member).toMatchObject({ name: "Natalie", email: "natalie@example.com" });
+  expect(await make().identify(req(cookie))).toEqual({ status: "member", member });
 });

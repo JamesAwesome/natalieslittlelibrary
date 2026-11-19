@@ -19,7 +19,10 @@ export interface IdentityProvider {
 
 export type MembershipConfig = { siteUrl: string; allowlist: string; admins: string }; // comma-separated emails
 
+export type Identified = { status: "member"; member: Member } | { status: "signed-out" } | { status: "unavailable" };
+
 export interface Membership {
+  identify(request: Request): Promise<Identified>;
   currentMember(request: Request): Promise<Member | null>;
   beginLogin(returnTo: string | null): Promise<Response>;
   completeLogin(request: Request): Promise<Response>;
@@ -70,11 +73,26 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+const DUMMY_BASE = "https://returnto.invalid";
+
+// Rules on the text as given, then on the path a browser would actually reach.
+// The URL parser removes dot segments and decodes %2e, so "/.//evil.example"
+// becomes "//evil.example": only the normalised form is safe to judge.
 function cleanReturnTo(raw: string | null): string {
   if (raw === null || raw.length > MAX_RETURN_TO) return "/";
-  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/auth")) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   if (raw.includes("\\") || /[\x00-\x1f\x7f]/.test(raw)) return "/";
-  return raw;
+  let url: URL;
+  try {
+    url = new URL(raw, DUMMY_BASE);
+  } catch {
+    return "/";
+  }
+  if (url.origin !== DUMMY_BASE) return "/";
+  const path = url.pathname + url.search; // no fragment
+  if (!path.startsWith("/") || path.startsWith("//") || path.startsWith("/auth")) return "/";
+  if (path.length > MAX_RETURN_TO) return "/";
+  return path;
 }
 
 function readCookie(request: Request, name: string): string | null {
@@ -118,12 +136,28 @@ export function createMembership(deps: {
     return new Response(null, { status: 302, headers });
   }
 
-  const refuse = (reason: RefusalReason) => redirect(`/?refused=${reason}`, [clearLogin()]);
+  // The one place a redirect to a page on this site is built. It is checked after
+  // it is built, as a browser would resolve it: a location that leaves the site,
+  // or reads as protocol-relative, becomes "/".
+  const siteOrigin = new URL(deps.config.siteUrl).origin;
+  function toPage(returnTo: string, refused?: RefusalReason): string {
+    const url = new URL(returnTo, siteOrigin);
+    if (refused !== undefined) url.searchParams.set("refused", refused);
+    const location = url.pathname + url.search;
+    const resolved = new URL(location, siteOrigin);
+    if (resolved.origin !== siteOrigin || resolved.pathname.startsWith("//")) {
+      return refused === undefined ? "/" : `/?refused=${refused}`;
+    }
+    return location;
+  }
 
-  async function currentMember(request: Request): Promise<Member | null> {
+  const refuse = (reason: RefusalReason, returnTo: string = "/") =>
+    redirect(toPage(returnTo, reason), [clearLogin()]);
+
+  async function identify(request: Request): Promise<Identified> {
     try {
       const token = readCookie(request, SESSION_COOKIE);
-      if (token === null || !TOKEN_SHAPE.test(token)) return null;
+      if (token === null || !TOKEN_SHAPE.test(token)) return { status: "signed-out" };
       const rows = await db
         .select({
           id: members.id,
@@ -142,11 +176,16 @@ export function createMembership(deps: {
         )
         .limit(1);
       const row = rows[0];
-      if (!row) return null;
-      return { ...row, isAdmin: admins.has(row.email.trim().toLowerCase()) };
+      if (!row) return { status: "signed-out" };
+      return { status: "member", member: { ...row, isAdmin: admins.has(row.email.trim().toLowerCase()) } };
     } catch {
-      return null;
+      return { status: "unavailable" };
     }
+  }
+
+  async function currentMember(request: Request): Promise<Member | null> {
+    const found = await identify(request);
+    return found.status === "member" ? found.member : null;
   }
 
   async function beginLogin(returnTo: string | null): Promise<Response> {
@@ -205,6 +244,7 @@ export function createMembership(deps: {
   }
 
   async function completeLogin(request: Request): Promise<Response> {
+    let returnTo: string | undefined; // unknown until the login cookie and state have checked out
     try {
       const cookie = readCookie(request, LOGIN_COOKIE);
       const parts = cookie?.split(".") ?? [];
@@ -216,7 +256,7 @@ export function createMembership(deps: {
       if (!state || !verifier || queryState === null || !safeEqual(state, queryState)) throw new Refusal("failed");
       if (!code) throw new Refusal("failed");
 
-      const returnTo = cleanReturnTo(new TextDecoder().decode(fromBase64Url(encodedReturn)));
+      returnTo = cleanReturnTo(new TextDecoder().decode(fromBase64Url(encodedReturn)));
       const identity = await deps.provider.exchange(code, verifier);
       let token: string;
       try {
@@ -225,9 +265,9 @@ export function createMembership(deps: {
         if (e instanceof Refusal) throw e;
         throw new Refusal("unavailable"); // admit fails otherwise only on the database
       }
-      return redirect(returnTo, [setCookie(SESSION_COOKIE, token, "/", SESSION_MS / 1000), clearLogin()]);
+      return redirect(toPage(returnTo), [setCookie(SESSION_COOKIE, token, "/", SESSION_MS / 1000), clearLogin()]);
     } catch (e) {
-      return refuse(e instanceof Refusal ? e.reason : "failed");
+      return refuse(e instanceof Refusal ? e.reason : "failed", returnTo);
     }
   }
 
@@ -243,5 +283,5 @@ export function createMembership(deps: {
     return new Response(null, { status: 204, headers: { "set-cookie": clearSession() } });
   }
 
-  return { currentMember, beginLogin, completeLogin, logout };
+  return { identify, currentMember, beginLogin, completeLogin, logout };
 }

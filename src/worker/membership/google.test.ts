@@ -73,9 +73,22 @@ test("the token call sends the code, verifier, and secret as a form post", async
   expect(new Headers(calls[0].init?.headers).get("content-type")).toContain("application/x-www-form-urlencoded");
 });
 
-test("a missing name falls back to the email's local part", async () => {
-  const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined }) })).exchange("c", "v");
-  expect(id.name).toBe("natalie");
+test("a present name is used", async () => {
+  const id = await google(respond(200, { id_token: idToken({ ...good, name: "Natalie Q", given_name: "Nat" }) })).exchange("c", "v");
+  expect(id.name).toBe("Natalie Q");
+});
+
+test("no name falls back to given_name", async () => {
+  const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined, given_name: "Nat" }) })).exchange("c", "v");
+  expect(id.name).toBe("Nat");
+});
+
+test("neither name nor given_name gives 'A reader', never part of the email", async () => {
+  for (const given_name of [undefined, ""]) {
+    const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined, given_name }) })).exchange("c", "v");
+    expect(id.name).toBe("A reader");
+    expect(id.name).not.toContain("natalie");
+  }
 });
 
 test("a missing picture becomes null", async () => {
