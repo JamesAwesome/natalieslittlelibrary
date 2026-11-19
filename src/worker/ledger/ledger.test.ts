@@ -539,7 +539,8 @@ test("claim on an unknown label and return on an unknown copy are not-found", as
 });
 
 test("history is never rewritten", async () => {
-  const { ledger } = make();
+  let t = 1000;
+  const { ledger } = make({ now: () => (t += 10) });
   const { code, copyId } = await homeCopy(ledger);
   const rows: Record<string, unknown>[][] = [await eventRows()];
   ok(await ledger.act(sam, { type: "claim", code }));
@@ -549,8 +550,27 @@ test("history is never rewritten", async () => {
   ok(await ledger.act(natalie, { type: "return", copyId }));
   rows.push(await eventRows());
   expect(rows.map((r) => r.length)).toEqual([2, 3, 4, 5]);
+  expect(new Set(rows[3].slice(2).map((r) => r.at)).size).toBe(3); // the clock advanced, so a rewritten `at` would show
   const final = rows[3];
   for (const before of rows.slice(0, 3)) expect(final.slice(0, before.length)).toEqual(before);
+});
+
+test("no code path updates or deletes an events row", async () => {
+  await env.DB.batch([
+    env.DB.prepare("create trigger events_no_update before update on events begin select raise(abort, 'events are append-only'); end"),
+    env.DB.prepare("create trigger events_no_delete before delete on events begin select raise(abort, 'events are append-only'); end"),
+  ]);
+  try {
+    const { ledger } = make();
+    const { code, copyId } = await homeCopy(ledger);
+    ok(await ledger.act(sam, { type: "claim", code }));
+    ok(await ledger.act(kim, { type: "claim", code }));
+    ok(await ledger.act(natalie, { type: "return", copyId }));
+    expect(await ledger.act(natalie, { type: "return", copyId })).toEqual({ rejected: "not-allowed" });
+    expect(await count("events")).toBe(5);
+  } finally {
+    await env.DB.batch([env.DB.prepare("drop trigger events_no_update"), env.DB.prepare("drop trigger events_no_delete")]);
+  }
 });
 
 test("the acting viewer's actions reflect the new state", async () => {
@@ -562,19 +582,101 @@ test("the acting viewer's actions reflect the new state", async () => {
   expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual([]);
 });
 
-test("a claim made stale by a change of holder after the read records nothing", async () => {
-  // State changes between the read and the write: a stale decision must not be written.
-  const { code } = await homeCopy(make().ledger);
-  const racing = {
+// A database that runs `beforeBatch` once, just before the first batch: a change that lands between act's read and its write.
+function racing(beforeBatch: () => Promise<unknown>): D1Database {
+  let fired = false;
+  return {
     prepare: (q: string) => env.DB.prepare(q),
     batch: async (stmts: D1PreparedStatement[]) => {
-      await env.DB.prepare("update copies set holder_member_id = ?").bind(kim.id).run();
+      if (!fired) {
+        fired = true;
+        await beforeBatch();
+      }
       return env.DB.batch(stmts);
     },
   } as unknown as D1Database;
-  expect(await make({ db: racing }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+}
+
+const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();
+const holders = async () =>
+  (await env.DB.prepare("select id, owner_id, holder_member_id from copies order by id").all()).results;
+
+test("a claim made stale by a change of holder after the read records nothing", async () => {
+  const { code } = await homeCopy(make().ledger);
+  const db = racing(run("update copies set holder_member_id = ?", kim.id));
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
   expect(await count("events")).toBe(2);
   expect((await env.DB.prepare("select holder_member_id as h from copies").first<{ h: string }>())!.h).toBe(kim.id);
+});
+
+test("a claim made stale by a change of owner after the read records nothing", async () => {
+  const { code } = await homeCopy(make().ledger);
+  const db = racing(run("update copies set owner_id = ?", kim.id));
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+  expect((await holders())[0]).toMatchObject({ owner_id: kim.id, holder_member_id: natalie.id });
+});
+
+test("a return made stale by a change of owner after the read records nothing", async () => {
+  const setup = make().ledger;
+  const { code, copyId } = await homeCopy(setup);
+  ok(await setup.act(sam, { type: "claim", code }));
+  const db = racing(run("update copies set owner_id = ?", kim.id));
+  expect(await make({ db }).ledger.act(natalie, { type: "return", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(3);
+  expect((await holders())[0]).toMatchObject({ owner_id: kim.id, holder_member_id: sam.id });
+});
+
+test("a claim made stale by the label being unbound after the read records nothing", async () => {
+  const { code } = await homeCopy(make().ledger);
+  const db = racing(run("update labels set copy_id = null where code = ?", code));
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+  expect((await holders())[0]).toMatchObject({ holder_member_id: natalie.id });
+});
+
+test("a claim made stale by the label moving to another copy after the read records nothing", async () => {
+  const setup = make().ledger;
+  const first = await homeCopy(setup);
+  const second = await homeCopy(setup);
+  const before = await holders();
+  const db = racing(async () => {
+    await env.DB.batch([
+      env.DB.prepare("update labels set copy_id = null where code = ?").bind(second.code),
+      env.DB.prepare("update labels set copy_id = ? where code = ?").bind(second.copyId, first.code),
+    ]);
+  });
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code: first.code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(4);
+  expect(await holders()).toEqual(before);
+});
+
+// A db that, just before its first batch, lets Kim claim the copy: another person's action landing mid-act.
+function kimClaimsBeforeFirstBatch(code: string): D1Database {
+  return racing(async () => {
+    ok(await make().ledger.act(kim, { type: "claim", code }));
+  });
+}
+
+test("a returned view agrees with itself when another claim lands after the write", async () => {
+  const { code } = await homeCopy(make().ledger);
+  // act's own write is the first batch; the claim lands before its second (the view's read).
+  let batches = 0;
+  const inner = kimClaimsBeforeFirstBatch(code);
+  const db = {
+    prepare: (q: string) => env.DB.prepare(q),
+    batch: (stmts: D1PreparedStatement[]) => (++batches === 1 ? env.DB.batch(stmts) : inner.batch(stmts)),
+  } as unknown as D1Database;
+  const copy = ok(await make({ db }).ledger.act(sam, { type: "claim", code }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: copy.history[0].actor.id } });
+  expect(copy.history[0].type).toBe("claimed");
+});
+
+test("a view agrees with itself when another claim lands during the read", async () => {
+  const { code } = await homeCopy(make().ledger);
+  const db = kimClaimsBeforeFirstBatch(code);
+  const copy = asCopy(await make({ db }).ledger.view(code, sam));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: copy.history[0].actor.id } });
 });
 
 test.each([
