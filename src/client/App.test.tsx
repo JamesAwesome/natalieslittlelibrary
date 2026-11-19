@@ -60,17 +60,17 @@ test("refused is shown, then removed from the address bar", async () => {
 });
 
 test("returnTo drops refused and keeps other parameters", async () => {
-  at("/b/abc?x=1&refused=removed&y=2");
+  at("/?x=1&refused=removed&y=2");
   render(<App />);
   const link = await screen.findByRole("link", { name: "Sign in with Google" });
-  expect(link).toHaveAttribute("href", `/auth/login?returnTo=${encodeURIComponent("/b/abc?x=1&y=2")}`);
+  expect(link).toHaveAttribute("href", `/auth/login?returnTo=${encodeURIComponent("/?x=1&y=2")}`);
 });
 
 test("returnTo is the bare path when refused was the only parameter", async () => {
-  at("/b/abc?refused=removed");
+  at("/?refused=removed");
   render(<App />);
   const link = await screen.findByRole("link", { name: "Sign in with Google" });
-  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fb%2Fabc");
+  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2F");
 });
 
 test("sign out reloads only after the API call resolves", async () => {
@@ -98,8 +98,7 @@ test("a failed sign-out says so, stays signed in, and does not reload", async ()
 test("a path starting with // still renders and loads the member once", async () => {
   at("//b/abc");
   render(<App />);
-  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute(
-    "href", `/auth/login?returnTo=${encodeURIComponent("//b/abc")}`);
+  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
   expect(api.getMe).toHaveBeenCalledOnce();
 });
 
@@ -114,7 +113,7 @@ test("removing refused keeps the fragment", async () => {
 
 test("replaceState is not called when there is no refused parameter", async () => {
   const replace = vi.spyOn(history, "replaceState");
-  at("/b/abc?x=1");
+  at("/?x=1");
   render(<App />);
   await screen.findByRole("link", { name: "Sign in with Google" });
   expect(replace).not.toHaveBeenCalled();
@@ -125,6 +124,65 @@ test("if replaceState throws the page still renders the refusal and sign-in link
   at("//b/abc?refused=failed");
   render(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in didn't finish");
-  expect(screen.getByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
   expect(api.getMe).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ["not-invited", "This library is invite-only right now. Ask Natalie to add you."],
+  ["removed", "This account no longer has access."],
+  ["unverified", "Google hasn't verified that email address yet."],
+  ["failed", "Sign-in didn't finish. Please try again."],
+  ["unavailable", "The library is having trouble right now. Please try again later."],
+  ["something-else", "Sign-in didn't finish. Please try again."],
+])("refusal %s is explained", async (reason, text) => {
+  at(`/?refused=${reason}`);
+  render(<App />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(text);
+  expect(screen.getByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a refusal shows above the screen on another route", async () => {
+  at("/b/abc?refused=removed");
+  render(<App />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("This account no longer has access.");
+  expect(screen.getByText("We couldn't find that page.")).toBeInTheDocument();
+});
+
+test("no refusal alert when not refused", async () => {
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a 503 from getMe shows the trouble message and Try again, with no sign-in link", async () => {
+  const { ApiError } = await vi.importActual<typeof import("./api")>("./api");
+  vi.mocked(api.getMe).mockRejectedValue(new ApiError(503, "unavailable"));
+  render(<App />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The library is having trouble right now. Please try again later.");
+  expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+test("a restored page reloads; a fresh one does not", async () => {
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }));
+  expect(reload).not.toHaveBeenCalled();
+  window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+test("an unknown path renders the not-found screen", async () => {
+  at("/nope");
+  render(<App />);
+  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
+});
+
+test("signed in, the home screen links to pairing and labels", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
 });
