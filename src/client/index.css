@@ -58,3 +58,61 @@ a.button {
   background: var(--alert-bg);
   color: var(--alert-fg);
 }
+
+.book {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+}
+
+.book h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.authors {
+  margin: 4px 0 0;
+}
+
+.cover {
+  flex: none;
+  width: 96px;
+  height: 144px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--alert-bg);
+}
+
+.history {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history li {
+  padding: 8px 0;
+  border-top: 1px solid var(--alert-bg);
+}
+
+.when {
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button + button {
+  margin-left: 8px;
+}
+
+input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+}

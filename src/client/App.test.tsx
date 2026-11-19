@@ -100,10 +100,24 @@ test("a path starting with // still renders and loads the member once", async ()
   render(<App />);
   expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
   expect(api.getMe).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
+  expect(api.getLabel).not.toHaveBeenCalled();
+});
+
+test("on a label page, signed out, the sign-in link returns to that page", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue({
+    kind: "public", code: "abc", book: { title: "Dune", authors: [], coverUrl: null },
+  });
+  at("/b/abc");
+  render(<App />);
+  const link = await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fb%2Fabc");
+  expect(api.getLabel).toHaveBeenCalledWith("abc");
 });
 
 test("removing refused keeps the fragment", async () => {
   const replace = vi.spyOn(history, "replaceState");
+  vi.mocked(api.getLabel).mockResolvedValue({ kind: "unknown" });
   at("/b/abc?refused=failed#x");
   render(<App />);
   await screen.findByRole("alert");
@@ -143,10 +157,11 @@ test.each([
 });
 
 test("a refusal shows above the screen on another route", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue({ kind: "unknown" });
   at("/b/abc?refused=removed");
   render(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent("This account no longer has access.");
-  expect(screen.getByText("We couldn't find that page.")).toBeInTheDocument();
+  expect(await screen.findByText("This label isn't one of ours.")).toBeInTheDocument();
 });
 
 test("no refusal alert when not refused", async () => {

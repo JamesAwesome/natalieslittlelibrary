@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
+import { CopyPage } from "./screens/CopyPage";
 import { Home } from "./screens/Home";
 import { NotFound } from "./screens/NotFound";
 
@@ -91,6 +92,8 @@ export function App() {
           );
         }}
       />
+    ) : route.name === "copy" ? (
+      <CopyPage code={route.code} member={member} returnTo={returnTo} />
     ) : (
       <NotFound />
     );
