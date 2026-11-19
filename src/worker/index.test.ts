@@ -1,6 +1,8 @@
 import { env, exports } from "cloudflare:workers";
-import { expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { resetDatabase } from "../../test/reset";
+import app from "./index";
+import { signInAs } from "./membership/testing";
 
 test("health check answers", async () => {
   const res = await exports.default.fetch("https://books.test/api/health");
@@ -224,4 +226,171 @@ test("logout without a session answers 204, uncached", async () => {
   const res = await exports.default.fetch("https://books.test/auth/logout", { method: "POST" });
   expect(res.status).toBe(204);
   expect(res.headers.get("cache-control")).toBe("no-store");
+});
+
+// ---- routes ----
+
+const SITE = "https://books.test";
+const natalie = { provider: "google" as const, subject: "natalie", email: "natalie@example.com", name: "Natalie", pictureUrl: null, emailVerified: true };
+
+// An env whose DB binding fails as `how` says: every use, or only batch.
+function brokenEnv(how: "all" | "batch"): Env {
+  const real = env.DB;
+  const db = new Proxy(real, {
+    get(target, prop) {
+      if (how === "all" || prop === "batch") return () => { throw new Error("secret-detail: the database is on fire"); };
+      const v = Reflect.get(target, prop, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  return { ...env, DB: db } as Env;
+}
+const call = (path: string, init: RequestInit = {}, e: Env = env) => app.request(`${SITE}${path}`, init, e);
+const post = (path: string, cookie: string, body?: unknown, headers: Record<string, string> = {}) =>
+  call(path, { method: "POST", headers: { cookie, "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+beforeEach(() => resetDatabase(env.DB));
+
+test.each([
+  ["POST", "/api/labels"],
+  ["GET", "/api/books/lookup?isbn=9780306406157"],
+  ["POST", "/api/copies"],
+  ["POST", "/api/labels/t7k2q9xzmb/claim"],
+  ["POST", "/api/copies/x/return"],
+])("%s %s signed out is 401", async (method, path) => {
+  const res = await call(path, { method });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ rejected: "signed-out" });
+});
+
+test("a body that is not JSON, or not an object, is 400", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  for (const path of ["/api/labels", "/api/copies"]) {
+    for (const raw of ["not json", "[1]", "null", "7", ""]) {
+      const res = await call(path, { method: "POST", headers: { cookie }, body: raw });
+      expect(res.status, `${path} ${raw}`).toBe(400);
+      expect(await res.json()).toEqual({ rejected: "invalid" });
+    }
+  }
+});
+
+test("when the database is down, a member route is 503, not 401", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const e = brokenEnv("all");
+  const res = await call("/api/labels", { method: "POST", headers: { cookie }, body: JSON.stringify({ count: 1 }) }, e);
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({ rejected: "unavailable" });
+  const view = await call("/api/labels/t7k2q9xzmb", {}, e);
+  expect(view.status).toBe(503);
+});
+
+test("when the database is down, /api/me is 503 and /api/health still answers", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const e = brokenEnv("all");
+  const me = await call("/api/me", { headers: { cookie } }, e);
+  expect(me.status).toBe(503);
+  expect(await me.json()).toEqual({ rejected: "unavailable" });
+  const health = await call("/api/health", {}, e);
+  expect(health.status).toBe(200);
+});
+
+test("/api/me names the signed-in member", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const res = await call("/api/me", { headers: { cookie } });
+  expect(await res.json()).toMatchObject({ member: { name: "Natalie", email: "natalie@example.com" } });
+});
+
+test("an unexpected error is 503 with no detail", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const res = await call("/api/labels", { method: "POST", headers: { cookie }, body: JSON.stringify({ count: 1 }) }, brokenEnv("batch"));
+  expect(res.status).toBe(503);
+  const text = await res.text();
+  expect(JSON.parse(text)).toEqual({ rejected: "unavailable" });
+  expect(text).not.toContain("secret-detail");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+});
+
+test("every /api answer is no-store", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const answers = [
+    await call("/api/health"),
+    await call("/api/me"),
+    await call("/api/labels/t7k2q9xzmb"),
+    await call("/api/labels", { method: "POST" }),
+    await post("/api/labels", cookie, { count: 1 }),
+    await post("/api/labels", cookie, { count: 0 }),
+    await post("/api/labels", cookie, undefined, { origin: "https://evil.example" }),
+    await call("/api/books/lookup", { headers: { cookie } }),
+    await call("/api/nothing-here"),
+  ];
+  for (const res of answers) expect(res.headers.get("cache-control")).toBe("no-store");
+});
+
+test("a rejection becomes its status; a lookup that knows nothing is null", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  expect((await post("/api/labels", cookie, { count: 0 })).status).toBe(400);
+  expect((await post("/api/labels/t7k2q9xzmb/claim", cookie)).status).toBe(404);
+  expect((await post("/api/copies", cookie, { code: "t7k2q9xzmb", title: "T", authors: ["A"] })).status).toBe(404);
+  expect((await call("/api/books/lookup", { headers: { cookie } })).status).toBe(400);
+
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}", { status: 404 }));
+  try {
+    const res = await call("/api/books/lookup?isbn=9780306406157", { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ book: null });
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("a label in use is 409", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const minted = (await (await post("/api/labels", cookie, { count: 1 })).json()) as { labels: { code: string }[] };
+  const code = minted.labels[0].code;
+  const body = { code, title: "T", authors: ["A"] };
+  expect((await post("/api/copies", cookie, body)).status).toBe(200);
+  expect((await post("/api/copies", cookie, body)).status).toBe(409);
+});
+
+describe("same-site check", () => {
+  test.each<[Record<string, string>, number]>([
+    [{ origin: "https://evil.example" }, 403],
+    [{ origin: "https://other.waffle.haus" }, 403], // a sibling site
+    [{ origin: "null" }, 403],
+    [{ "sec-fetch-site": "same-site" }, 403],
+    [{ "sec-fetch-site": "cross-site" }, 403],
+    [{ origin: "https://books.test", "sec-fetch-site": "same-origin" }, 200],
+    [{}, 200], // not a browser
+  ])("a claim with headers %j is %s, and a refused one records nothing", async (headers, status) => {
+    const { cookie } = await signInAs(env.DB, natalie);
+    const james = await signInAs(env.DB, { ...natalie, subject: "james", email: "james@example.com", name: "James" });
+    const minted = (await (await post("/api/labels", cookie, { count: 1 })).json()) as { labels: { code: string }[] };
+    const code = minted.labels[0].code;
+    await post("/api/copies", cookie, { code, title: "T", authors: ["A"] });
+
+    const res = await post(`/api/labels/${code}/claim`, james.cookie, undefined, headers);
+    expect(res.status).toBe(status);
+    if (status === 403) expect(await res.json()).toEqual({ rejected: "not-allowed" });
+
+    const events = await env.DB.prepare("select type from events order by id").all<{ type: string }>();
+    expect(events.results.map((e) => e.type)).toEqual(status === 200 ? ["added", "labelled", "claimed"] : ["added", "labelled"]);
+  });
+
+  test("the same check covers POST /auth/logout", async () => {
+    const { cookie } = await signInAs(env.DB, natalie);
+    const refused = await call("/auth/logout", { method: "POST", headers: { cookie, origin: "https://evil.example" } });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ rejected: "not-allowed" });
+    const still = await call("/api/me", { headers: { cookie } });
+    expect(((await still.json()) as { member: unknown }).member).not.toBeNull();
+    const done = await call("/auth/logout", { method: "POST", headers: { cookie } });
+    expect(done.status).toBe(204);
+  });
+
+  test("a GET is never refused by the same-site check", async () => {
+    for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
+      const res = await call("/api/health", { headers });
+      expect(res.status).toBe(200);
+    }
+  });
 });
