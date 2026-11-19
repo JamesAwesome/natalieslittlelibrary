@@ -1,6 +1,9 @@
 // Dev-only page script for check.html.
 import QRCode from "qrcode";
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { bundledDecoder } from "./decoder";
+import { Scanner } from "./Scanner";
 
 const L = ["0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"];
 const G = ["0100111", "0110011", "0011011", "0100001", "0011101", "0111001", "0000101", "0010001", "0001001", "0010111"];
@@ -22,6 +25,20 @@ function drawEan13(canvas: HTMLCanvasElement, digits: string) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#000";
   [...bits].forEach((b, i) => { if (b === "1") ctx.fillRect(quiet + i * unit, 20, unit, height); });
+}
+
+// ?scanner=1 mounts the real Scanner (use with a fake camera) and records what it reports.
+if (new URLSearchParams(location.search).has("scanner")) {
+  const result = document.getElementById("result")!;
+  result.textContent = "RESULT scanner running";
+  createRoot(document.body.appendChild(document.createElement("div"))).render(
+    createElement(Scanner, {
+      want: "isbn",
+      onRead: (r) => { result.textContent = "RESULT read " + JSON.stringify(r); },
+      onProblem: (p) => { result.textContent = "RESULT problem " + p; },
+    }),
+  );
+  await new Promise(() => {});
 }
 
 const qrText = "https://books.example.test/b/t2xak7q2xz";

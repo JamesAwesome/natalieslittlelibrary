@@ -2,9 +2,11 @@
 // A non-empty frame that lacks a value restarts that value's count; an empty
 // frame neither advances nor restarts anything until `expireMs` has passed.
 // An accepted value is not accepted again until it has been absent `expireMs`.
+export const CONSENSUS_EXPIRE_MS = 1500;
+
 type Run = { count: number; last: number; delivered: boolean };
 
-export function createConsensus(need = 3, expireMs = 1500): { feed(values: string[], now: number): string | null } {
+export function createConsensus(need = 3, expireMs = CONSENSUS_EXPIRE_MS): { feed(values: string[], now: number): string | null } {
   const runs = new Map<string, Run>();
 
   function feed(values: string[], now: number): string | null {

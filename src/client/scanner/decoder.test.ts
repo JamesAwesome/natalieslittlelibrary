@@ -1,85 +1,56 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("qrcode", () => ({ default: { toCanvas: vi.fn(async () => undefined) } }));
-
-import { chooseDecoder, nativeDecoder } from "./decoder";
-
 type Read = { rawValue: string; format: string }[];
+const detect = vi.fn<(source: unknown) => Promise<Read>>();
 
-function installNative(opts: { formats?: string[]; detect?: () => Promise<Read> }) {
-  const formats = opts.formats ?? ["ean_13", "upc_a", "qr_code"];
-  class FakeDetector {
-    static getSupportedFormats = async () => formats;
-    detect = opts.detect ?? (async () => []);
-  }
-  vi.stubGlobal("BarcodeDetector", FakeDetector);
-}
+vi.mock("qrcode", () => ({ default: { toCanvas: vi.fn(async () => undefined) } }));
+vi.mock("barcode-detector/ponyfill", () => ({
+  prepareZXingModule: vi.fn(),
+  BarcodeDetector: class {
+    detect = (s: unknown) => detect(s);
+  },
+}));
+
+import { provenDecoder } from "./decoder";
 
 beforeEach(() => {
-  vi.unstubAllGlobals();
+  detect.mockReset();
 });
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllGlobals();
 });
 
-describe("nativeDecoder", () => {
-  test("is null when the browser has no BarcodeDetector", async () => {
-    vi.stubGlobal("BarcodeDetector", undefined);
-    expect(await nativeDecoder()).toBeNull();
+describe("provenDecoder", () => {
+  test("resolves with a decoder that reads the test code", async () => {
+    detect.mockResolvedValue([{ rawValue: "decoder-check", format: "qr_code" }]);
+    const d = await provenDecoder();
+    expect(await d.detect(document.createElement("canvas"))).toEqual([{ rawValue: "decoder-check", format: "qr_code" }]);
   });
 
-  test("is null when its formats lack ean_13", async () => {
-    installNative({ formats: ["qr_code"], detect: async () => [{ rawValue: "x", format: "qr_code" }] });
-    expect(await nativeDecoder()).toBeNull();
+  test("rejects when detect always rejects, as when the WebAssembly failed to load", async () => {
+    detect.mockRejectedValue(new Error("NotSupportedError"));
+    await expect(provenDecoder()).rejects.toThrow("NotSupportedError");
   });
 
-  test("is null when its formats lack qr_code", async () => {
-    installNative({ formats: ["ean_13"] });
-    expect(await nativeDecoder()).toBeNull();
+  test("rejects when it reads nothing from the test code", async () => {
+    detect.mockResolvedValue([]);
+    await expect(provenDecoder()).rejects.toThrow();
   });
 
-  test("is null when it never answers within 3 seconds", async () => {
+  test("rejects when it reads the wrong thing", async () => {
+    detect.mockResolvedValue([{ rawValue: "other", format: "qr_code" }]);
+    await expect(provenDecoder()).rejects.toThrow();
+  });
+
+  test("rejects when it does not answer within 15 seconds, and not before", async () => {
     vi.useFakeTimers();
-    installNative({ detect: () => new Promise(() => {}) });
-    const p = nativeDecoder();
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(await p).toBeNull();
-  });
-
-  test("is null when it throws", async () => {
-    installNative({ detect: async () => { throw new Error("boom"); } });
-    expect(await nativeDecoder()).toBeNull();
-  });
-
-  test("is null when it reads nothing from the test code", async () => {
-    installNative({ detect: async () => [] });
-    expect(await nativeDecoder()).toBeNull();
-  });
-
-  test("is null when it reads the wrong thing from the test code", async () => {
-    installNative({ detect: async () => [{ rawValue: "something else", format: "qr_code" }] });
-    expect(await nativeDecoder()).toBeNull();
-  });
-
-  test("is returned when it reads the test code", async () => {
-    installNative({ detect: async () => [{ rawValue: "native-check", format: "qr_code" }] });
-    const d = await nativeDecoder();
-    expect(d).not.toBeNull();
-    expect(await d!.detect(document.createElement("canvas"))).toEqual([{ rawValue: "native-check", format: "qr_code" }]);
-  });
-});
-
-describe("chooseDecoder", () => {
-  test("prefers a proven native decoder", async () => {
-    installNative({ detect: async () => [{ rawValue: "native-check", format: "qr_code" }] });
-    const d = await chooseDecoder();
-    expect(await d.detect(document.createElement("canvas"))).toEqual([{ rawValue: "native-check", format: "qr_code" }]);
-  });
-
-  test("falls back to the bundled decoder when the native one is not proven", async () => {
-    installNative({ detect: async () => [] });
-    const d = await chooseDecoder();
-    expect(typeof d.detect).toBe("function");
+    detect.mockImplementation(() => new Promise(() => {}));
+    let outcome = "pending";
+    const p = provenDecoder().then(() => (outcome = "ok"), () => (outcome = "failed"));
+    await vi.advanceTimersByTimeAsync(14900);
+    expect(outcome).toBe("pending");
+    await vi.advanceTimersByTimeAsync(200);
+    await p;
+    expect(outcome).toBe("failed");
   });
 });

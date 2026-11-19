@@ -1,21 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { classify, type Reading } from "./classify";
-import { createConsensus } from "./consensus";
-import { chooseDecoder } from "./decoder";
+import { CONSENSUS_EXPIRE_MS, createConsensus } from "./consensus";
+import { provenDecoder, type Decoder } from "./decoder";
+import { LimitError, withLimit } from "./limit";
 
 export type ScannerProblem = "no-camera" | "denied" | "decoder-failed";
 
 const FRAME_MS = 120;
 const DECODE_LIMIT_MS = 5000;
+const MAX_FAILED_DECODES = 10;
 const NOT_A_BOOK = "That barcode isn't a book's ISBN. Look for the one starting 978 or 979.";
-
-function withLimit<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const limit = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("decode timed out")), ms);
-  });
-  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
-}
 
 export function Scanner(props: {
   want: "isbn" | "label";
@@ -25,34 +19,61 @@ export function Scanner(props: {
   const videoRef = useRef<HTMLVideoElement>(null);
   const latest = useRef(props);
   latest.current = props;
+  const consensus = useRef(createConsensus());
+  // The barcode behind the on-screen message, and when it was last in view.
+  const notBook = useRef<{ value: string; lastSeen: number } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  // Switching what is wanted starts over: nothing counted or shown for the old want carries across.
   useEffect(() => {
-    let cancelled = false;
-    let reported = false;
+    consensus.current = createConsensus();
+    notBook.current = null;
+    setMessage(null);
+  }, [props.want]);
+
+  useEffect(() => {
+    let session = 0; // changes on every start and stop, so late results from an old one are ignored
+    let running = false;
+    let finished = false; // unmounted, or a problem was reported
     let stream: MediaStream | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let decoder: Promise<Decoder> | null = null;
 
     const stop = () => {
+      session++;
+      running = false;
       clearTimeout(timer);
       stream?.getTracks().forEach((t) => t.stop());
       stream = null;
     };
     const problem = (p: ScannerProblem) => {
       stop();
-      if (reported || cancelled) return;
-      reported = true;
+      if (finished) return;
+      finished = true;
       latest.current.onProblem(p);
     };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        cancelled = true;
-        stop();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
 
-    void (async () => {
+    function handle(result: ReturnType<typeof classify>, value: string, now: number) {
+      if (!result) return;
+      const { want, onRead } = latest.current;
+      if (result.kind === "not-a-book-barcode") {
+        if (want === "isbn") {
+          notBook.current = { value, lastSeen: now };
+          setMessage(NOT_A_BOOK);
+        }
+      } else if (result.kind === want) {
+        notBook.current = null;
+        setMessage(null);
+        onRead(result);
+      }
+    }
+
+    async function start() {
+      if (finished || running) return;
+      running = true;
+      const mine = ++session;
+      consensus.current = createConsensus();
+
       if (typeof navigator.mediaDevices?.getUserMedia !== "function") return problem("no-camera");
 
       let got: MediaStream;
@@ -62,18 +83,25 @@ export function Scanner(props: {
           audio: false,
         });
       } catch (e) {
-        return problem((e as DOMException)?.name === "NotFoundError" ? "no-camera" : "denied");
+        if (mine !== session) return;
+        const name = (e as DOMException | undefined)?.name;
+        return problem(name === "NotAllowedError" || name === "SecurityError" ? "denied" : "no-camera");
+      }
+      if (mine !== session) {
+        got.getTracks().forEach((t) => t.stop());
+        return;
       }
       stream = got;
-      if (cancelled) return stop();
 
-      let decoder: Awaited<ReturnType<typeof chooseDecoder>>;
+      let ready: Decoder;
       try {
-        decoder = await chooseDecoder();
+        decoder ??= provenDecoder();
+        ready = await decoder;
       } catch {
+        if (mine !== session) return;
         return problem("decoder-failed");
       }
-      if (cancelled) return stop();
+      if (mine !== session) return;
 
       const video = videoRef.current;
       if (!video) return stop();
@@ -83,42 +111,53 @@ export function Scanner(props: {
       } catch {
         // Autoplay can be refused; frames are skipped until the video has data.
       }
+      if (mine !== session) return;
 
-      const consensus = createConsensus();
+      let rejected = 0;
       const tick = async () => {
-        if (cancelled) return;
+        if (mine !== session) return;
         if (video.readyState >= 2) {
           try {
-            const found = await withLimit(decoder.detect(video), DECODE_LIMIT_MS);
-            if (cancelled) return;
-            // Consensus first, then classify: only an accepted value is looked at.
-            const accepted = consensus.feed(found.map((f) => f.rawValue), Date.now());
+            const found = await withLimit(ready.detect(video), DECODE_LIMIT_MS);
+            if (mine !== session) return;
+            rejected = 0;
+            const now = Date.now();
+            // Consensus first, then classify: every raw value counts, only an accepted one is looked at.
+            const accepted = consensus.current.feed(found.map((f) => f.rawValue), now);
             if (accepted !== null) {
               const format = found.find((f) => f.rawValue === accepted)?.format ?? "";
-              handle(classify(accepted, format));
+              handle(classify(accepted, format), accepted, now);
             }
-          } catch {
-            // A frame that errors or times out is skipped.
+            const shown = notBook.current;
+            if (shown) {
+              if (found.some((f) => f.rawValue === shown.value)) shown.lastSeen = now;
+              else if (now - shown.lastSeen >= CONSENSUS_EXPIRE_MS) {
+                notBook.current = null;
+                setMessage(null);
+              }
+            }
+          } catch (e) {
+            // A frame that times out is skipped. One that rejects is skipped too, but a decoder
+            // that keeps rejecting is broken (e.g. its WebAssembly never loaded).
+            if (mine !== session) return;
+            if (!(e instanceof LimitError) && ++rejected >= MAX_FAILED_DECODES) return problem("decoder-failed");
           }
         }
-        if (!cancelled) timer = setTimeout(() => void tick(), FRAME_MS);
+        if (mine === session) timer = setTimeout(() => void tick(), FRAME_MS);
       };
       timer = setTimeout(() => void tick(), FRAME_MS);
-    })();
-
-    function handle(result: ReturnType<typeof classify>) {
-      if (!result) return;
-      const { want, onRead } = latest.current;
-      if (result.kind === "not-a-book-barcode") {
-        if (want === "isbn") setMessage(NOT_A_BOOK);
-      } else if (result.kind === want) {
-        setMessage(null);
-        onRead(result);
-      }
     }
 
+    // Switching apps or locking the phone hides the page: release the camera, and take it again on return.
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+      else void start();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    void start();
+
     return () => {
-      cancelled = true;
+      finished = true;
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
