@@ -1,11 +1,11 @@
 const apps: [RegExp, string][] = [
   [/Instagram/, "Instagram"],
   [/MicroMessenger/, "WeChat"],
-  [/Messenger/, "Messenger"],
+  [/Messenger/i, "Messenger"],
   [/FBAN|FBAV|FB_IAB/, "Facebook"],
   [/\bLine\//, "Line"],
   [/Snapchat/, "Snapchat"],
-  [/TikTok/, "TikTok"],
+  [/TikTok|musical_ly|BytedanceWebview/, "TikTok"],
   [/LinkedInApp/, "LinkedIn"],
   [/Twitter/, "Twitter"],
 ];
@@ -13,7 +13,7 @@ const apps: [RegExp, string][] = [
 export function embeddedBrowser(userAgent: string): string | null {
   for (const [pattern, name] of apps) if (pattern.test(userAgent)) return name;
   if (userAgent.includes("; wv)")) return "an in-app browser";
-  if (/iPhone|iPad/.test(userAgent) && userAgent.includes("AppleWebKit") && !userAgent.includes("Safari/")) {
+  if (/iPhone|iPad|Macintosh/.test(userAgent) && userAgent.includes("AppleWebKit") && !userAgent.includes("Safari/")) {
     return "an in-app browser";
   }
   return null;

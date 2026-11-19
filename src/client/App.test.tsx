@@ -121,10 +121,10 @@ test("replaceState is not called when there is no refused parameter", async () =
 
 test("if replaceState throws the page still renders the refusal and sign-in link", async () => {
   vi.spyOn(history, "replaceState").mockImplementation(() => { throw new DOMException("no", "SecurityError"); });
-  at("//b/abc?refused=failed");
+  at("/?refused=failed");
   render(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in didn't finish");
-  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
   expect(api.getMe).toHaveBeenCalledOnce();
 });
 
@@ -185,4 +185,19 @@ test("signed in, the home screen links to pairing and labels", async () => {
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
   expect(await screen.findByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
+});
+
+test.each([401, 500, 502])("a %i from getMe is signed out, not the trouble message", async (status) => {
+  const { ApiError } = await vi.importActual<typeof import("./api")>("./api");
+  vi.mocked(api.getMe).mockRejectedValue(new ApiError(status, null));
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
+test.each(["constructor", "toString"])("refused=%s falls back to the generic refusal text", async (reason) => {
+  at(`/?refused=${reason}`);
+  render(<App />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in didn't finish. Please try again.");
 });
