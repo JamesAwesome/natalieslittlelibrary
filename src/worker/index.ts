@@ -40,8 +40,11 @@ const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 app.use("/api/*", async (c, next) => { await next(); c.res.headers.set("cache-control", "no-store"); });
 app.use("/auth/*", async (c, next) => { await next(); c.res.headers.set("cache-control", "no-store"); });
 
+// c.req.path is the path Hono routed on (decoded), so an encoded /api cannot dodge this.
+const isApi = (path: string) => path === "/api" || path.startsWith("/api/");
+
 app.onError((_err, c) => {
-  if (new URL(c.req.url).pathname.startsWith("/api/")) {
+  if (isApi(c.req.path)) {
     return c.json({ rejected: "unavailable" }, 503, { "cache-control": "no-store" });
   }
   return c.text("Internal Server Error", 500, { "cache-control": "no-store" });
@@ -91,9 +94,37 @@ function answer(c: AppContext, result: object) {
   return c.json(result);
 }
 
+const MAX_BODY_BYTES = 16 * 1024;
+
+// The body's text, or null when it is, or turns out to be, longer than the limit.
+async function boundedText(request: Request): Promise<string | null> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && Number(declared) > MAX_BODY_BYTES) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
 async function objectBody(c: AppContext): Promise<Record<string, unknown> | null> {
   try {
-    const body: unknown = await c.req.json();
+    const text = await boundedText(c.req.raw);
+    if (text === null) return null;
+    const body: unknown = JSON.parse(text);
     return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
   } catch {
     return null;
@@ -114,7 +145,12 @@ app.post("/api/labels", member(async (c, who) => {
   return Array.isArray(result) ? c.json({ labels: result }) : answer(c, result);
 }));
 
-app.get("/api/books/lookup", member(async (c) => {
+// This GET makes an outbound request and is not exempt from abuse by other sites, so it gets the Sec-Fetch-Site half of the check.
+app.get("/api/books/lookup", async (c, next) => {
+  const site = c.req.header("sec-fetch-site");
+  if (site === "cross-site" || site === "same-site") return c.json({ rejected: "not-allowed" }, 403);
+  await next();
+}, member(async (c) => {
   const isbn = c.req.query("isbn");
   if (isbn === undefined) return invalid(c);
   return c.json({ book: await c.var.services.lookup(isbn) });
@@ -132,6 +168,11 @@ app.post("/api/labels/:code/claim", member(async (c, who) =>
 
 app.post("/api/copies/:id/return", member(async (c, who) =>
   answer(c, await c.var.services.ledger.act(who, { type: "return", copyId: c.req.param("id") ?? "" }))));
+
+app.notFound((c) => {
+  if (isApi(c.req.path)) return c.json({ rejected: "not-found" }, 404, { "cache-control": "no-store" });
+  return c.text("404 Not Found", 404);
+});
 
 app.get("/auth/login", (c) => c.var.services.membership.beginLogin(c.req.query("returnTo") ?? null));
 app.get("/auth/callback", (c) => c.var.services.membership.completeLogin(c.req.raw));

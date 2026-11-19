@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { resetDatabase } from "../../test/reset";
+import found from "./booklookup/fixtures/found.json";
 import app from "./index";
 import { signInAs } from "./membership/testing";
 
@@ -290,7 +291,7 @@ test("when the database is down, /api/me is 503 and /api/health still answers", 
   const me = await call("/api/me", { headers: { cookie } }, e);
   expect(me.status).toBe(503);
   expect(await me.json()).toEqual({ rejected: "unavailable" });
-  const health = await call("/api/health", {}, e);
+  const health = await call("/api/health", { headers: { cookie } }, e);
   expect(health.status).toBe(200);
 });
 
@@ -357,6 +358,10 @@ describe("same-site check", () => {
     [{ origin: "https://evil.example" }, 403],
     [{ origin: "https://other.waffle.haus" }, 403], // a sibling site
     [{ origin: "null" }, 403],
+    [{ origin: "https://other.books.test" }, 403],
+    [{ origin: "https://books.test.evil.example" }, 403],
+    [{ origin: "https://books.test:8443" }, 403],
+    [{ origin: "http://books.test" }, 403],
     [{ "sec-fetch-site": "same-site" }, 403],
     [{ "sec-fetch-site": "cross-site" }, 403],
     [{ origin: "https://books.test", "sec-fetch-site": "same-origin" }, 200],
@@ -393,4 +398,103 @@ describe("same-site check", () => {
       expect(res.status).toBe(200);
     }
   });
+});
+
+// ---- fix round 1 ----
+
+const ISBN = "9798855427974";
+const stubOpenLibrary = (body: unknown) => {
+  const urls: string[] = [];
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch);
+  return { urls, restore: () => spy.mockRestore() };
+};
+
+test("lookup finds a book; add by ISBN saves it; add by ISBN that nobody knows is 404 book-not-found", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const minted = (await (await post("/api/labels", cookie, { count: 2 })).json()) as { labels: { code: string }[] };
+  const stub = stubOpenLibrary(found);
+  try {
+    const res = await call(`/api/books/lookup?isbn=${ISBN}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { book: { title: string } }).book.title).toContain("Guy She Was Interested in");
+
+    const added = await post("/api/copies", cookie, { code: minted.labels[0].code, isbn: ISBN });
+    expect(added.status).toBe(200);
+    expect(((await added.json()) as { book: { title: string } }).book.title).toContain("Guy She Was Interested in");
+  } finally {
+    stub.restore();
+  }
+  const miss = stubOpenLibrary({});
+  try {
+    // 9780306406157 is not cached by the lookups above.
+    const res = await post("/api/copies", cookie, { code: minted.labels[1].code, isbn: "9780306406157" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ rejected: "book-not-found" });
+  } finally {
+    miss.restore();
+  }
+});
+
+test.each([
+  ["cross-site", 403],
+  ["same-site", 403],
+  ["same-origin", 200],
+  ["none", 200],
+  [null, 200],
+])("lookup with Sec-Fetch-Site %s is %s, and a refusal makes no outbound request", async (site, status) => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const stub = stubOpenLibrary({});
+  try {
+    const headers: Record<string, string> = { cookie };
+    if (site) headers["sec-fetch-site"] = site;
+    const res = await call(`/api/books/lookup?isbn=${ISBN}`, { headers });
+    expect(res.status).toBe(status);
+    if (status === 403) {
+      expect(await res.json()).toEqual({ rejected: "not-allowed" });
+      expect(stub.urls).toEqual([]);
+    } else {
+      expect(stub.urls).toHaveLength(1);
+    }
+  } finally {
+    stub.restore();
+  }
+});
+
+test("an error on an encoded /api path is still 503 JSON", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const res = await call("/%61pi/labels", { method: "POST", headers: { cookie }, body: JSON.stringify({ count: 1 }) }, brokenEnv("batch"));
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({ rejected: "unavailable" });
+});
+
+test("an unknown /api path is 404 JSON, no-store", async () => {
+  for (const path of ["/api/nothing-here", "/api"]) {
+    const res = await call(path);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({ rejected: "not-found" });
+  }
+});
+
+test("a JSON body over 16 KB is 400 invalid, whether declared or discovered while reading", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const big = JSON.stringify({ count: 1, pad: "x".repeat(16 * 1024) });
+  const declared = await call("/api/labels", { method: "POST", headers: { cookie, "content-length": String(big.length) }, body: big });
+  expect(declared.status).toBe(400);
+  expect(await declared.json()).toEqual({ rejected: "invalid" });
+
+  // No Content-Length: a stream, so only reading can tell.
+  const chunk = new TextEncoder().encode("x".repeat(4096));
+  const streamed = new ReadableStream({
+    start(ctl) { for (let i = 0; i < 8; i++) ctl.enqueue(chunk); ctl.close(); },
+  });
+  const res = await app.request(`${SITE}/api/labels`, { method: "POST", headers: { cookie }, body: streamed, duplex: "half" } as RequestInit, env);
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ rejected: "invalid" });
+  const ok = await post("/api/labels", cookie, { count: 1 });
+  expect(ok.status).toBe(200);
 });
