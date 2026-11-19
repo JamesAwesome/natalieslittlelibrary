@@ -7,6 +7,7 @@ import { createLedger, type Ledger } from "./index";
 
 const natalie: Member = { id: "m-natalie", name: "Natalie", email: "natalie@example.com", pictureUrl: "https://p.test/n.jpg", isAdmin: true };
 const sam: Member = { id: "m-sam", name: "Sam", email: "sam@example.com", pictureUrl: null, isAdmin: false };
+const kim: Member = { id: "m-kim", name: "Kim", email: "kim@example.com", pictureUrl: null, isAdmin: false };
 
 const DUNE: BookInfo = { isbn: "9780441172719", title: "Dune", authors: ["Frank Herbert"], coverUrl: "https://covers.openlibrary.org/b/id/1-L.jpg" };
 const EMMA: BookInfo = { isbn: "9780141439587", title: "Emma", authors: ["Jane Austen"], coverUrl: null };
@@ -41,7 +42,7 @@ function asCopy(v: LabelView): CopyView {
 
 beforeEach(async () => {
   await resetDatabase(env.DB);
-  for (const m of [natalie, sam]) {
+  for (const m of [natalie, sam, kim]) {
     await env.DB.prepare("insert into members (id, name, email, picture_url, created_at) values (?, ?, ?, ?, 0)")
       .bind(m.id, m.name, m.email, m.pictureUrl).run();
   }
@@ -382,4 +383,213 @@ test.each([
   const input = raw && typeof raw === "object" && (raw as { code?: unknown }).code === "CODE" ? { ...raw, code } : raw;
   expect(await ledger.add(natalie, input as never)).toEqual({ rejected: "invalid" });
   for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+});
+
+// Natalie's copy of Dune, labelled and at home.
+async function homeCopy(ledger: Ledger): Promise<{ code: string; copyId: string }> {
+  const [code] = await mint(ledger);
+  const copy = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
+  return { code, copyId: copy.copyId };
+}
+
+async function eventRows(): Promise<Record<string, unknown>[]> {
+  return (await env.DB.prepare("select * from events order by id").all()).results;
+}
+
+// A database whose batches wait until `n` of them have arrived, so n acts have all read state before any writes.
+function gated(n: number): D1Database {
+  let arrived = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  return {
+    prepare: (q: string) => env.DB.prepare(q),
+    batch: async (stmts: D1PreparedStatement[]) => {
+      if (++arrived >= n) release();
+      await gate;
+      return env.DB.batch(stmts);
+    },
+  } as unknown as D1Database;
+}
+
+const rejections = (rs: (CopyView | Rejection)[]) => rs.filter((r): r is Rejection => "rejected" in r);
+const successes = (rs: (CopyView | Rejection)[]) => rs.filter((r): r is CopyView => !("rejected" in r));
+
+test("a friend claims by label and becomes the holder", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  const copy = ok(await ledger.act(sam, { type: "claim", code }));
+  expect(copy.holder).toEqual({ kind: "member", person: { id: sam.id, name: "Sam", pictureUrl: null } });
+  expect(copy.home).toBe(false);
+  expect(copy.history[0]).toEqual({ at: 1000, type: "claimed", actor: { id: sam.id, name: "Sam", pictureUrl: null } });
+  expect(copy.history.map((h) => h.type)).toEqual(["claimed", "labelled", "added"]);
+  expect(copy.actions).toEqual([]);
+});
+
+test("the label can be given as a link when claiming", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  const copy = ok(await ledger.act(sam, { type: "claim", code: ` HTTPS://OLD.HOST.TEST/B/${code.toUpperCase()} ` }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: sam.id } });
+});
+
+test("the next friend claims it from the first", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  const copy = ok(await ledger.act(kim, { type: "claim", code }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: kim.id } });
+  expect(copy.history.slice(0, 2).map((h) => [h.type, h.actor.id])).toEqual([["claimed", kim.id], ["claimed", sam.id]]);
+});
+
+test("claiming twice is refused the second time and recorded once", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(3);
+});
+
+test("two members claim at the same moment: exactly one CopyView, exactly one Rejection, exactly one new event", async () => {
+  const { ledger } = make({ db: gated(2) });
+  const { code } = await homeCopy(make().ledger);
+  const results = await Promise.all([ledger.act(sam, { type: "claim", code }), ledger.act(kim, { type: "claim", code })]);
+  expect(rejections(results)).toEqual([{ rejected: "not-allowed" }]);
+  const [winner] = successes(results);
+  expect(winner).toBeDefined();
+  const holderId = (await env.DB.prepare("select holder_member_id as h from copies").first<{ h: string }>())!.h;
+  expect(winner.holder).toMatchObject({ kind: "member", person: { id: holderId } });
+  expect(winner.history[0]).toMatchObject({ type: "claimed", actor: { id: holderId } });
+  expect(await count("events")).toBe(3);
+});
+
+test("one member double-taps claim at the same moment: one success, one refusal, one event", async () => {
+  const { ledger } = make({ db: gated(2) });
+  const { code } = await homeCopy(make().ledger);
+  const results = await Promise.all([ledger.act(sam, { type: "claim", code }), ledger.act(sam, { type: "claim", code })]);
+  expect(successes(results)).toHaveLength(1);
+  expect(rejections(results)).toEqual([{ rejected: "not-allowed" }]);
+  expect(await count("events")).toBe(3);
+});
+
+test("a claim and the owner's return at the same moment: the history has no entry that contradicts the holder", async () => {
+  const setup = make().ledger;
+  const { code, copyId } = await homeCopy(setup);
+  ok(await setup.act(sam, { type: "claim", code })); // out with Sam; Kim claims while Natalie takes it back
+  const { ledger } = make({ db: gated(2) });
+  const results = await Promise.all([ledger.act(kim, { type: "claim", code }), ledger.act(natalie, { type: "return", copyId })]);
+  expect(successes(results)).toHaveLength(1);
+  expect(rejections(results)).toEqual([{ rejected: "not-allowed" }]);
+  expect(await count("events")).toBe(4);
+  const last = asCopy(await setup.view(code, natalie));
+  const { type, actor } = last.history[0];
+  expect(last.holder).toMatchObject({ kind: "member", person: { id: actor.id } });
+  expect(type).toBe(actor.id === natalie.id ? "returned" : "claimed");
+});
+
+test("the owner marks it returned", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  const copy = ok(await ledger.act(natalie, { type: "return", copyId }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: natalie.id } });
+  expect(copy.home).toBe(true);
+  expect(copy.history[0]).toMatchObject({ type: "returned", actor: { id: natalie.id } });
+  expect(copy.code).toBe(code);
+});
+
+test("only the owner can mark a return", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  for (const who of [sam, kim]) expect(await ledger.act(who, { type: "return", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(3);
+});
+
+test("returning a book that is home is refused and recorded nowhere", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  expect(await ledger.act(natalie, { type: "return", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+});
+
+test("claiming your own book is refused", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  expect(await ledger.act(natalie, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+});
+
+test("a copy with no owner cannot be claimed", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set owner_id = null where id = ?").bind(copyId).run();
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+});
+
+test("claim on an unknown label and return on an unknown copy are not-found", async () => {
+  const { ledger } = make();
+  const [blank] = await mint(ledger);
+  await homeCopy(ledger);
+  expect(await ledger.act(sam, { type: "claim", code: "abcdefghjk" })).toEqual({ rejected: "not-found" });
+  expect(await ledger.act(sam, { type: "claim", code: "nonsense" })).toEqual({ rejected: "not-found" });
+  expect(await ledger.act(sam, { type: "claim", code: blank })).toEqual({ rejected: "not-found" });
+  expect(await ledger.act(natalie, { type: "return", copyId: "no-such-copy" })).toEqual({ rejected: "not-found" });
+  expect(await count("events")).toBe(2);
+});
+
+test("history is never rewritten", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  const rows: Record<string, unknown>[][] = [await eventRows()];
+  ok(await ledger.act(sam, { type: "claim", code }));
+  rows.push(await eventRows());
+  ok(await ledger.act(kim, { type: "claim", code }));
+  rows.push(await eventRows());
+  ok(await ledger.act(natalie, { type: "return", copyId }));
+  rows.push(await eventRows());
+  expect(rows.map((r) => r.length)).toEqual([2, 3, 4, 5]);
+  const final = rows[3];
+  for (const before of rows.slice(0, 3)) expect(final.slice(0, before.length)).toEqual(before);
+});
+
+test("the acting viewer's actions reflect the new state", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual([]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return"]);
+  expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
+  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual([]);
+});
+
+test("a claim made stale by a change of holder after the read records nothing", async () => {
+  // State changes between the read and the write: a stale decision must not be written.
+  const { code } = await homeCopy(make().ledger);
+  const racing = {
+    prepare: (q: string) => env.DB.prepare(q),
+    batch: async (stmts: D1PreparedStatement[]) => {
+      await env.DB.prepare("update copies set holder_member_id = ?").bind(kim.id).run();
+      return env.DB.batch(stmts);
+    },
+  } as unknown as D1Database;
+  expect(await make({ db: racing }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+  expect((await env.DB.prepare("select holder_member_id as h from copies").first<{ h: string }>())!.h).toBe(kim.id);
+});
+
+test.each([
+  ["code is a number", { type: "claim", code: 5 }],
+  ["code is missing", { type: "claim" }],
+  ["code is null", { type: "claim", code: null }],
+  ["copyId is a number", { type: "return", copyId: 5 }],
+  ["copyId is missing", { type: "return" }],
+  ["the type is unknown", { type: "steal", code: "abcdefghjk" }],
+  ["the type is missing", { code: "abcdefghjk" }],
+  ["the action is null", null],
+  ["the action is a string", "claim"],
+])("act answers invalid, not a throw, when %s", async (_name, raw) => {
+  const { ledger } = make();
+  await homeCopy(ledger);
+  expect(await ledger.act(sam, raw as never)).toEqual({ rejected: "invalid" });
+  expect(await count("events")).toBe(2);
 });

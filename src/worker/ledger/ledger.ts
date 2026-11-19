@@ -1,15 +1,18 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
-import { availableActions } from "./rules";
+import type { ActionType, BookInfo, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import { availableActions, decide } from "./rules";
 
 export type AddInput = { code: string; book: { isbn: string } | { title: string; authors: string[] } };
+
+export type ActInput = { type: "claim"; code: string } | { type: "return"; copyId: string };
 
 export interface Ledger {
   mintLabels(member: Member, count: number): Promise<{ code: string; url: string }[] | Rejection>;
   add(owner: Member, input: AddInput): Promise<CopyView | Rejection>;
   view(code: string, viewer: Member | null): Promise<LabelView>;
+  act(viewer: Member, action: ActInput): Promise<CopyView | Rejection>;
 }
 
 export type LedgerDeps = {
@@ -39,6 +42,11 @@ type CopyRow = {
   owner_id: string | null;
   holder_member_id: string | null;
 };
+type CopyRowWithCode = CopyRow & { code: string | null };
+const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, l.code
+  from copies c
+  join books b on b.id = c.book_id
+  left join labels l on l.copy_id = c.id`;
 type PersonRow = { id: string; name: string; picture_url: string | null };
 
 function person(r: PersonRow): Person {
@@ -106,7 +114,10 @@ export function createLedger(deps: LedgerDeps): Ledger {
       .first<CopyRow>();
     if (!row) return { kind: "unknown" };
     if (row.copy_id === null) return { kind: "blank", code };
+    return renderCopy(row, code, viewer);
+  }
 
+  async function renderCopy(row: CopyRow, code: string | null, viewer: Member | null): Promise<LabelView> {
     const book: BookInfo = {
       isbn: row.isbn,
       title: row.title!,
@@ -114,7 +125,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       coverUrl: row.cover_url,
     };
     if (viewer === null) {
-      return { kind: "public", code, book: { title: book.title, authors: book.authors, coverUrl: book.coverUrl } };
+      return { kind: "public", code: code!, book: { title: book.title, authors: book.authors, coverUrl: book.coverUrl } };
     }
 
     const [owner, holder, history] = await db.batch([
@@ -136,7 +147,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return {
       kind: "copy",
       copy: {
-        copyId: row.copy_id,
+        copyId: row.copy_id!,
         code,
         book,
         owner: ownerRow && person(ownerRow),
@@ -253,5 +264,60 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
-  return { mintLabels, add, view };
+  async function act(viewer: Member, action: ActInput): Promise<CopyView | Rejection> {
+    if (typeof action !== "object" || action === null) return { rejected: "invalid" };
+    const type: unknown = action.type;
+    if (type !== "claim" && type !== "return") return { rejected: "invalid" };
+
+    let row: CopyRowWithCode | null;
+    let code: string | null = null;
+    if (type === "claim") {
+      const raw = (action as { code?: unknown }).code;
+      if (typeof raw !== "string") return { rejected: "invalid" };
+      code = parseLabelLink(raw);
+      if (code === null) return { rejected: "not-found" };
+      row = await db
+        .prepare(`${COPY_SELECT} where l.code = ?`)
+        .bind(code)
+        .first<CopyRowWithCode>();
+    } else {
+      const copyId = (action as { copyId?: unknown }).copyId;
+      if (typeof copyId !== "string") return { rejected: "invalid" };
+      row = await db
+        .prepare(`${COPY_SELECT} where c.id = ?`)
+        .bind(copyId)
+        .first<CopyRowWithCode>();
+    }
+    if (!row || row.copy_id === null) return { rejected: "not-found" };
+
+    const decision = decide({ ownerId: row.owner_id, holderMemberId: row.holder_member_id }, viewer, type as ActionType);
+    if ("rejected" in decision) return decision;
+
+    // Both statements carry the whole state the decision was made against (and, for a claim, the label still being
+    // bound to this copy), so anything that changed in between leaves both of them touching no row.
+    const at = now();
+    const bound = type === "claim" ? " and exists (select 1 from labels where code = ? and copy_id = c.id)" : "";
+    const boundUpdate = type === "claim" ? " and exists (select 1 from labels where code = ? and copy_id = copies.id)" : "";
+    const insert = db
+      .prepare(
+        `insert into events (copy_id, at, actor_id, type)
+         select c.id, ?, ?, ? from copies c where c.id = ? and c.owner_id is ? and c.holder_member_id is ?${bound}`,
+      )
+      .bind(at, viewer.id, decision.event, row.copy_id, row.owner_id, row.holder_member_id, ...(type === "claim" ? [code] : []));
+    const update = db
+      .prepare(`update copies set holder_member_id = ? where id = ? and owner_id is ? and holder_member_id is ?${boundUpdate}`)
+      .bind(decision.holderMemberId, row.copy_id, row.owner_id, row.holder_member_id, ...(type === "claim" ? [code] : []));
+
+    // Event first, label-or-state update last; the update's change count says whether the pair applied.
+    const results = await db.batch([insert, update]);
+    if (results[1].meta.changes === 0) return { rejected: "not-allowed" };
+
+    const after = await db.prepare(`${COPY_SELECT} where c.id = ?`).bind(row.copy_id).first<CopyRowWithCode>();
+    if (!after) throw new Error("a copy just changed has vanished");
+    const v = await renderCopy(after, after.code, viewer);
+    if (v.kind !== "copy") throw new Error("a copy view was expected");
+    return v.copy;
+  }
+
+  return { mintLabels, add, view, act };
 }
