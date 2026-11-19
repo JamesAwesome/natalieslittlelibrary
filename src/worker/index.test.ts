@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { expect, test } from "vitest";
+import { resetDatabase } from "../../test/reset";
 
 test("health check answers", async () => {
   const res = await exports.default.fetch("https://books.test/api/health");
@@ -8,13 +9,16 @@ test("health check answers", async () => {
 });
 
 // Literal expected shape, deliberately not derived from schema.ts.
-// Columns are [name, type, notnull, pk position (0 = not in key)]; foreign keys are sorted by column, since SQLite lists them in reverse declaration order.
+// Columns are [name, type, notnull, pk position (0 = not in key)].
+// Foreign keys are [from, table, to, on_update, on_delete], sorted by column (SQLite lists them in reverse declaration order).
+// Indexes are every index SQLite reports, including the automatic ones behind PRIMARY KEY and UNIQUE constraints:
+// [name, unique, origin (c = CREATE INDEX, u = UNIQUE constraint, pk = primary key), partial, ordered columns], sorted by name.
 const expectedShape: Record<
   string,
   {
     columns: [string, string, number, number][];
-    foreignKeys: [string, string, string][];
-    indexes: string[];
+    foreignKeys: [string, string, string, string, string][];
+    indexes: [string, number, string, number, string[]][];
   }
 > = {
   identities: {
@@ -23,8 +27,8 @@ const expectedShape: Record<
       ["subject", "TEXT", 1, 2],
       ["member_id", "TEXT", 1, 0],
     ],
-    foreignKeys: [["member_id", "members", "id"]],
-    indexes: [],
+    foreignKeys: [["member_id", "members", "id", "NO ACTION", "NO ACTION"]],
+    indexes: [["sqlite_autoindex_identities_1", 1, "pk", 0, ["provider", "subject"]]],
   },
   members: {
     columns: [
@@ -36,7 +40,7 @@ const expectedShape: Record<
       ["removed_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [],
-    indexes: [],
+    indexes: [["sqlite_autoindex_members_1", 1, "pk", 0, ["id"]]],
   },
   sessions: {
     columns: [
@@ -44,8 +48,8 @@ const expectedShape: Record<
       ["member_id", "TEXT", 1, 0],
       ["expires_at", "INTEGER", 1, 0],
     ],
-    foreignKeys: [["member_id", "members", "id"]],
-    indexes: [],
+    foreignKeys: [["member_id", "members", "id", "NO ACTION", "NO ACTION"]],
+    indexes: [["sqlite_autoindex_sessions_1", 1, "pk", 0, ["token_hash"]]],
   },
   books: {
     columns: [
@@ -57,7 +61,10 @@ const expectedShape: Record<
       ["created_at", "INTEGER", 1, 0],
     ],
     foreignKeys: [],
-    indexes: ["books_isbn_unique"],
+    indexes: [
+      ["books_isbn_unique", 1, "c", 0, ["isbn"]],
+      ["sqlite_autoindex_books_1", 1, "pk", 0, ["id"]],
+    ],
   },
   copies: {
     columns: [
@@ -68,11 +75,15 @@ const expectedShape: Record<
       ["created_at", "INTEGER", 1, 0],
     ],
     foreignKeys: [
-      ["book_id", "books", "id"],
-      ["holder_member_id", "members", "id"],
-      ["owner_id", "members", "id"],
+      ["book_id", "books", "id", "NO ACTION", "NO ACTION"],
+      ["holder_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["owner_id", "members", "id", "NO ACTION", "NO ACTION"],
     ],
-    indexes: ["copies_holder_member_id_idx", "copies_owner_id_idx"],
+    indexes: [
+      ["copies_holder_member_id_idx", 0, "c", 0, ["holder_member_id"]],
+      ["copies_owner_id_idx", 0, "c", 0, ["owner_id"]],
+      ["sqlite_autoindex_copies_1", 1, "pk", 0, ["id"]],
+    ],
   },
   labels: {
     columns: [
@@ -83,10 +94,13 @@ const expectedShape: Record<
       ["bound_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [
-      ["copy_id", "copies", "id"],
-      ["minted_by", "members", "id"],
+      ["copy_id", "copies", "id", "NO ACTION", "NO ACTION"],
+      ["minted_by", "members", "id", "NO ACTION", "NO ACTION"],
     ],
-    indexes: ["labels_copy_id_idx"],
+    indexes: [
+      ["labels_copy_id_idx", 0, "c", 0, ["copy_id"]],
+      ["sqlite_autoindex_labels_1", 1, "pk", 0, ["code"]],
+    ],
   },
   events: {
     // The one key not declared at table level: AUTOINCREMENT needs a column-level INTEGER PRIMARY KEY, which reports notnull 0.
@@ -98,10 +112,10 @@ const expectedShape: Record<
       ["type", "TEXT", 1, 0],
     ],
     foreignKeys: [
-      ["actor_id", "members", "id"],
-      ["copy_id", "copies", "id"],
+      ["actor_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["copy_id", "copies", "id", "NO ACTION", "NO ACTION"],
     ],
-    indexes: ["events_copy_id_id_idx"],
+    indexes: [["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]]],
   },
   book_lookups: {
     columns: [
@@ -113,7 +127,7 @@ const expectedShape: Record<
       ["fetched_at", "INTEGER", 1, 0],
     ],
     foreignKeys: [],
-    indexes: [],
+    indexes: [["sqlite_autoindex_book_lookups_1", 1, "pk", 0, ["isbn"]]],
   },
 };
 
@@ -129,22 +143,49 @@ test("migrations created the tables", async () => {
       `${table} columns`,
     ).toEqual(expected.columns);
 
-    const fks = await env.DB.prepare('select "from", "table", "to" from pragma_foreign_key_list(?) order by "from"')
+    const fks = await env.DB.prepare('select "from", "table", "to", on_update, on_delete from pragma_foreign_key_list(?) order by "from"')
       .bind(table)
-      .all<{ from: string; table: string; to: string }>();
+      .all<{ from: string; table: string; to: string; on_update: string; on_delete: string }>();
     expect(
-      fks.results.map((f) => [f.from, f.table, f.to]),
+      fks.results.map((f) => [f.from, f.table, f.to, f.on_update, f.on_delete]),
       `${table} foreign keys`,
     ).toEqual(expected.foreignKeys);
 
-    const indexes = await env.DB.prepare("select name from pragma_index_list(?) where origin = 'c' order by name")
+    const list = await env.DB.prepare('select name, "unique", origin, partial from pragma_index_list(?) order by name')
       .bind(table)
-      .all<{ name: string }>();
-    expect(
-      indexes.results.map((i) => i.name),
-      `${table} indexes`,
-    ).toEqual(expected.indexes);
+      .all<{ name: string; unique: number; origin: string; partial: number }>();
+    const indexes: [string, number, string, number, string[]][] = [];
+    for (const i of list.results) {
+      const cols = await env.DB.prepare("select name from pragma_index_info(?) order by seqno")
+        .bind(i.name)
+        .all<{ name: string }>();
+      indexes.push([i.name, i.unique, i.origin, i.partial, cols.results.map((c) => c.name)]);
+    }
+    expect(indexes, `${table} indexes`    ).toEqual(expected.indexes);
   }
+});
+
+test("the database holds exactly these tables", async () => {
+  const { results } = await env.DB.prepare(
+    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like 'd1_%' and name not like '_cf_%' order by name",
+  ).all<{ name: string }>();
+  expect(results.map((t) => t.name)).toEqual(Object.keys(expectedShape).sort());
+});
+
+test("events is created with AUTOINCREMENT, so ids are never reused", async () => {
+  const row = await env.DB.prepare("select sql from sqlite_master where type = 'table' and name = 'events'").first<{
+    sql: string;
+  }>();
+  expect(row!.sql).toContain("AUTOINCREMENT");
+});
+
+test("books: many NULL isbns coexist, a repeated isbn is refused", async () => {
+  await resetDatabase(env.DB);
+  const insert = (id: string, isbn: string | null) =>
+    env.DB.prepare("insert into books (id, isbn, title, authors, created_at) values (?, ?, 'T', '[]', 1)").bind(id, isbn);
+  await env.DB.batch([insert("n1", null), insert("n2", null), insert("i1", "9780000000002")]);
+  await expect(insert("i2", "9780000000002").run()).rejects.toThrow(/UNIQUE/);
+  await resetDatabase(env.DB);
 });
 
 test("me is null when signed out", async () => {
