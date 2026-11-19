@@ -8,10 +8,14 @@ test("health check answers", async () => {
 });
 
 // Literal expected shape, deliberately not derived from schema.ts.
-// Columns are [name, type, notnull, pk position (0 = not in key)].
+// Columns are [name, type, notnull, pk position (0 = not in key)]; foreign keys are sorted by column, since SQLite lists them in reverse declaration order.
 const expectedShape: Record<
   string,
-  { columns: [string, string, number, number][]; foreignKeys: [string, string, string][] }
+  {
+    columns: [string, string, number, number][];
+    foreignKeys: [string, string, string][];
+    indexes: string[];
+  }
 > = {
   identities: {
     columns: [
@@ -20,6 +24,7 @@ const expectedShape: Record<
       ["member_id", "TEXT", 1, 0],
     ],
     foreignKeys: [["member_id", "members", "id"]],
+    indexes: [],
   },
   members: {
     columns: [
@@ -31,6 +36,7 @@ const expectedShape: Record<
       ["removed_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [],
+    indexes: [],
   },
   sessions: {
     columns: [
@@ -39,6 +45,75 @@ const expectedShape: Record<
       ["expires_at", "INTEGER", 1, 0],
     ],
     foreignKeys: [["member_id", "members", "id"]],
+    indexes: [],
+  },
+  books: {
+    columns: [
+      ["id", "TEXT", 1, 1],
+      ["isbn", "TEXT", 0, 0],
+      ["title", "TEXT", 1, 0],
+      ["authors", "TEXT", 1, 0],
+      ["cover_url", "TEXT", 0, 0],
+      ["created_at", "INTEGER", 1, 0],
+    ],
+    foreignKeys: [],
+    indexes: ["books_isbn_unique"],
+  },
+  copies: {
+    columns: [
+      ["id", "TEXT", 1, 1],
+      ["book_id", "TEXT", 1, 0],
+      ["owner_id", "TEXT", 0, 0],
+      ["holder_member_id", "TEXT", 0, 0],
+      ["created_at", "INTEGER", 1, 0],
+    ],
+    foreignKeys: [
+      ["book_id", "books", "id"],
+      ["holder_member_id", "members", "id"],
+      ["owner_id", "members", "id"],
+    ],
+    indexes: ["copies_holder_member_id_idx", "copies_owner_id_idx"],
+  },
+  labels: {
+    columns: [
+      ["code", "TEXT", 1, 1],
+      ["minted_by", "TEXT", 1, 0],
+      ["minted_at", "INTEGER", 1, 0],
+      ["copy_id", "TEXT", 0, 0],
+      ["bound_at", "INTEGER", 0, 0],
+    ],
+    foreignKeys: [
+      ["copy_id", "copies", "id"],
+      ["minted_by", "members", "id"],
+    ],
+    indexes: ["labels_copy_id_idx"],
+  },
+  events: {
+    // The one key not declared at table level: AUTOINCREMENT needs a column-level INTEGER PRIMARY KEY, which reports notnull 0.
+    columns: [
+      ["id", "INTEGER", 0, 1],
+      ["copy_id", "TEXT", 1, 0],
+      ["at", "INTEGER", 1, 0],
+      ["actor_id", "TEXT", 1, 0],
+      ["type", "TEXT", 1, 0],
+    ],
+    foreignKeys: [
+      ["actor_id", "members", "id"],
+      ["copy_id", "copies", "id"],
+    ],
+    indexes: ["events_copy_id_id_idx"],
+  },
+  book_lookups: {
+    columns: [
+      ["isbn", "TEXT", 1, 1],
+      ["title", "TEXT", 1, 0],
+      ["authors", "TEXT", 1, 0],
+      ["cover_url", "TEXT", 0, 0],
+      ["source", "TEXT", 1, 0],
+      ["fetched_at", "INTEGER", 1, 0],
+    ],
+    foreignKeys: [],
+    indexes: [],
   },
 };
 
@@ -54,13 +129,21 @@ test("migrations created the tables", async () => {
       `${table} columns`,
     ).toEqual(expected.columns);
 
-    const fks = await env.DB.prepare('select "from", "table", "to" from pragma_foreign_key_list(?) order by id, seq')
+    const fks = await env.DB.prepare('select "from", "table", "to" from pragma_foreign_key_list(?) order by "from"')
       .bind(table)
       .all<{ from: string; table: string; to: string }>();
     expect(
       fks.results.map((f) => [f.from, f.table, f.to]),
       `${table} foreign keys`,
     ).toEqual(expected.foreignKeys);
+
+    const indexes = await env.DB.prepare("select name from pragma_index_list(?) where origin = 'c' order by name")
+      .bind(table)
+      .all<{ name: string }>();
+    expect(
+      indexes.results.map((i) => i.name),
+      `${table} indexes`,
+    ).toEqual(expected.indexes);
   }
 });
 
