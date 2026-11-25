@@ -899,3 +899,79 @@ test("a delete and an add into the same collection at once: one wins, nothing da
   expect(await dangling()).toBe(0);
   expect(await count("copies")).toBe("rejected" in added ? 0 : 1);
 });
+
+// ---- fix round 1: guards that other statements or the prelude used to mask ----
+
+const removed = (id: string) => env.DB.prepare("update members set removed_at = 5 where id = ?").bind(id).run();
+
+test("a removed member adding into their own existing collection is not-allowed and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  const shed = ok(await ledger.createCollection(sam, "Shed"));
+  await removed(sam.id);
+  for (const book of [{ isbn: DUNE.isbn! }, { title: "T", authors: [] }]) {
+    expect(await ledger.add(sam, { code, book, collectionId: shed.id })).toEqual({ rejected: "not-allowed" });
+  }
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("a removed member who already has a default adding with no collection is not-allowed and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  ok(await ledger.createCollection(sam, "Shed")); // their default
+  await removed(sam.id);
+  expect(await ledger.add(sam, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "not-allowed" });
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await count("collections")).toBe(1);
+});
+
+test("a claim fills in a null collection_id from the owner's default even when the owner is removed", async () => {
+  // A removed owner's ensureDefault writes nothing, so only the update's own coalesce can fill the column.
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set collection_id = null").run();
+  await removed(natalie.id);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  expect(await collectionOf(copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("an add of an existing book into someone else's collection is not-found and makes no copy", async () => {
+  const { ledger } = make();
+  await homeCopy(ledger); // the Dune book row now exists
+  const [code] = await mint(ledger);
+  const theirs = ok(await ledger.createCollection(sam, "Sam's"));
+  expect(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: theirs.id })).toEqual({ rejected: "not-found" });
+  expect(await count("copies")).toBe(1);
+  expect(await count("events")).toBe(2);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("an add of an existing book into a collection deleted after the read makes no copy", async () => {
+  const setup = make().ledger;
+  await homeCopy(setup);
+  const [code] = await mint(setup);
+  const shed = ok(await setup.createCollection(natalie, "Shed"));
+  const db = racing(run("delete from collections where id = ?", shed.id));
+  expect(await make({ db }).ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: shed.id })).toEqual({ rejected: "not-found" });
+  expect(await count("copies")).toBe(1);
+});
+
+test("two adds of an existing book to one label at once commit exactly one copy", async () => {
+  const setup = make().ledger;
+  await homeCopy(setup);
+  const [code] = await mint(setup);
+  // The other add lands between this add's read and its write.
+  const db = racing(async () => {
+    ok(await make().ledger.add(sam, { code, book: { isbn: DUNE.isbn! } }));
+  });
+  expect(await make({ db }).ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "label-in-use" });
+  expect(await count("copies")).toBe(2);
+  expect(await count("events")).toBe(4);
+});
+
+test("a move is asked of decide: a copy with no owner cannot be moved", async () => {
+  const { ledger, copyId, shed } = await twoCollections();
+  await env.DB.prepare("update copies set owner_id = null, collection_id = null where id = ?").bind(copyId).run();
+  expect(await ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
+});

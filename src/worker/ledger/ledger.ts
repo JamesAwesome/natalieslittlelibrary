@@ -273,6 +273,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       statements.push(
         db
           .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, ? where ${copyExists} and ${guard}`)
+          // Binds in order: the inserted values (copy id, at, actor, type), then the copy-exists check's copy id, then the guard.
           .bind(copyId, at, owner.id, type, copyId, ...guardBinds),
       );
     }
@@ -287,8 +288,8 @@ export function createLedger(deps: LedgerDeps): Ledger {
 
     const results = await db.batch(statements);
     if (results[results.length - 1].meta.changes === 0) {
-      const now = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
-      if (now?.copy_id != null) return { rejected: "label-in-use" };
+      const bound = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
+      if (bound?.copy_id != null) return { rejected: "label-in-use" };
       if (collectionId !== null) {
         const k = await db.prepare("select owner_id from collections where id = ?").bind(collectionId).first<{ owner_id: string }>();
         if (k === null || k.owner_id !== owner.id) return { rejected: "not-found" };
@@ -361,7 +362,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
 
   async function moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection> {
     if (typeof copyId !== "string" || typeof collectionId !== "string") return { rejected: "invalid" };
-    // One write, guarded on the copy being theirs, the destination being theirs and the actor being active, all inside it.
+    // decide() says whether the owner may move this copy; the write then re-checks the copy, the destination and the
+    // actor inside the statement, against anything that changed since.
+    const row = await db.prepare(`${COPY_SELECT} where c.id = ?`).bind(copyId).first<CopyRow>();
+    if (!row || row.copy_id === null) return { rejected: "not-found" };
+    const decision = decide({ ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null }, member, "move");
+    if ("rejected" in decision) return decision;
     const [r] = await db.batch([
       db
         .prepare(

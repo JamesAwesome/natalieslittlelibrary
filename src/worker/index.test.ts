@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { invariantViolations } from "../../test/invariant";
 import { resetDatabase } from "../../test/reset";
 import found from "./booklookup/fixtures/found.json";
 import googleFound from "./booklookup/fixtures/google-found.json";
@@ -315,6 +316,9 @@ const post = (path: string, cookie: string, body?: unknown, headers: Record<stri
   call(path, { method: "POST", headers: { cookie, "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 beforeEach(() => resetDatabase(env.DB));
+afterEach(async () => {
+  expect(await invariantViolations(env.DB)).toEqual([]);
+});
 
 test.each([
   ["POST", "/api/labels"],

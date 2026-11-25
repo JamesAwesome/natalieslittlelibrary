@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import { invariantViolations } from "../../test/invariant";
 import { resetDatabase } from "../../test/reset";
 import type { CopyView, LabelView } from "../shared/types";
 import app from "./index";
@@ -10,6 +11,9 @@ const person = (subject: string, name: string) => ({
 });
 
 beforeEach(() => resetDatabase(env.DB));
+afterEach(async () => {
+  expect(await invariantViolations(env.DB)).toEqual([]);
+});
 
 test("print, pair, claim, return", async () => {
   const natalie = await signInAs(env.DB, person("natalie", "Natalie"));
