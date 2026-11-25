@@ -5,7 +5,7 @@ import { resetDatabase } from "../../../test/reset";
 import many from "./fixtures/many.json";
 import found from "./fixtures/found.json";
 import googleFound from "./fixtures/google-found.json";
-import { createBookLookup, lookupSources, MAX_BATCH, type BookSource } from "./index";
+import { createBookLookup, LookupUnavailable, lookupSources, MAX_BATCH, type BookSource } from "./index";
 
 const ISBN = "9798855427974";
 const BOOK_KEY = `ISBN:${ISBN}`;
@@ -471,15 +471,14 @@ test("lookupMany with the real source asks Open Library once and parses the fixt
 
 const manyFailures: [string, () => Promise<Map<string, BookInfo>>][] = [
   ["a rejected fetch", async () => { throw new TypeError("network down"); }],
-  ["a 500", async () => new Map()],
+  ["a 500", async () => { throw new Error("open library answered 500"); }],
   ["a body that is not JSON", async () => { throw new SyntaxError("Unexpected token"); }],
   ["a request that never answers", () => new Promise<never>(() => {})],
 ];
 
-test.each(manyFailures.map(([name]) => name))("%s gives an empty map, never a throw", async (name) => {
+test.each(manyFailures.map(([name]) => name))("%s is LookupUnavailable, not an empty map", async (name) => {
   const bad = manySource("bad", manyFailures.find(([n]) => n === name)![1]);
-  const got = await createBookLookup({ db: env.DB, sources: [bad], batchTimeoutMs: 20 }).lookupMany([ISBN]);
-  expect(got.size).toBe(0);
+  await expect(createBookLookup({ db: env.DB, sources: [bad], batchTimeoutMs: 20 }).lookupMany([ISBN])).rejects.toBeInstanceOf(LookupUnavailable);
   expect(bad.calls).toHaveLength(1);
 });
 
@@ -489,17 +488,25 @@ test("a source that errors does not stop the next source", async () => {
   expect((await createBookLookup({ db: env.DB, sources: [bad, b] }).lookupMany([ISBN])).get(ISBN)).toEqual(A);
 });
 
-test("a source answering the wrong shape contributes nothing", async () => {
+test("a source answering the wrong shape contributes nothing, and counts as a failure", async () => {
   const bad = manySource("bad", async () => ({ nonsense: true }) as never);
   const bad2 = manySource("bad2", async () => new Map([[ISBN, { title: 5 } as never]]));
-  const got = await createBookLookup({ db: env.DB, sources: [bad, bad2] }).lookupMany([ISBN]);
-  expect(got.size).toBe(0);
+  await expect(createBookLookup({ db: env.DB, sources: [bad, bad2] }).lookupMany([ISBN])).rejects.toBeInstanceOf(LookupUnavailable);
   expect(await rows()).toEqual([]);
+});
+
+test("a failure after some books were found caches them, then throws; a genuine miss alone does not throw", async () => {
+  const ok = manySource("ok", async () => new Map([[ISBN, A]]));
+  const bad = manySource("bad", async () => { throw new Error("boom"); });
+  await expect(createBookLookup({ db: env.DB, sources: [ok, bad] }).lookupMany([ISBN, ISBN_DUNE])).rejects.toBeInstanceOf(LookupUnavailable);
+  expect((await rows()).map((r) => r.isbn)).toEqual([ISBN]);
+  const missOnly = manySource("miss", async () => new Map());
+  expect((await createBookLookup({ db: env.DB, sources: [missOnly] }).lookupMany([ISBN_DUNE])).size).toBe(0);
 });
 
 test("a batch that never answers is aborted: its signal fires", async () => {
   const never = manySource("never", () => new Promise<never>(() => {}));
-  await createBookLookup({ db: env.DB, sources: [never], batchTimeoutMs: 20 }).lookupMany([ISBN]);
+  await createBookLookup({ db: env.DB, sources: [never], batchTimeoutMs: 20 }).lookupMany([ISBN]).catch(() => undefined);
   expect(never.signals[0].aborted).toBe(true);
 });
 
@@ -565,12 +572,12 @@ test("the default batch time limit is 20 seconds; a single lookup keeps 4", asyn
   vi.useFakeTimers();
   try {
     const slow = manySource("slow", () => new Promise<never>(() => {}));
-    const pending = createBookLookup({ db: env.DB, sources: [slow] }).lookupMany([ISBN]);
+    const pending = createBookLookup({ db: env.DB, sources: [slow] }).lookupMany([ISBN]).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(19_000);
     expect(slow.signals[0].aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1_500);
     expect(slow.signals[0].aborted).toBe(true);
-    expect((await pending).size).toBe(0);
+    expect(await pending).toBeInstanceOf(LookupUnavailable);
   } finally {
     vi.useRealTimers();
   }
@@ -583,11 +590,11 @@ test("lookupMany of something that is not a list is empty, not a throw", async (
   expect(got.size).toBe(0);
 });
 
-test("the real Open Library source: a real 500 and a non-JSON body give an empty map", async () => {
+test("the real Open Library source: a real 500 and a non-JSON body are LookupUnavailable", async () => {
   const f500 = (async () => new Response("oops", { status: 500 })) as typeof fetch;
   const text = (async () => new Response("<html>not json</html>", { status: 200 })) as typeof fetch;
   for (const fetch of [f500, text]) {
-    expect((await createBookLookup({ db: env.DB, fetch }).lookupMany([ISBN])).size).toBe(0);
+    await expect(createBookLookup({ db: env.DB, fetch }).lookupMany([ISBN])).rejects.toBeInstanceOf(LookupUnavailable);
   }
   expect(await rows()).toEqual([]);
 });

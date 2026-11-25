@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { BookInfo, ImportRow } from "../../shared/types";
+import { LookupUnavailable } from "../booklookup";
 import { resetDatabase } from "../../../test/reset";
 import { invariantViolations } from "../../../test/invariant";
 import { gated, racing, run } from "../../../test/racing";
@@ -204,15 +205,90 @@ test("scanning an imported ISBN binds the label to the imported copy: no lookup,
   expect((await copiesOf(natalie.id))[0].labels).toBe(1);
 });
 
-test("scanning an ISBN known only as import_isbn binds without a lookup", async () => {
+test("scanning an ISBN known only as import_isbn, which the lookup still misses, binds the title-only copy", async () => {
   const { ledger, lookup } = make();
   ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Left Behind", MISSED)] }));
   const [code] = await mint(ledger);
   const copy = ok(await ledger.add(natalie, { code, book: { isbn: MISSED } }));
-  expect(lookup).not.toHaveBeenCalled();
+  expect(lookup).toHaveBeenCalledTimes(1);
   expect(await count("copies")).toBe(1);
-  expect(copy.book.title).toBe("Left Behind");
-  expect(copy.code).toBe(code);
+  expect([copy.book.isbn, copy.book.title, copy.code]).toEqual([null, "Left Behind", code]);
+});
+
+test("scanning an imported miss that the lookup now finds re-points the copy at the ISBN's book", async () => {
+  const { ledger, lookup } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("dune (csv)", DUNE.isbn)] })); // lookupMany missed
+  expect((await copiesOf(natalie.id))[0].isbn).toBeNull();
+  const [code] = await mint(ledger);
+  const copy = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
+  expect(lookup).toHaveBeenCalledTimes(1);
+  expect(copy.book).toEqual(DUNE);
+  expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
+  expect(await count("copies")).toBe(1);
+  expect(await count("books")).toBe(1); // the title-only book is gone, not orphaned
+  const c = (await copiesOf(natalie.id))[0];
+  expect([c.isbn, c.import_isbn, c.labels]).toEqual([DUNE.isbn, DUNE.isbn, 1]);
+});
+
+test("scanning an imported miss reuses an ISBN book that already exists, and survives a lookup that throws", async () => {
+  const { ledger, lookup } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("dune (csv)", DUNE.isbn), row("emma (csv)", EMMA.isbn)] }));
+  const [c1, c2, c3] = await mint(ledger, 3);
+  ok(await ledger.add(sam, { code: c3, book: { isbn: DUNE.isbn! } })); // the ISBN book now exists
+  lookup.mockClear();
+  expect(ok(await ledger.add(natalie, { code: c1, book: { isbn: DUNE.isbn! } })).book).toEqual(DUNE);
+  expect(await env.DB.prepare("select count(*) as n from books where isbn = ?").bind(DUNE.isbn).first<{ n: number }>()).toEqual({ n: 1 });
+  lookup.mockImplementation(async () => { throw new Error("down"); });
+  const emma = ok(await ledger.add(natalie, { code: c2, book: { isbn: EMMA.isbn! } }));
+  expect([emma.book.isbn, emma.book.title]).toEqual([null, "emma (csv)"]);
+});
+
+test("an import whose lookup is unavailable is refused and writes nothing; the retry stores the facts", async () => {
+  const { ledger, lookupMany } = make();
+  lookupMany.mockImplementation(async () => { throw new LookupUnavailable(); });
+  const rows = [row("Dune", DUNE.isbn), row("Plain")];
+  expect(await ledger.importCopies(natalie, { collectionId: null, rows })).toEqual({ rejected: "unavailable" });
+  expect(await count("copies")).toBe(0);
+  expect(await count("books")).toBe(0);
+  expect(await count("events")).toBe(0);
+  lookupMany.mockImplementation(found(DUNE));
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows }))).toEqual({ added: 2, skipped: 0 });
+  const dune = (await copiesOf(natalie.id)).find((c) => c.import_isbn === DUNE.isbn)!;
+  expect([dune.isbn, dune.title, dune.cover_url]).toEqual([DUNE.isbn, "Dune", DUNE.coverUrl]);
+});
+
+test("a re-import does not ask the lookup about ISBNs the importer already holds", async () => {
+  const { ledger, lookupMany } = make();
+  lookupMany.mockImplementation(found(DUNE));
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Dune", DUNE.isbn), row("Left", MISSED)] }));
+  expect(lookupMany).toHaveBeenCalledTimes(1);
+  lookupMany.mockClear();
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Dune", DUNE.isbn), row("Left", MISSED)] }))).toEqual({ added: 0, skipped: 2 });
+  expect(lookupMany).not.toHaveBeenCalled();
+  // a new ISBN beside held ones: only the new one is asked (a held-by-import_isbn one included)
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Left", MISSED), row("Emma", EMMA.isbn)] }));
+  expect(lookupMany.mock.calls.map((c) => c[0])).toEqual([[EMMA.isbn]]);
+});
+
+test("an import that lands between add's read and its write: the label goes on the imported copy, not a second one", async () => {
+  const setup = make();
+  const [code] = await mint(setup.ledger);
+  const importer = make();
+  importer.lookupMany.mockImplementation(found(DUNE));
+  const { ledger } = make({ db: racing(() => importer.ledger.importCopies(natalie, { collectionId: null, rows: [row("Dune", DUNE.isbn)] })) });
+  const v = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
+  expect(await count("copies")).toBe(1);
+  expect(v.code).toBe(code);
+  expect(v.history.map((h) => h.type)).toEqual(["labelled", "added"]);
+  expect((await copiesOf(natalie.id))[0].labels).toBe(1);
+});
+
+test("an import by a member who already has a default, removed in a race, is not-allowed and writes no copy", async () => {
+  ok(await make().ledger.importCopies(natalie, { collectionId: null, rows: [row("First")] }));
+  const { ledger } = make({ db: racing(run("update members set removed_at = 5 where id = ?", natalie.id)) });
+  expect(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Second"), row("Third", MISSED)] })).toEqual({ rejected: "not-allowed" });
+  expect(await count("copies")).toBe(1);
+  expect(await count("books")).toBe(1);
 });
 
 test("scanning binds the oldest unlabelled copy and ignores the picked collection", async () => {
@@ -388,7 +464,7 @@ test("candidates contain no label code", async () => {
   const json = JSON.stringify(c);
   for (const code of codes) expect(json).not.toContain(code);
   expect(json).not.toContain('"code"');
-  // after labelling, a label bound to a copy is still invisible in the response of labelCopy's own candidates sibling
+  // after labelling, the candidates still show no code
   const labelled = ok(await ledger.labelCopy(natalie, c.sameIsbn!.copyId, codes[0]));
   expect(labelled.code).toBe(codes[0]);
   const after = JSON.stringify(ok(await ledger.candidates(natalie, { title: "dune" })));

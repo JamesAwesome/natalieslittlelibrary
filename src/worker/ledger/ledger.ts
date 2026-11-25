@@ -88,7 +88,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, or scanning an imported copy).
-  const unlabelled = createUnlabelled(db, now, lookupMany, async (copyId, viewer) => {
+  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, async (copyId, viewer) => {
     const v = await renderCopy(copyId, viewer, true);
     return v?.kind === "copy" ? v.copy : null;
   });
@@ -260,8 +260,22 @@ export function createLedger(deps: LedgerDeps): Ledger {
       collectionId === null
         ? { sql: `exists ${DEFAULT_OF}`, binds: [owner.id], column: DEFAULT_OF }
         : { sql: "exists (select 1 from collections where id = ? and owner_id = ?)", binds: [collectionId, owner.id], column: "?" };
-    const guard = `exists ${BLANK} and ${ACTIVE} and ${dest.sql}`;
-    const guardBinds = [code, owner.id, ...dest.binds];
+    // An ISBN add also requires that the adder has no unlabelled copy of it: one an import wrote since the bind path looked
+    // belongs to the label instead (see the retry below).
+    const hasNone =
+      isbn === null
+        ? { sql: "", binds: [] as string[] }
+        : {
+            sql: ` and not exists (select 1 from copies c join books b on b.id = c.book_id
+                     where c.owner_id = ? and not exists (select 1 from labels where copy_id = c.id) and (b.isbn = ? or c.import_isbn = ?))`,
+            binds: [owner.id, isbn, isbn],
+          };
+    const baseGuard = `exists ${BLANK} and ${ACTIVE} and ${dest.sql}`;
+    const baseBinds = [code, owner.id, ...dest.binds];
+    // The book and the copy carry the no-unlabelled-copy guard; the events follow the copy, which is itself unlabelled until
+    // the last statement, so they carry the base guard and the copy-exists check only.
+    const guard = baseGuard + hasNone.sql;
+    const guardBinds = [...baseBinds, ...hasNone.binds];
     const statements: D1PreparedStatement[] = [];
     // Without a chosen collection, the adder's default exists first (and old code's null-collection copies are pinned to it).
     if (collectionId === null) statements.push(...ensureDefault(db, owner.id, at));
@@ -289,9 +303,9 @@ export function createLedger(deps: LedgerDeps): Ledger {
     for (const type of ["added", "labelled"]) {
       statements.push(
         db
-          .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, ? where ${copyExists} and ${guard}`)
+          .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, ? where ${copyExists} and ${baseGuard}`)
           // Binds in order: the inserted values (copy id, at, actor, type), then the copy-exists check's copy id, then the guard.
-          .bind(copyId, at, owner.id, type, copyId, ...guardBinds),
+          .bind(copyId, at, owner.id, type, copyId, ...baseBinds),
       );
     }
     // Last, and guarded on the copy row existing, so its change count says whether everything applied.
@@ -307,6 +321,11 @@ export function createLedger(deps: LedgerDeps): Ledger {
     if (results[results.length - 1].meta.changes === 0) {
       const bound = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
       if (bound?.copy_id != null) return { rejected: "label-in-use" };
+      // An import landed after the bind path looked: the label belongs on that copy. Once, so this cannot loop.
+      if (isbn !== null) {
+        const late = await unlabelled.bindToUnlabelled(owner, code, isbn);
+        if (late !== null) return late;
+      }
       if (collectionId !== null) {
         const k = await db.prepare("select owner_id from collections where id = ?").bind(collectionId).first<{ owner_id: string }>();
         if (k === null || k.owner_id !== owner.id) return { rejected: "not-found" };

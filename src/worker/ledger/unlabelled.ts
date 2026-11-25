@@ -46,6 +46,8 @@ export async function oldestUnlabelledFor(db: D1Database, ownerId: string, isbn:
   return r === null ? null : shelfItem(r);
 }
 
+type Enrich = { isbn: string; facts: NonNullable<ReturnType<typeof cleanBookFacts>> };
+
 type CleanRow = { title: string; authors: string[]; isbn: string | null };
 
 function cleanRows(rows: unknown): CleanRow[] | null {
@@ -71,6 +73,7 @@ function cleanRows(rows: unknown): CleanRow[] | null {
 export function createUnlabelled(
   db: D1Database,
   now: () => number,
+  lookup: (isbn: string) => Promise<BookInfo | null>,
   lookupMany: (isbns: string[]) => Promise<Map<string, BookInfo>>,
   // The copy as the owner sees it with the request's own label in hand.
   render: (copyId: string, viewer: Member) => Promise<CopyView | null>,
@@ -101,13 +104,30 @@ export function createUnlabelled(
         .all<{ isbn: string }>();
       for (const r of results) have.add(r.isbn);
     }
-    const unknown = isbns.filter((i) => !have.has(i));
+    // ISBNs the importer already holds (by the book's ISBN or by import_isbn) are skipped by the write, so they are not asked about.
+    const held = new Set<string>();
+    if (isbns.length > 0) {
+      const marks = isbns.map(() => "?").join(", ");
+      const { results } = await db
+        .prepare(
+          `select b.isbn as book_isbn, c.import_isbn from copies c join books b on b.id = c.book_id
+           where c.owner_id = ? and (b.isbn in (${marks}) or c.import_isbn in (${marks}))`,
+        )
+        .bind(owner.id, ...isbns, ...isbns)
+        .all<{ book_isbn: string | null; import_isbn: string | null }>();
+      for (const r of results) {
+        if (r.book_isbn !== null) held.add(r.book_isbn);
+        if (r.import_isbn !== null) held.add(r.import_isbn);
+      }
+    }
+    const unknown = isbns.filter((i) => !have.has(i) && !held.has(i));
     let looked = new Map<string, BookInfo>();
     if (unknown.length > 0) {
       try {
         looked = await lookupMany(unknown);
       } catch {
-        // A lookup that fails is the same as books it cannot find; nothing is written that a later import could not redo.
+        // A source that failed is not a miss: nothing is written, so the client retries the chunk.
+        return { rejected: "unavailable" };
       }
     }
 
@@ -199,19 +219,49 @@ export function createUnlabelled(
   // Binds the label to the owner's copy. Both statements carry the whole state the decision was made against: the label
   // still blank, the copy the actor's, the actor active and the copy still without a label, so two labels racing for one
   // copy cannot both bind. null means it bound; otherwise the one rule says why not.
-  async function bind(owner: Member, copyId: string, code: string): Promise<Rejection | null> {
+  async function bind(owner: Member, copyId: string, code: string, enrich: Enrich | null = null): Promise<Rejection | null> {
     const guard = `exists (select 1 from copies where id = ? and owner_id = ?) and ${ACTIVE} and not exists (select 1 from labels where copy_id = ?)`;
     const guardBinds = [copyId, owner.id, owner.id, copyId];
     const at = now();
-    const results = await db.batch([
+    const statements = [
       db
         .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, 'labelled' where exists ${BLANK} and ${guard}`)
         .bind(copyId, at, owner.id, code, ...guardBinds),
       db
         .prepare(`update labels set copy_id = ?, bound_at = ? where code = ? and copy_id is null and ${guard}`)
         .bind(copyId, at, code, ...guardBinds),
-    ]);
-    if (results[1].meta.changes === 1) return null;
+    ];
+    let labelAt = 1; // the label update's place in the batch; its change count says whether everything bound
+    if (enrich) {
+      // The copy's title-only book is swapped for the ISBN's book in the same batch, only once the label is bound to it.
+      const old = await db.prepare("select book_id from copies where id = ?").bind(copyId).first<{ book_id: string }>();
+      if (old) {
+        labelAt = 2;
+        statements.unshift(
+          db
+            .prepare(
+              `insert into books (id, isbn, title, authors, cover_url, created_at)
+               select ?, ?, ?, ?, ?, ? where exists ${BLANK} and ${guard}
+               on conflict(isbn) do nothing`,
+            )
+            .bind(crypto.randomUUID(), enrich.isbn, enrich.facts.title, JSON.stringify(enrich.facts.authors), enrich.facts.coverUrl, at, code, ...guardBinds),
+        );
+        statements.push(
+          db
+            .prepare(
+              `update copies set book_id = (select id from books where isbn = ?)
+               where id = ? and book_id = ? and exists (select 1 from books where isbn = ?)
+                 and exists (select 1 from labels where code = ? and copy_id = ?)`,
+            )
+            .bind(enrich.isbn, copyId, old.book_id, enrich.isbn, code, copyId),
+          db
+            .prepare("delete from books where id = ? and isbn is null and not exists (select 1 from copies where book_id = ?)")
+            .bind(old.book_id, old.book_id),
+        );
+      }
+    }
+    const results = await db.batch(statements);
+    if (results[labelAt].meta.changes === 1) return null;
     const label = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
     return label?.copy_id != null ? { rejected: "label-in-use" } : { rejected: "not-allowed" };
   }
@@ -244,7 +294,17 @@ export function createUnlabelled(
   async function bindToUnlabelled(owner: Member, code: string, isbn: string): Promise<CopyView | Rejection | null> {
     const copy = await oldestUnlabelledFor(db, owner.id, isbn);
     if (copy === null) return null;
-    const refused = await bind(owner, copy.copyId, code);
+    // A copy imported without facts (its book has no ISBN) gets them now if the lookup can find the book.
+    let enrich: Enrich | null = null;
+    if (copy.book.isbn === null) {
+      try {
+        const facts = cleanBookFacts(await lookup(isbn));
+        if (facts) enrich = { isbn, facts };
+      } catch {
+        // A lookup that fails binds the title-only copy, as a miss does.
+      }
+    }
+    const refused = await bind(owner, copy.copyId, code, enrich);
     return refused ?? (await bound(owner, copy.copyId));
   }
 

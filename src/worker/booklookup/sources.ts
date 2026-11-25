@@ -12,7 +12,7 @@ export type BookSource = {
 // Open Library asks API clients to name themselves and say where to reach them.
 const USER_AGENT = "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)";
 
-// A miss is `200 {}`; a found book is the value under `ISBN:<isbn>`. Anything unexpected is not found.
+// A miss is `200 {}`; a found book is the value under `ISBN:<isbn>`. A non-200 answer throws; a 200 with an unexpected body is not found.
 export const openLibrary: BookSource = {
   name: "openlibrary",
   async find(isbn, fetch, signal) {
@@ -24,7 +24,8 @@ export const openLibrary: BookSource = {
     if (isbns.length === 0) return found;
     const url = `https://openlibrary.org/api/books?bibkeys=${isbns.map((i) => `ISBN:${i}`).join(",")}&format=json&jscmd=data`;
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal });
-    if (res.status !== 200) return found;
+    // Anything but 200 (429, 503, ...) is the source failing, not a book it lacks; the caller must be able to tell.
+    if (res.status !== 200) throw new Error(`open library answered ${res.status}`);
     const body: unknown = await res.json();
     if (typeof body !== "object" || body === null) return found;
     for (const isbn of isbns) {

@@ -15,11 +15,19 @@ export type BookLookupDeps = {
 
 export interface BookLookup {
   lookup(isbn: string): Promise<BookInfo | null>;
-  // Up to MAX_BATCH ISBNs (any spelling); throws RangeError beyond that. Keyed by ISBN-13, misses absent. Never throws otherwise.
+  // Up to MAX_BATCH ISBNs (any spelling); throws RangeError beyond that. Keyed by ISBN-13, genuine misses absent.
+  // Throws LookupUnavailable when a source failed (timeout, error, non-200) and some ISBN is still unanswered, so a
+  // failure is never mistaken for a miss; what was found is cached first.
   lookupMany(isbns: string[]): Promise<Map<string, BookInfo>>;
 }
 
 export const MAX_BATCH = 20;
+
+export class LookupUnavailable extends Error {
+  constructor() {
+    super("a book source did not answer");
+  }
+}
 
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_BATCH_TIMEOUT_MS = 20000;
@@ -175,12 +183,16 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
       if (wanted.size > MAX_BATCH) throw new RangeError(`lookupMany takes at most ${MAX_BATCH} ISBNs, got ${wanted.size}`);
       const result = await readCacheMany([...wanted]);
       const fresh: { book: BookInfo; source: string }[] = [];
+      let failed = false;
       for (const source of sources) {
         const missing = [...wanted].filter((i) => !result.has(i));
         if (missing.length === 0) break;
         if (!source.findMany) continue;
         const answer = await withLimit(batchTimeoutMs, (signal) => source.findMany!(missing, doFetch, signal));
-        if (!(answer instanceof Map)) continue;
+        if (!(answer instanceof Map)) {
+          failed = true;
+          continue;
+        }
         for (const isbn of missing) {
           const facts = cleanBookFacts(answer.get(isbn));
           if (!facts) continue;
@@ -190,6 +202,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
         }
       }
       await writeCacheMany(fresh);
+      if (failed && [...wanted].some((i) => !result.has(i))) throw new LookupUnavailable();
       return result;
     },
     async lookup(raw) {
