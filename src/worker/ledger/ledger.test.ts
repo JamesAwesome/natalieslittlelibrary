@@ -1,51 +1,14 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, test, vi } from "vitest";
 import { isLabelCode } from "../../shared/labelCode";
-import type { BookInfo, CopyView, LabelView, Member, Rejection } from "../../shared/types";
+import type { BookInfo, CopyView, Rejection } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
-import { createLedger, type Ledger } from "./index";
-
-const natalie: Member = { id: "m-natalie", name: "Natalie", email: "natalie@example.com", pictureUrl: "https://p.test/n.jpg", isAdmin: true };
-const sam: Member = { id: "m-sam", name: "Sam", email: "sam@example.com", pictureUrl: null, isAdmin: false };
-const kim: Member = { id: "m-kim", name: "Kim", email: "kim@example.com", pictureUrl: null, isAdmin: false };
-
-const DUNE: BookInfo = { isbn: "9780441172719", title: "Dune", authors: ["Frank Herbert"], coverUrl: "https://covers.openlibrary.org/b/id/1-L.jpg" };
-const EMMA: BookInfo = { isbn: "9780141439587", title: "Emma", authors: ["Jane Austen"], coverUrl: null };
-
-type Deps = Partial<Parameters<typeof createLedger>[0]>;
-
-function make(deps: Deps = {}) {
-  const lookup = vi.fn(async (isbn: string): Promise<BookInfo | null> => (isbn === DUNE.isbn ? DUNE : isbn === EMMA.isbn ? EMMA : null));
-  const ledger = createLedger({ db: env.DB, siteUrl: "https://books.test", lookup, now: () => 1000, ...deps });
-  return { ledger, lookup };
-}
-
-async function count(table: string): Promise<number> {
-  return (await env.DB.prepare(`select count(*) as n from ${table}`).first<{ n: number }>())!.n;
-}
-
-async function mint(ledger: Ledger, n = 1): Promise<string[]> {
-  const r = await ledger.mintLabels(natalie, n);
-  if ("rejected" in r) throw new Error(r.rejected);
-  return r.map((l) => l.code);
-}
-
-function ok<T>(r: T | Rejection): T {
-  if (r && typeof r === "object" && "rejected" in r) throw new Error(`rejected: ${(r as Rejection).rejected}`);
-  return r as T;
-}
-
-function asCopy(v: LabelView): CopyView {
-  if (v.kind !== "copy") throw new Error(`expected copy, got ${v.kind}`);
-  return v.copy;
-}
+import { gated, racing } from "../../../test/racing";
+import { DUNE, EMMA, asCopy, count, homeCopy, insertMembers, kim, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 
 beforeEach(async () => {
   await resetDatabase(env.DB);
-  for (const m of [natalie, sam, kim]) {
-    await env.DB.prepare("insert into members (id, name, email, picture_url, created_at) values (?, ?, ?, ?, 0)")
-      .bind(m.id, m.name, m.email, m.pictureUrl).run();
-  }
+  await insertMembers();
 });
 
 test("minting gives distinct blank labels with links on the site", async () => {
@@ -385,30 +348,8 @@ test.each([
   for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
 });
 
-// Natalie's copy of Dune, labelled and at home.
-async function homeCopy(ledger: Ledger): Promise<{ code: string; copyId: string }> {
-  const [code] = await mint(ledger);
-  const copy = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
-  return { code, copyId: copy.copyId };
-}
-
 async function eventRows(): Promise<Record<string, unknown>[]> {
   return (await env.DB.prepare("select * from events order by id").all()).results;
-}
-
-// A database whose batches wait until `n` of them have arrived, so n acts have all read state before any writes.
-function gated(n: number): D1Database {
-  let arrived = 0;
-  let release!: () => void;
-  const gate = new Promise<void>((r) => (release = r));
-  return {
-    prepare: (q: string) => env.DB.prepare(q),
-    batch: async (stmts: D1PreparedStatement[]) => {
-      if (++arrived >= n) release();
-      await gate;
-      return env.DB.batch(stmts);
-    },
-  } as unknown as D1Database;
 }
 
 const rejections = (rs: (CopyView | Rejection)[]) => rs.filter((r): r is Rejection => "rejected" in r);
@@ -581,21 +522,6 @@ test("the acting viewer's actions reflect the new state", async () => {
   expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
   expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual([]);
 });
-
-// A database that runs `beforeBatch` once, just before the first batch: a change that lands between act's read and its write.
-function racing(beforeBatch: () => Promise<unknown>): D1Database {
-  let fired = false;
-  return {
-    prepare: (q: string) => env.DB.prepare(q),
-    batch: async (stmts: D1PreparedStatement[]) => {
-      if (!fired) {
-        fired = true;
-        await beforeBatch();
-      }
-      return env.DB.batch(stmts);
-    },
-  } as unknown as D1Database;
-}
 
 const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();
 const holders = async () =>

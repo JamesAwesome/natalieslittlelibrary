@@ -1,7 +1,8 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import type { BookInfo, CollectionSummary, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import { createCollectionWrites } from "./collections";
 import { availableActions, decide } from "./rules";
 
 export type AddInput = { code: string; book: { isbn: string } | { title: string; authors: string[] } };
@@ -13,6 +14,10 @@ export interface Ledger {
   add(owner: Member, input: AddInput): Promise<CopyView | Rejection>;
   view(code: string, viewer: Member | null): Promise<LabelView>;
   act(viewer: Member, action: ActInput): Promise<CopyView | Rejection>;
+  createCollection(member: Member, name: string): Promise<CollectionSummary | Rejection>;
+  renameCollection(member: Member, id: string, name: string): Promise<CollectionSummary | Rejection>;
+  deleteCollection(member: Member, id: string): Promise<{ deleted: true } | Rejection>;
+  makeDefault(member: Member, id: string): Promise<CollectionSummary[] | Rejection>; // the member's collections after
 }
 
 export type LedgerDeps = {
@@ -326,5 +331,5 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
-  return { mintLabels, add, view, act };
+  return { mintLabels, add, view, act, ...createCollectionWrites(db, now) };
 }
