@@ -38,3 +38,11 @@ test("a notice is shown as an alert while signed in", () => {
   expect(screen.getByRole("alert")).toHaveTextContent("Couldn't sign out.");
   expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
 });
+
+test("signed out in an in-app browser explains instead of linking to Google", () => {
+  const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone) AppleWebKit/605 Mobile/15E148 Instagram 300.0");
+  render(<Home member={null} onLogout={() => {}} returnTo="/" />);
+  expect(screen.getByText("Google won't let you sign in inside Instagram. Open this page in Safari or Chrome.")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
+  ua.mockRestore();
+});

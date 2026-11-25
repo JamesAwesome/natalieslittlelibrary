@@ -21,5 +21,5 @@ export type LabelView =
   | { kind: "blank"; code: string }
   | { kind: "public"; code: string; book: { title: string; authors: string[]; coverUrl: string | null } }
   | { kind: "copy"; copy: CopyView };
-export type RejectionReason = "not-found" | "not-allowed" | "label-unknown" | "label-in-use" | "book-not-found" | "invalid";
+export type RejectionReason = "not-found" | "not-allowed" | "label-unknown" | "label-in-use" | "book-not-found" | "invalid" | "signed-out" | "unavailable";
 export type Rejection = { rejected: RejectionReason };

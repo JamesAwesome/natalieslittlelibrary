@@ -146,6 +146,24 @@ describe("Scanner reading", () => {
     expect(screen.queryByText(NOT_BOOK_MESSAGE)).toBeNull();
   });
 
+  test("a QR that is not one of our labels, wanting a label, shows the message and is not passed on", async () => {
+    const onRead = vi.fn();
+    render(<Scanner want="label" onRead={onRead} onProblem={vi.fn()} />);
+    await tick(0);
+    const qr = "https://example.test/about";
+    await runFrames([frame(qr), frame(qr), frame(qr)]);
+    expect(onRead).not.toHaveBeenCalled();
+    expect(screen.getByText("That isn't one of our labels.")).toBeInTheDocument();
+  });
+
+  test("a QR that is not one of our labels says nothing while wanting an ISBN", async () => {
+    render(<Scanner want="isbn" onRead={vi.fn()} onProblem={vi.fn()} />);
+    await tick(0);
+    const qr = "https://example.test/about";
+    await runFrames([frame(qr), frame(qr), frame(qr)]);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   test("a non-book barcode in three frames shows the message and does not call onRead", async () => {
     const onRead = vi.fn();
     render(<Scanner want="isbn" onRead={onRead} onProblem={vi.fn()} />);

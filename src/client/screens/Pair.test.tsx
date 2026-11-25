@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -10,20 +11,29 @@ vi.mock("../api", async () => {
   return { ...actual, lookupBook: vi.fn(), addCopy: vi.fn() };
 });
 
+// A camera still pointed at a label reads it again on every fresh scanner: set this to model that.
+let mockOnMount: { want: string; reading: unknown } | null = null;
+
 vi.mock("../scanner", () => ({
   Scanner: (props: {
     want: string;
     onRead: (r: unknown) => void;
     onProblem: (p: string) => void;
-  }) => (
+  }) => {
+    useEffect(() => {
+      if (mockOnMount && mockOnMount.want === props.want) props.onRead(mockOnMount.reading);
+    }, []);
+    return (
     <div data-testid="scanner" data-want={props.want}>
       <button type="button" onClick={() => props.onRead({ kind: "isbn", isbn: "9780000000002" })}>stub isbn</button>
-      <button type="button" onClick={() => props.onRead({ kind: "label", code: "T7K2Q9XZMB" })}>stub label</button>
+      <button type="button" onClick={() => props.onRead({ kind: "label", code: "t7k2q9xzmb" })}>stub label</button>
+      <button type="button" onClick={() => props.onRead({ kind: "label", code: "mmmmmmmmmm" })}>stub other label</button>
       <button type="button" onClick={() => props.onProblem("no-camera")}>stub no-camera</button>
       <button type="button" onClick={() => props.onProblem("denied")}>stub denied</button>
       <button type="button" onClick={() => props.onProblem("decoder-failed")}>stub decoder-failed</button>
     </div>
-  ),
+    );
+  },
 }));
 
 const me = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
@@ -33,6 +43,7 @@ const assign = vi.fn();
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockOnMount = null;
   vi.stubGlobal("location", { ...window.location, assign, search: "" });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -43,7 +54,7 @@ const show = (search = "", member: typeof me | null = me) => {
 };
 const click = (name: string | RegExp) => userEvent.click(screen.getByRole("button", { name }));
 const wantOf = () => screen.getByTestId("scanner").dataset.want;
-const refuse = (status: number, rejected: string | null) => new api.ApiError(status, rejected);
+const refuse = (status: number, rejected: api.ApiError["rejected"]) => new api.ApiError(status, rejected);
 
 async function toConfirm() {
   vi.mocked(api.lookupBook).mockResolvedValue({ book });
@@ -185,8 +196,8 @@ test("label-in-use returns to the label step with the book kept", async () => {
   expect(await screen.findByText("That label is already on a book. Use a blank one.")).toBeInTheDocument();
   expect(screen.getByText("Now scan a blank label.")).toBeInTheDocument();
   vi.mocked(api.addCopy).mockResolvedValue(copy);
-  await click("stub label");
-  await waitFor(() => expect(api.addCopy).toHaveBeenLastCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002" }));
+  await click("stub other label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenLastCalledWith({ code: "mmmmmmmmmm", isbn: "9780000000002" }));
   expect(api.addCopy).toHaveBeenCalledTimes(2);
 });
 
@@ -440,4 +451,42 @@ test("a save that finishes after the page is gone does not navigate", async () =
   ok(copy);
   await new Promise((r) => setTimeout(r, 20));
   expect(assign).not.toHaveBeenCalled();
+});
+
+test("a refused label still in front of the camera is not saved again, and the notice stays", async () => {
+  vi.mocked(api.addCopy).mockRejectedValue(refuse(409, "label-in-use"));
+  show();
+  await toConfirm();
+  await click("Yes");
+  mockOnMount = { want: "label", reading: { kind: "label", code: "t7k2q9xzmb" } };
+  await click("stub label");
+  expect(await screen.findByText("That label is already on a book. Use a blank one.")).toBeInTheDocument();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("That label is already on a book. Use a blank one.")).toBeInTheDocument();
+});
+
+test("after a refusal a different label read is saved, and the same code typed is tried again", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(409, "label-in-use"));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await click("stub label");
+  await screen.findByText("That label is already on a book. Use a blank one.");
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(409, "label-in-use"));
+  await click("stub other label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(2));
+  expect(saved()[1]).toStrictEqual({ code: "mmmmmmmmmm", isbn: "9780000000002" });
+  await screen.findByText("That label is already on a book. Use a blank one.");
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  await userEvent.type(screen.getByLabelText("Or type the code printed under it"), "mmmmmmmmmm");
+  await click("Use this code");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(3));
+});
+
+test("the typing fields stop at the server's limits, so a long title cannot loop on a refusal", async () => {
+  show();
+  await click("No barcode? Type it in");
+  expect(screen.getByLabelText("Title")).toHaveAttribute("maxlength", "300");
+  expect(screen.getByLabelText("Author")).toHaveAttribute("maxlength", "200");
 });

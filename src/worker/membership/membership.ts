@@ -23,7 +23,6 @@ export type Identified = { status: "member"; member: Member } | { status: "signe
 
 export interface Membership {
   identify(request: Request): Promise<Identified>;
-  currentMember(request: Request): Promise<Member | null>;
   beginLogin(returnTo: string | null): Promise<Response>;
   completeLogin(request: Request): Promise<Response>;
   logout(request: Request): Promise<Response>;
@@ -192,11 +191,6 @@ export function createMembership(deps: {
     }
   }
 
-  async function currentMember(request: Request): Promise<Member | null> {
-    const found = await identify(request);
-    return found.status === "member" ? found.member : null;
-  }
-
   async function beginLogin(returnTo: string | null): Promise<Response> {
     const state = randomToken();
     const verifier = randomToken();
@@ -292,5 +286,5 @@ export function createMembership(deps: {
     return new Response(null, { status: 204, headers: { "set-cookie": clearSession() } });
   }
 
-  return { identify, currentMember, beginLogin, completeLogin, logout };
+  return { identify, beginLogin, completeLogin, logout };
 }

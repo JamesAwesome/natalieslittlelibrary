@@ -1,4 +1,5 @@
 import type { Member } from "../../shared/types";
+import { SignIn } from "./SignIn";
 
 export function Home(props: {
   member: Member | null;
@@ -21,7 +22,7 @@ export function Home(props: {
           <button type="button" onClick={onLogout}>Sign out</button>
         </>
       ) : (
-        <a className="button" href={`/auth/login?returnTo=${encodeURIComponent(returnTo)}`}>Sign in with Google</a>
+        <SignIn returnTo={returnTo} />
       )}
     </>
   );

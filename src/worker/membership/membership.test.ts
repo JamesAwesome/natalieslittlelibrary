@@ -30,8 +30,14 @@ async function signIn(m: Membership, returnTo: string | null = null): Promise<Re
     { headers: { cookie: cookies(begin) } }));
 }
 
+// The member behind a request, or null for everything identify does not call a member.
+async function current(m: Membership, request: Request): Promise<Member | null> {
+  const found = await m.identify(request);
+  return found.status === "member" ? found.member : null;
+}
+
 function asMember(m: Membership, res: Response): Promise<Member | null> {
-  return m.currentMember(new Request("https://books.test/", { headers: { cookie: cookies(res) } }));
+  return current(m, new Request("https://books.test/", { headers: { cookie: cookies(res) } }));
 }
 
 beforeEach(async () => {
@@ -136,7 +142,7 @@ test("a session expires after 90 days", async () => {
 
 test.each(["lib_session=", "lib_session=not-a-token", "lib_session=%%%", "other=1"])(
   "cookie %s is treated as signed out", async (cookie) => {
-    expect(await make().currentMember(new Request("https://books.test/", { headers: { cookie } }))).toBeNull();
+    expect(await current(make(), new Request("https://books.test/", { headers: { cookie } }))).toBeNull();
   });
 
 test("logout ends the session", async () => {
@@ -197,8 +203,8 @@ test("on https a session cookie without the __Host- prefix is not honoured", asy
   const m = make();
   const token = /__Host-lib_session=([^;]+)/.exec((await signIn(m)).headers.getSetCookie().join(";"))![1];
   const req = (cookie: string) => new Request("https://books.test/", { headers: { cookie } });
-  expect(await m.currentMember(req(`lib_session=${token}`))).toBeNull();
-  expect(await m.currentMember(req(`__Host-lib_session=${token}`))).not.toBeNull();
+  expect(await current(m, req(`lib_session=${token}`))).toBeNull();
+  expect(await current(m, req(`__Host-lib_session=${token}`))).not.toBeNull();
 });
 
 test("a session is expired at exactly 90 days", async () => {
@@ -209,7 +215,7 @@ test("a session is expired at exactly 90 days", async () => {
   expect(await asMember(m, res)).toBeNull();
 });
 
-test("currentMember returns null rather than throwing when the database fails", async () => {
+test("a database failure is signed-out, not a throw when the database fails", async () => {
   const m = make();
   const res = await signIn(m);
   const broken = make({ db: { prepare() { throw new Error("db down"); } } as unknown as D1Database });
@@ -404,11 +410,11 @@ test.each(["no cookie", "a malformed token", "an unknown token", "an expired ses
     expect(await m.identify(req(cookie))).toEqual({ status: "signed-out" });
   });
 
-test("identify: a database that throws is unavailable, and currentMember is still null", async () => {
+test("identify: a database that throws is unavailable", async () => {
   const res = await signIn(make());
   const broken = make({ db: { prepare() { throw new Error("db down"); } } as unknown as D1Database });
   expect(await broken.identify(req(cookies(res)))).toEqual({ status: "unavailable" });
-  expect(await broken.currentMember(req(cookies(res)))).toBeNull();
+  expect(await current(broken, req(cookies(res)))).toBeNull();
 });
 
 test("signInAs gives a cookie that identify accepts", async () => {

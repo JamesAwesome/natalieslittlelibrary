@@ -14,6 +14,10 @@ const problemText: Record<ScannerProblem, string> = {
 };
 
 type Step = "isbn" | "looking" | "confirm" | "miss" | "type" | "label" | "saving" | "failed";
+// The server's limits (bookFacts.ts), counted in code points; maxLength counts UTF-16 units, so it can only be stricter.
+const MAX_TITLE = 300;
+const MAX_AUTHOR = 200;
+
 type Typed = { title: string; author: string };
 // What gets saved is decided where the person decides it and passed along, never re-read from state.
 type Payload = { isbn: string } | { title: string; authors: string[] };
@@ -33,6 +37,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [problem, setProblem] = useState<ScannerProblem | null>(null);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const inFlight = useRef(false);
+  // A refused label still in front of the camera must not be saved again until another is read or typed.
+  const refused = useRef<string | null>(null);
   const seq = useRef(0);
   const live = useRef(true);
 
@@ -55,6 +61,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setTyped({ title: "", author: "" });
     setCode(null);
     setPending(null);
+    refused.current = null;
     setNotice(undefined);
     go("isbn");
   }
@@ -99,6 +106,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       } else if (why === "label-in-use" || why === "label-unknown") {
         setLinked(null);
         setCode(null);
+        refused.current = label;
         setNotice(why === "label-in-use" ? "That label is already on a book. Use a blank one." : "That isn't one of our labels.");
         go("label");
       } else if (why === "book-not-found") {
@@ -193,11 +201,16 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
             <Scanner key="label" want="label" onProblem={setProblem} onRead={(r) => {
               if (r.kind !== "label") return;
               const c = parseLabelLink(r.code);
-              if (c === null) setNotice("That isn't one of our labels.");
-              else if (pending !== null) withLabel(c, pending);
+              if (c === null || c === refused.current || pending === null) return;
+              refused.current = null;
+              withLabel(c, pending);
             }} />
           )}
-          <CodeForm onCode={(c) => pending !== null && withLabel(c, pending)} />
+          <CodeForm onCode={(c) => {
+            if (pending === null) return;
+            refused.current = null;
+            withLabel(c, pending);
+          }} />
         </>
       )}
       {step === "saving" && <p>Saving…</p>}
@@ -230,13 +243,13 @@ function TypeForm(props: { typed: Typed; isbn: string | null; onSubmit: (t: Type
     <form onSubmit={submit} noValidate>
       <p>
         <label htmlFor="pair-title">Title</label>
-        <input id="pair-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+        <input id="pair-title" type="text" maxLength={MAX_TITLE} value={title} onChange={(e) => setTitle(e.target.value)}
           aria-invalid={errors.title ? true : undefined} aria-describedby={errors.title ? "pair-title-error" : undefined} />
         {errors.title && <span id="pair-title-error" className="field-error">{errors.title}</span>}
       </p>
       <p>
         <label htmlFor="pair-author">Author</label>
-        <input id="pair-author" type="text" value={author} onChange={(e) => setAuthor(e.target.value)} />
+        <input id="pair-author" type="text" maxLength={MAX_AUTHOR} value={author} onChange={(e) => setAuthor(e.target.value)} />
       </p>
       <p>
         <label htmlFor="pair-isbn">ISBN (optional)</label>

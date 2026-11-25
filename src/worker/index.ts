@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import type { Member, Rejection } from "../shared/types";
+import type { Member, Rejection, RejectionReason } from "../shared/types";
 import { createBookLookup, type BookLookup } from "./booklookup";
 import { createLedger, type Ledger } from "./ledger";
 import { createMembership, googleProvider, type Identified, type Membership } from "./membership";
@@ -25,8 +25,10 @@ function servicesFor(env: Env): Services {
   return { membership, ledger, lookup };
 }
 
-const STATUS: Record<Rejection["rejected"], 400 | 403 | 404 | 409> = {
+const STATUS: Record<Rejection["rejected"], 400 | 401 | 403 | 404 | 409 | 503> = {
   invalid: 400,
+  "signed-out": 401,
+  unavailable: 503,
   "not-allowed": 403,
   "not-found": 404,
   "label-unknown": 404,
@@ -45,7 +47,7 @@ const isApi = (path: string) => path === "/api" || path.startsWith("/api/");
 
 app.onError((_err, c) => {
   if (isApi(c.req.path)) {
-    return c.json({ rejected: "unavailable" }, 503, { "cache-control": "no-store" });
+    return c.json({ rejected: "unavailable" satisfies RejectionReason }, STATUS.unavailable, { "cache-control": "no-store" });
   }
   return c.text("Internal Server Error", 500, { "cache-control": "no-store" });
 });
@@ -70,7 +72,7 @@ app.use("/auth/*", sameSite);
 app.use("/api/*", async (c, next) => {
   if (c.req.path === "/api/health") return next();
   const identified = await c.var.services.membership.identify(c.req.raw);
-  if (identified.status === "unavailable") return c.json({ rejected: "unavailable" }, 503);
+  if (identified.status === "unavailable") return c.json({ rejected: "unavailable" satisfies RejectionReason }, STATUS.unavailable);
   c.set("identified", identified);
   await next();
 });
@@ -84,7 +86,7 @@ const viewer = (c: AppContext): Member | null => {
 function member(handler: (c: AppContext, who: Member) => Promise<Response>) {
   return async (c: AppContext) => {
     const who = viewer(c);
-    if (!who) return c.json({ rejected: "signed-out" }, 401);
+    if (!who) return c.json({ rejected: "signed-out" satisfies RejectionReason }, STATUS["signed-out"]);
     return handler(c, who);
   };
 }

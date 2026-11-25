@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
 import { CopyPage } from "./screens/CopyPage";
 import { Home } from "./screens/Home";
-import { Labels } from "./screens/Labels";
 import { NotFound } from "./screens/NotFound";
-import { Pair } from "./screens/Pair";
+
+// Pairing and label printing carry the barcode decoder and the QR drawer; the other pages need neither.
+const Pair = lazy(() => import("./screens/Pair").then((m) => ({ default: m.Pair })));
+const Labels = lazy(() => import("./screens/Labels").then((m) => ({ default: m.Labels })));
 
 const refusalText: Record<RefusalReason, string> = {
   "not-invited": "This library is invite-only right now. Ask Natalie to add you.",
@@ -107,7 +109,7 @@ export function App() {
   return (
     <>
       {refused !== null && <p role="alert" className="refusal app-chrome">{explain(refused)}</p>}
-      {screen}
+      <Suspense fallback={<p>Loading…</p>}>{screen}</Suspense>
     </>
   );
 }

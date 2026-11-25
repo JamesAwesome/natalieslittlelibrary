@@ -1,9 +1,9 @@
-import type { BookInfo, CopyView, LabelView, Member } from "../shared/types";
+import type { BookInfo, CopyView, LabelView, Member, RejectionReason } from "../shared/types";
 
 export class ApiError extends Error {
   status: number;
-  rejected: string | null;
-  constructor(status: number, rejected: string | null, message?: string) {
+  rejected: RejectionReason | null;
+  constructor(status: number, rejected: RejectionReason | null, message?: string) {
     super(message ?? `request failed: ${status}${rejected ? ` (${rejected})` : ""}`);
     this.name = "ApiError";
     this.status = status;
@@ -22,10 +22,10 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
         },
   );
   if (!res.ok) {
-    let rejected: string | null = null;
+    let rejected: RejectionReason | null = null;
     try {
       const parsed = (await res.json()) as { rejected?: unknown } | null;
-      if (typeof parsed?.rejected === "string") rejected = parsed.rejected;
+      if (typeof parsed?.rejected === "string") rejected = parsed.rejected as RejectionReason;
     } catch {
       // Not JSON: the status alone says what happened.
     }

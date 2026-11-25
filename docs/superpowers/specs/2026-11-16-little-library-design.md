@@ -337,7 +337,7 @@ title is a normal path, not an edge case.
 
 ### Membership (worker)
 
-Interface: `currentMember(request)`; `beginLogin(returnTo, viaLabel?)`;
+Interface: `identify(request)`; `beginLogin(returnTo, viaLabel?)`;
 `completeLogin(request)` returns a session or a refusal.
 
 Hides Google's OAuth exchange, session cookies and their storage, the
@@ -352,8 +352,8 @@ Interface: one React component that calls back with a reading: a label code,
 an ISBN, or something unrecognised.
 
 Hides camera permission and its failure states, picking the rear camera, the
-native decoder versus the WebAssembly one (two adapters, a real internal
-seam), and telling a label link from an ISBN barcode. Callers never see a
+bundled WebAssembly decoder (proved on a QR code before it is trusted; see the
+step 2 corrections below for why there is no native adapter), and telling a label link from an ISBN barcode. Callers never see a
 video element or a raw string.
 
 ### Small ones

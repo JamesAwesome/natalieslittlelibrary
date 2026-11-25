@@ -9,6 +9,7 @@ export type ScannerProblem = "no-camera" | "denied" | "decoder-failed";
 const FRAME_MS = 120;
 const DECODE_LIMIT_MS = 5000;
 const MAX_FAILED_DECODES = 10;
+const NOT_A_LABEL = "That isn't one of our labels.";
 const NOT_A_BOOK = "That barcode isn't a book's ISBN. Look for the one starting 978 or 979.";
 
 export function Scanner(props: {
@@ -60,6 +61,11 @@ export function Scanner(props: {
         if (want === "isbn") {
           notBook.current = { value, lastSeen: now };
           setMessage(NOT_A_BOOK);
+        }
+      } else if (result.kind === "not-our-label") {
+        if (want === "label") {
+          notBook.current = { value, lastSeen: now };
+          setMessage(NOT_A_LABEL);
         }
       } else if (result.kind === want) {
         notBook.current = null;
