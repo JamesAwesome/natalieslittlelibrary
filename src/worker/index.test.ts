@@ -189,6 +189,28 @@ test("migrations created the tables", async () => {
   }
 });
 
+// drizzle-kit's db:check tracks indexes by name only, so a changed predicate or column list would pass it unseen.
+// Pinning the SQL itself, whitespace collapsed, is what catches schema.ts and the migrations drifting apart there.
+const expectedIndexSql: Record<string, string> = {
+  books_isbn_unique: "CREATE UNIQUE INDEX `books_isbn_unique` ON `books` (`isbn`)",
+  collections_one_default:
+    'CREATE UNIQUE INDEX `collections_one_default` ON `collections` (`owner_id`) WHERE "collections"."is_default" = 1',
+  collections_owner_name_key_unique:
+    "CREATE UNIQUE INDEX `collections_owner_name_key_unique` ON `collections` (`owner_id`,`name_key`)",
+  copies_collection_id_idx: "CREATE INDEX `copies_collection_id_idx` ON `copies` (`collection_id`)",
+  copies_holder_member_id_idx: "CREATE INDEX `copies_holder_member_id_idx` ON `copies` (`holder_member_id`)",
+  copies_owner_id_idx: "CREATE INDEX `copies_owner_id_idx` ON `copies` (`owner_id`)",
+  events_copy_id_id_idx: "CREATE INDEX `events_copy_id_id_idx` ON `events` (`copy_id`,`id`)",
+  labels_copy_id_idx: "CREATE INDEX `labels_copy_id_idx` ON `labels` (`copy_id`)",
+};
+
+test("every created index has exactly this SQL, predicate and uniqueness included", async () => {
+  const { results } = await env.DB.prepare(
+    "select name, sql from sqlite_master where type = 'index' and sql is not null order by name",
+  ).all<{ name: string; sql: string }>();
+  expect(Object.fromEntries(results.map((r) => [r.name, r.sql.replace(/\s+/g, " ").trim()]))).toEqual(expectedIndexSql);
+});
+
 test("the database holds exactly these tables", async () => {
   const { results } = await env.DB.prepare(
     "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like 'd1_%' and name not like '_cf_%' order by name",

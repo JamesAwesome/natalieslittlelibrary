@@ -1,5 +1,6 @@
 // Fails unless schema.ts matches the committed Drizzle migrations.
 // `--explain` is a dry run: it writes no migration.
+// It does not cover index shape: indexes are compared by name only, so index SQL is pinned in src/worker/index.test.ts.
 import { execFileSync } from "node:child_process";
 
 const out = execFileSync("pnpm", ["exec", "drizzle-kit", "generate", "--explain", "--output", "json"], {
