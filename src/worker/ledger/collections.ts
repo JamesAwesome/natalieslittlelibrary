@@ -1,5 +1,6 @@
 import { cleanCollectionName } from "../../shared/collectionName";
 import type { CollectionSummary, Member, Rejection } from "../../shared/types";
+import { createShelfReads } from "./shelves";
 
 // The active-actor guard; bind the actor's id once.
 export const ACTIVE = "exists (select 1 from members where id = ? and removed_at is null)";
@@ -35,25 +36,6 @@ function pinNullCopies(db: D1Database, ownerId: string): D1PreparedStatement {
     .bind(ownerId, ownerId, ownerId, ownerId);
 }
 
-type SummaryRow = { id: string; name: string; is_default: number; n: number; unlabelled: number };
-
-// The member's collections, default first, then by name; counts include lent-out and unlabelled copies.
-async function summariesOf(db: D1Database, ownerId: string): Promise<CollectionSummary[]> {
-  const { results } = await db
-    .prepare(
-      `select k.id, k.name, k.is_default,
-         (select count(*) from copies c where c.collection_id = k.id) as n,
-         (select count(*) from copies c where c.collection_id = k.id
-            and not exists (select 1 from labels l where l.copy_id = c.id)) as unlabelled
-       from collections k where k.owner_id = ?`,
-    )
-    .bind(ownerId)
-    .all<SummaryRow>();
-  return results
-    .map((r): CollectionSummary => ({ id: r.id, name: r.name, isDefault: r.is_default === 1, count: r.n, unlabelled: r.unlabelled }))
-    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-}
-
 const isUnique = (e: unknown) => e instanceof Error && /UNIQUE constraint failed/i.test(e.message);
 
 // Every write goes through db.batch, even a single statement, so the tests' gated and racing databases can interleave it.
@@ -62,8 +44,14 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
     return (await db.prepare("select 1 as ok from members where id = ? and removed_at is null").bind(id).first()) !== null;
   }
 
+  const { collectionsOf } = createShelfReads(db);
+  async function summariesOf(ownerId: string): Promise<CollectionSummary[]> {
+    const r = await collectionsOf(ownerId);
+    return "rejected" in r ? [] : r.collections;
+  }
+
   async function summaryOne(ownerId: string, id: string): Promise<CollectionSummary | null> {
-    return (await summariesOf(db, ownerId)).find((c) => c.id === id) ?? null;
+    return (await summariesOf(ownerId)).find((c) => c.id === id) ?? null;
   }
 
   // The collection, if it is the owner's.
@@ -169,12 +157,12 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
         )
         .bind(id, member.id, member.id, member.id),
     ]);
-    if (set.meta.changes === 1) return summariesOf(db, member.id);
+    if (set.meta.changes === 1) return summariesOf(member.id);
     if (!(await isActive(member.id))) return { rejected: "not-allowed" };
     const now = await reread(id, member.id);
     if (now === null) return { rejected: "not-found" };
     // Already the default: nothing to change.
-    return now.is_default === 1 ? summariesOf(db, member.id) : { rejected: "not-found" };
+    return now.is_default === 1 ? summariesOf(member.id) : { rejected: "not-found" };
   }
 
   return { createCollection, renameCollection, deleteCollection, makeDefault };

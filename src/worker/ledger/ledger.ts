@@ -1,9 +1,10 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, CollectionSummary, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import type { BookInfo, CollectionSummary, CopyView, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
+import { createShelfReads, effectiveCollection } from "./shelves";
 
 export type AddInput = {
   code: string;
@@ -18,6 +19,10 @@ export interface Ledger {
   add(owner: Member, input: AddInput): Promise<CopyView | Rejection>;
   view(code: string, viewer: Member | null): Promise<LabelView>;
   act(viewer: Member, action: ActInput): Promise<CopyView | Rejection>;
+  viewCopy(copyId: string, viewer: Member): Promise<CopyView | Rejection>; // code null, no claim
+  collectionsOf(ownerId: string): Promise<{ owner: Person; collections: CollectionSummary[] } | Rejection>;
+  shelf(collectionId: string): Promise<Shelf | Rejection>;
+  holding(member: Member): Promise<ShelfItem[]>;
   moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection>; // answers with no code
   createCollection(member: Member, name: string): Promise<CollectionSummary | Rejection>;
   renameCollection(member: Member, id: string, name: string): Promise<CollectionSummary | Rejection>;
@@ -125,10 +130,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const statements = [
       db
         .prepare(
-          `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture
+          `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture,
+             k.id as shown_collection_id, k.name as shown_collection_name
            from (${COPY_SELECT} where c.id = ?) x
            left join members o on o.id = x.owner_id
-           left join members h on h.id = x.holder_member_id`,
+           left join members h on h.id = x.holder_member_id
+           left join collections k on k.id = ${effectiveCollection("x")}`,
         )
         .bind(copyId),
     ];
@@ -145,7 +152,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     const [copyResult, history] = await db.batch(statements);
     const row = copyResult.results[0] as
-      | (CopyRow & { owner_name: string | null; owner_picture: string | null; holder_name: string | null; holder_picture: string | null })
+      | (CopyRow & { owner_name: string | null; owner_picture: string | null; holder_name: string | null; holder_picture: string | null; shown_collection_id: string | null; shown_collection_name: string | null })
       | undefined;
     if (!row) return null;
     const book: BookInfo = {
@@ -176,7 +183,11 @@ export function createLedger(deps: LedgerDeps): Ledger {
             ? { kind: "member", person: { id: row.holder_member_id, name: row.holder_name, pictureUrl: row.holder_picture } }
             : { kind: "named", name: "" },
         home: row.owner_id !== null && row.owner_id === row.holder_member_id,
-        collection: null, // filled in by Task 4
+        // Members see where a copy lives, home or out; the public view (above) has no collection.
+        collection:
+          row.shown_collection_id !== null && row.shown_collection_name !== null
+            ? { id: row.shown_collection_id, name: row.shown_collection_name }
+            : null,
         history: entries,
         actions: availableActions(
           { ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null },
@@ -360,6 +371,13 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
+  // A copy reached by id: the request carried no label, so no code and no claim.
+  async function viewCopy(copyId: string, viewer: Member): Promise<CopyView | Rejection> {
+    if (typeof copyId !== "string") return { rejected: "not-found" };
+    const v = await renderCopy(copyId, viewer, false);
+    return v?.kind === "copy" ? v.copy : { rejected: "not-found" };
+  }
+
   async function moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection> {
     if (typeof copyId !== "string" || typeof collectionId !== "string") return { rejected: "invalid" };
     // decide() says whether the owner may move this copy; the write then re-checks the copy, the destination and the
@@ -391,5 +409,5 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
-  return { mintLabels, add, view, act, moveCopy, ...createCollectionWrites(db, now) };
+  return { mintLabels, add, view, act, viewCopy, moveCopy, ...createShelfReads(db), ...createCollectionWrites(db, now) };
 }
