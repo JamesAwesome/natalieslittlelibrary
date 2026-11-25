@@ -164,6 +164,7 @@ a.button {
   margin: 0 0 4px;
 }
 
+.pair-page select,
 .pair-page input[type="text"] {
   box-sizing: border-box;
   width: 100%;
