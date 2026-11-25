@@ -118,6 +118,11 @@ a.button {
   margin: 0 0 4px;
 }
 
+.copy-page p,
+.copy-page .history li {
+  overflow-wrap: anywhere;
+}
+
 .copy-page select {
   box-sizing: border-box;
   display: block;

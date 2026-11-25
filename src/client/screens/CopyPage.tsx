@@ -33,17 +33,16 @@ function Copy(props: {
   busy: boolean;
   onAction: (a: ActionType) => void;
   choices: CollectionSummary[] | undefined;
+  choicesFailed: boolean;
   onMove: (collectionId: string) => void;
 }) {
-  const { copy, busy, onAction, choices, onMove } = props;
+  const { copy, busy, onAction, choices, choicesFailed, onMove } = props;
   const holder = copy.holder.kind === "member" ? copy.holder.person.name : copy.holder.name;
-  // Pick something other than where it already is, so Move does something the first time.
+  // Only other collections are offered; with none, there is nothing to move to.
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const current = copy.collection?.id;
-  const options = choices ?? [];
-  const chosen = picked !== undefined && options.some((c) => c.id === picked)
-    ? picked
-    : (options.find((c) => c.id !== current) ?? options[0])?.id;
+  const options = (choices ?? []).filter((c) => c.id !== current);
+  const chosen = picked !== undefined && options.some((c) => c.id === picked) ? picked : options[0]?.id;
   // A copy with no label code was reached by id; claiming goes through the code, so it is not offered.
   const buttons = copy.actions.filter((a) => a !== "move" && a !== "label" && !(a === "claim" && copy.code === null));
   return (
@@ -68,9 +67,10 @@ function Copy(props: {
               {options.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
-          <button type="button" disabled={busy || chosen === current} onClick={() => onMove(chosen)}>Move</button>
+          <button type="button" disabled={busy} onClick={() => onMove(chosen)}>Move</button>
         </p>
       )}
+      {copy.actions.includes("move") && choicesFailed && <p>Couldn't load your collections, so moving isn't available right now.</p>}
       {copy.actions.includes("label") && (
         <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}`}>{actionText.label}</a></p>
       )}
@@ -100,6 +100,7 @@ function Page(props: Props) {
   const [failed, setFailed] = useState(false);
   const [gone, setGone] = useState(false);
   const [choices, setChoices] = useState<CollectionSummary[] | undefined>(undefined);
+  const [choicesFailed, setChoicesFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const inFlight = useRef(false);
@@ -114,19 +115,28 @@ function Page(props: Props) {
       setView(v);
     } catch (e) {
       if (!live.current) return;
-      if (code === null && e instanceof ApiError && e.status === 401) setLost(true);
+      if (code === null && e instanceof ApiError && e.status === 401) {
+        // Nothing on a page reached by id outlives the session: drop the stale copy and its buttons.
+        setLost(true);
+        setView(undefined);
+      }
       else if (code === null && e instanceof ApiError && e.status === 404) setGone(true);
       else setFailed(true);
     }
   }, [code, copyId]);
 
   const mayMove = view?.kind === "copy" && view.copy.actions.includes("move");
-  const loadChoices = useCallback(async () => {
+  const loadChoices = useCallback(async (): Promise<CollectionSummary[] | null> => {
     try {
       const mine = await myCollections();
-      if (live.current) setChoices(mine.collections);
+      if (live.current) {
+        setChoices(mine.collections);
+        setChoicesFailed(false);
+      }
+      return mine.collections;
     } catch {
-      // Without the list there is nothing to pick from; the page still works.
+      if (live.current) setChoicesFailed(true);
+      return null;
     }
   }, []);
   useEffect(() => {
@@ -148,14 +158,18 @@ function Page(props: Props) {
     setNotice(undefined);
     try {
       const next = await moveCopy(copy.copyId, collectionId);
-      if (live.current) setView({ kind: "copy", copy: next });
+      // A label page refetches, so what depends on the code (the copy link) stays; the answer to a move carries none.
+      if (code !== null) await load();
+      else if (live.current) setView({ kind: "copy", copy: next });
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) {
         setLost(true);
       } else if (e instanceof ApiError && e.rejected === "not-found") {
-        setNotice("That collection is gone. Pick another.");
-        await loadChoices();
+        const fresh = await loadChoices();
+        setNotice(fresh !== null && fresh.some((c) => c.id === collectionId)
+          ? "That book isn't here any more."
+          : "That collection is gone. Pick another.");
         return;
       } else {
         setNotice("Something went wrong. Try again.");
@@ -233,7 +247,7 @@ function Page(props: Props) {
           <SignIn returnTo={returnTo} />
         </>
       )}
-      {view.kind === "copy" && <Copy copy={view.copy} busy={busy} choices={choices} onAction={(a) => void act(a, view.copy)} onMove={(id) => void move(view.copy, id)} />}
+      {view.kind === "copy" && <Copy copy={view.copy} busy={busy} choices={choices} onAction={(a) => void act(a, view.copy)} choicesFailed={choicesFailed} onMove={(id) => void move(view.copy, id)} />}
     </div>
   );
 }
