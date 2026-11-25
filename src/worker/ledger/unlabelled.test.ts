@@ -243,6 +243,23 @@ test("scanning an imported miss reuses an ISBN book that already exists, and sur
   expect([emma.book.isbn, emma.book.title]).toEqual([null, "emma (csv)"]);
 });
 
+test("enriching a scanned copy leaves the title-only book alone while another copy still uses it", async () => {
+  const { ledger } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("dune (csv)", DUNE.isbn)] })); // lookupMany missed
+  const [mine] = await copiesOf(natalie.id);
+  const book = (await env.DB.prepare("select book_id from copies where id = ?").bind(mine.id).first<{ book_id: string }>())!.book_id;
+  // No supported path makes two copies of one title-only book, so the second copy is inserted directly, a little newer.
+  await env.DB.prepare("insert into copies (id, book_id, owner_id, holder_member_id, collection_id, created_at) values ('c-other', ?, ?, ?, ?, 5000)")
+    .bind(book, natalie.id, natalie.id, mine.collection_id)
+    .run();
+  const [code] = await mint(ledger);
+  expect(ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } })).copyId).toBe(mine.id);
+  expect(await env.DB.prepare("select title, isbn from books where id = ?").bind(book).first()).toEqual({ title: "dune (csv)", isbn: null });
+  const other = await env.DB.prepare("select book_id, owner_id from copies where id = 'c-other'").first();
+  expect(other).toEqual({ book_id: book, owner_id: natalie.id });
+  expect((await env.DB.prepare("select b.isbn from copies c join books b on b.id = c.book_id where c.id = ?").bind(mine.id).first<{ isbn: string }>())!.isbn).toBe(DUNE.isbn);
+});
+
 test("an import whose lookup is unavailable is refused and writes nothing; the retry stores the facts", async () => {
   const { ledger, lookupMany } = make();
   lookupMany.mockImplementation(async () => { throw new LookupUnavailable(); });
