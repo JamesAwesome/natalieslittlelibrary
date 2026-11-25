@@ -44,7 +44,8 @@ browser and tells the person to open it in Safari or Chrome before offering
 sign-in; pages refetch who is signed in when restored from the back-forward
 cache.
 
-Built (2026-11-25): label sheets for six Avery layouts and plain paper, with
+Built, not yet released (2026-11-25; release is v0.2.0 after
+the PR merges): label sheets for six Avery layouts and plain paper, with
 an alignment test and nudge; pairing by ISBN scan or typed title; the copy page
 with claim, return and history; embedded-browser detection. Still to do:
 James's check below, which needs the app deployed and two phones, after a
@@ -57,11 +58,11 @@ camera, and Natalie sees that he has it.
 
 Carry-overs from step 1:
 
-- Resolve the member once per `/api/*` request in middleware so the ledger can ask who is calling.
-- A shared test helper that empties all tables.
-- A public member shape without email (members see names, not addresses).
-- A refusal should keep `returnTo` so a person is not bounced off the book page they scanned.
-- Decide whether a database outage should look different from being signed out.
+- Done: resolve the member once per `/api/*` request in middleware (`src/worker/index.ts:69-77`).
+- Done: a shared test helper that empties all tables (`resetDatabase`, `test/reset.ts:3`).
+- Done: a public member shape without email (`Person` in `src/shared/types.ts:4` is what a copy view carries; `Member` keeps email for the viewer only, `types.ts:1`; Google's name fallback no longer uses the email, `google.ts:95`).
+- Done: a refusal keeps `returnTo` (`src/worker/membership/membership.ts:163-164, 279`).
+- Done: a database outage looks different from being signed out (503 `unavailable` at `src/worker/index.ts:74`, shown at `src/client/App.tsx:75`).
 
 ## 3. Collections
 
@@ -94,9 +95,12 @@ Carry-overs from step 2:
   inside the detect try; the not-a-book message is not cleared on hide/show;
   Scanner tests do not restore `visibilityState`; the copy page's trouble
   branch renders outside `.copy-page`.
-- Printing: Print stays enabled with an invalid custom layout; after a partial
-  mint, changing the sheet count drops the visible made labels without a
-  message and the "N of M sheets" line lingers.
+- Printing: after a partial mint, changing the sheet count drops the visible
+  made labels without a message and the "N of M sheets" line lingers.
+- `returnTo` is tested only at the root route in the client; re-pin it on a
+  `/b/<code>` page.
+- eslint ignores only a top-level `dist`; a stray build directory elsewhere
+  breaks lint.
 
 ## 4. Owner tools
 
@@ -105,6 +109,8 @@ approve ownership. Release. Replace a label.
 
 Carry-overs from step 2:
 
+- The `type as ActionType` cast in the ledger, and its return does not
+  distinguish not-allowed from not-found for a copy id.
 - Removing a copy is a soft delete: events reference copies.
 - Replacing a label retires the old one (`retired_at`); it does not unbind it.
 - Columns added to existing tables must be nullable (see Known hazards).
@@ -126,6 +132,9 @@ entry-by-label. Big print run.
 
 Carry-overs from step 2:
 
+- `toPage`'s post-build check has no direct pin beyond the end-to-end tests;
+  no tests for `%5c` / `%09` in `returnTo`; the `given_name` branch in
+  `google.ts` is practically dead (Google omits it when there is no name).
 - `act` does not check `removed_at`; membership does, leaving a one-request
   window after a removal.
 - Refusals re-serialise the query (`%20` becomes `+`, `?a` becomes `?a=`), and

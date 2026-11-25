@@ -32,8 +32,9 @@ cut the entries whose shape has not recurred.
 
 - **"A GitHub environment gates this deploy" / "Only X can deploy."** Believed
   because the workflow says `environment:` and the guard refuses X's negatives.
-  Settled by checking the plan's per-platform availability, and by testing the
-  guard against an older ref legitimately on main. A check a thing runs on
+  Settled by checking the plan's per-platform availability, by asking which
+  copy of the workflow GitHub runs (the triggering commit's own), and by
+  testing the guard against an older ref legitimately on main. A check a thing runs on
   itself stops mistakes, not intent.
 
 ## From step 2 (2026-11-25)
@@ -87,7 +88,7 @@ cut the entries whose shape has not recurred.
 - Google only vouches for an email that is `@gmail.com` or on a Workspace
   domain (`hd` set). Elsewhere `email_verified` can be stale.
 - Google refuses OAuth in embedded browsers (in-app webviews).
-- Google Books refuses keyless requests.
+- Google Books refuses keyless requests (its docs: "must send an API key").
 - Fake timers do not drive `AbortSignal.timeout` in the Workers test runtime.
 - Two concurrent D1 batches that each checked state beforehand both succeed
   unless every statement is conditional on that state.

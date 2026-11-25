@@ -834,8 +834,9 @@ Recorded after the build; the task text above is left as written.
   default CDN address is a string in its bundle even though the app overrides
   it. The check was replaced by a browser run with the CDN host blocked,
   showing only same-origin requests.
-- **Task 5, User-Agent.** Open Library asks for contact details; the app sends
-  none (privacy), so lookups are in the 1 req/s tier.
+- **Task 5, User-Agent.** Open Library asks for contact details. The app sends
+  its name and public repository address but no contact details (privacy), so
+  lookups are in the 1 req/s tier.
 - **Task 12, `codeBox`.** For round labels: QR centred; no code text under
   1.5 in; at least 2 modules from QR to text; at least 1.5 mm from QR corners
   to the cut. QR placement is computed in `layout.ts`, and the print check
