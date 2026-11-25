@@ -15,6 +15,8 @@ beforeEach(() => {
   vi.mocked(api.logout).mockResolvedValue();
   reload.mockReset();
   vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload });
+  // This runtime's own localStorage is not usable and warns when touched (the labels page reads it).
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -120,6 +122,19 @@ test("the pair page signed out signs back in to /pair with its label", async () 
   render(<App />);
   const link = await screen.findByRole("link", { name: "Sign in with Google" });
   expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fpair%3Flabel%3DT7K2Q9XZMB");
+});
+
+test("the labels page signed out signs back in to /labels", async () => {
+  at("/labels");
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Flabels");
+});
+
+test("the labels page signed in shows the sheet picker", async () => {
+  at("/labels");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  render(<App />);
+  expect(await screen.findByLabelText("Label sheet")).toBeInTheDocument();
 });
 
 test("removing refused keeps ?label= on the pair page", async () => {

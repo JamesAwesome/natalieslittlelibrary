@@ -4,6 +4,7 @@ import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
 import { CopyPage } from "./screens/CopyPage";
 import { Home } from "./screens/Home";
+import { Labels } from "./screens/Labels";
 import { NotFound } from "./screens/NotFound";
 import { Pair } from "./screens/Pair";
 
@@ -97,13 +98,15 @@ export function App() {
       <CopyPage code={route.code} member={member} returnTo={returnTo} />
     ) : route.name === "pair" ? (
       <Pair member={member} returnTo={returnTo} />
+    ) : route.name === "labels" ? (
+      <Labels member={member} returnTo={returnTo} />
     ) : (
       <NotFound />
     );
 
   return (
     <>
-      {refused !== null && <p role="alert" className="refusal">{explain(refused)}</p>}
+      {refused !== null && <p role="alert" className="refusal app-chrome">{explain(refused)}</p>}
       {screen}
     </>
   );
