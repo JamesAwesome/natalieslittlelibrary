@@ -107,6 +107,9 @@ test("import, see the shelf, scan to label, lend, and come home to the same coll
     expect(bound.status).toBe(200);
     expect(((await bound.json()) as CopyView).copyId).toBe(kafka.copyId);
     expect(await copies()).toBe(3);
+    const after = (await (await send("GET", `/api/collections/${beach.id}`, natalie.cookie)).json()) as Shelf;
+    expect(after.items.find((i) => i.copyId === kafka.copyId)?.labelled).toBe(true);
+    expect(after.items.filter((i) => i.labelled)).toHaveLength(1);
 
     const theirs = await send("GET", `/api/members/${natalie.member.id}/collections`, sam.cookie);
     const theirShelf = await send("GET", `/api/collections/${beach.id}`, sam.cookie);

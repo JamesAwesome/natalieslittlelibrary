@@ -287,14 +287,15 @@ export function createMembership(deps: {
     return new Response(null, { status: 204, headers: { "set-cookie": clearSession() } });
   }
 
-  async function members_(): Promise<Person[]> {
+  async function listMembers(): Promise<Person[]> {
     const rows = await db
       .select({ id: members.id, name: members.name, pictureUrl: members.pictureUrl })
       .from(members)
       .where(isNull(members.removedAt))
+      // `collate nocase` folds ASCII only: "Émile" sorts after "Zed".
       .orderBy(sql`${members.name} collate nocase`, members.id);
     return rows;
   }
 
-  return { identify, members: members_, beginLogin, completeLogin, logout };
+  return { identify, members: listMembers, beginLogin, completeLogin, logout };
 }

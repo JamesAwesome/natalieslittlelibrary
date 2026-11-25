@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { invariantViolations } from "../../test/invariant";
 import { resetDatabase } from "../../test/reset";
 import found from "./booklookup/fixtures/found.json";
+import manyBooks from "./booklookup/fixtures/many.json";
 import googleFound from "./booklookup/fixtures/google-found.json";
 import app from "./index";
 import { signInAs } from "./membership/testing";
@@ -681,20 +682,131 @@ test("a name clash is 409 name-taken", async () => {
   expect(rename.status).toBe(409);
 });
 
-test.each(["PATCH /api/collections/x", "DELETE /api/collections/x", "POST /api/imports"])(
-  "%s from another site is 403 and changes nothing", async (route) => {
-    const [method, path] = route.split(" ");
-    const { cookie } = await signInAs(env.DB, natalie);
-    const made = (await (await send("POST", "/api/collections", cookie, { name: "Beach house" })).json()) as { id: string };
-    const target = path.replace("/x", `/${made.id}`);
-    const body = method === "DELETE" ? undefined : method === "PATCH" ? { name: "Renamed" } : { collectionId: made.id, rows: [{ title: "T", authors: [], isbn: null }] };
-    const res = await send(method, target, cookie, body, { origin: "https://evil.example" });
+// Everything a state-changing route needs, so a same-site control can prove each write really succeeds.
+async function writeFixture() {
+  const nat = await signInAs(env.DB, natalie);
+  const json = async <T>(res: Response) => (await res.json()) as T;
+  await send("POST", "/api/imports", nat.cookie, { rows: [{ title: "Loose", authors: ["L"], isbn: null }] }); // makes the default
+  const spare = await json<{ id: string }>(await send("POST", "/api/collections", nat.cookie, { name: "Spare" })); // empty, not default
+  const { labels } = await json<{ labels: { code: string }[] }>(await send("POST", "/api/labels", nat.cookie, { count: 3 }));
+  const [labelled, forLoose, forNew] = labels.map((l) => l.code);
+  const home = await json<{ copyId: string }>(await send("POST", "/api/copies", nat.cookie, { code: labelled, title: "Shelved", authors: ["S"] }));
+  const loose = (await env.DB.prepare("select id from copies where id <> ?").bind(home.copyId).first<{ id: string }>())!.id;
+  return { cookie: nat.cookie, spare: spare.id, home: home.copyId, loose, codes: { forLoose, forNew } };
+}
+const snapshot = async () =>
+  JSON.stringify(await Promise.all(["collections", "copies", "labels", "events", "books"].map(async (t) =>
+    (await env.DB.prepare(`select * from ${t} order by 1, 2`).all()).results)));
+
+type Write = [string, (f: Awaited<ReturnType<typeof writeFixture>>) => { method: string; path: string; body?: unknown }];
+const WRITES: Write[] = [
+  ["POST /api/collections", () => ({ method: "POST", path: "/api/collections", body: { name: "Fresh" } })],
+  ["PATCH /api/collections/:id", (f) => ({ method: "PATCH", path: `/api/collections/${f.spare}`, body: { name: "Renamed" } })],
+  ["DELETE /api/collections/:id", (f) => ({ method: "DELETE", path: `/api/collections/${f.spare}` })],
+  ["POST /api/collections/:id/default", (f) => ({ method: "POST", path: `/api/collections/${f.spare}/default` })],
+  ["POST /api/copies/:id/move", (f) => ({ method: "POST", path: `/api/copies/${f.home}/move`, body: { collectionId: f.spare } })],
+  ["POST /api/copies/:id/label", (f) => ({ method: "POST", path: `/api/copies/${f.loose}/label`, body: { code: f.codes.forLoose } })],
+  ["POST /api/copies", (f) => ({ method: "POST", path: "/api/copies", body: { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare } })],
+  ["POST /api/imports", (f) => ({ method: "POST", path: "/api/imports", body: { collectionId: f.spare, rows: [{ title: "Imported", authors: [], isbn: null }] } })],
+];
+
+test.each(WRITES)("%s from another site is 403 and changes nothing, where the same request from this site succeeds", async (_name, build) => {
+  const f = await writeFixture();
+  const req = build(f);
+  const before = await snapshot();
+  for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }]) {
+    const res = await send(req.method, req.path, f.cookie, req.body, headers);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ rejected: "not-allowed" });
-    const mine = (await (await get("/api/collections/mine", cookie)).json()) as { collections: { name: string; count: number }[] };
-    expect(mine.collections.map((k) => k.name)).toEqual(["Beach house"]);
-    expect(mine.collections.reduce((n, k) => n + k.count, 0)).toBe(0);
-  });
+    expect(await snapshot()).toBe(before);
+  }
+  const control = await send(req.method, req.path, f.cookie, req.body, { origin: SITE });
+  expect(control.status).toBe(200);
+  expect(await snapshot()).not.toBe(before);
+});
+
+test("move puts a copy in another of the owner's collections and answers without a code", async () => {
+  const f = await writeFixture();
+  const res = await send("POST", `/api/copies/${f.home}/move`, f.cookie, { collectionId: f.spare });
+  expect(res.status).toBe(200);
+  const view = (await res.json()) as { copyId: string; code: string | null; collection: { id: string } };
+  expect(view).toMatchObject({ copyId: f.home, code: null, collection: { id: f.spare } });
+  expect((await send("POST", `/api/copies/${f.home}/move`, f.cookie, { collectionId: 5 })).status).toBe(400);
+});
+
+test("label binds a code to an imported copy and answers with that code and no other", async () => {
+  const f = await writeFixture();
+  const res = await send("POST", `/api/copies/${f.loose}/label`, f.cookie, { code: f.codes.forLoose });
+  expect(res.status).toBe(200);
+  const text = await res.text();
+  expect(JSON.parse(text)).toMatchObject({ copyId: f.loose, code: f.codes.forLoose });
+  expect(text).not.toContain(f.codes.forNew);
+  expect((await send("POST", `/api/copies/${f.loose}/label`, f.cookie, { code: 5 })).status).toBe(400);
+});
+
+test("add takes a collectionId, and candidates finds an imported copy by isbn", async () => {
+  const f = await writeFixture();
+  const added = await send("POST", "/api/copies", f.cookie, { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare });
+  expect(((await added.json()) as { collection: { id: string } }).collection.id).toBe(f.spare);
+  const dune = "9780441172719";
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async () => new Response(JSON.stringify(manyBooks), { status: 200 })) as typeof fetch);
+  try {
+    expect((await send("POST", "/api/imports", f.cookie, { rows: [{ title: "Dune", authors: ["Frank Herbert"], isbn: dune }] })).status).toBe(200);
+  } finally {
+    spy.mockRestore();
+  }
+  const res = await get(`/api/copies/candidates?isbn=${dune}`, f.cookie);
+  expect(res.status).toBe(200);
+  const found = (await res.json()) as { sameIsbn: { book: { title: string } } | null };
+  expect(found.sameIsbn?.book.title).toBe("Dune");
+  expect(await (await get("/api/copies/candidates?isbn=nope", f.cookie)).json()).toEqual({ rejected: "invalid" });
+});
+
+test("an id that fails the shape check is a JSON 404 before the ledger, even when a row has it", async () => {
+  const f = await writeFixture();
+  const owner = (await env.DB.prepare("select owner_id from copies where id = ?").bind(f.loose).first<{ owner_id: string }>())!.owner_id;
+  await env.DB.prepare("insert into collections (id, owner_id, name, name_key, is_default, created_at) values ('legacy_id', ?, 'Legacy', 'legacy', 0, 0)").bind(owner).run();
+  await env.DB.prepare("insert into copies (id, book_id, owner_id, holder_member_id, created_at, collection_id) select 'legacy_copy', book_id, owner_id, owner_id, 0, 'legacy_id' from copies where id = ?").bind(f.loose).run();
+  for (const [method, path, body] of [
+    ["GET", "/api/collections/legacy_id"], ["PATCH", "/api/collections/legacy_id", { name: "X" }], ["DELETE", "/api/collections/legacy_id"],
+    ["POST", "/api/collections/legacy_id/default"], ["GET", "/api/copies/legacy_copy"],
+    ["POST", "/api/copies/legacy_copy/move", { collectionId: "a".repeat(32) }], ["POST", "/api/copies/legacy_copy/label", { code: f.codes.forLoose }],
+  ] as [string, string, unknown?][]) {
+    const res = await send(method, path, f.cookie, body);
+    expect(res.status, `${method} ${path}`).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({ rejected: "not-found" });
+  }
+  expect((await send("GET", "/api/collections/legacy_id", f.cookie)).status).toBe(404); // really there, just not reachable by that id
+  await env.DB.prepare("delete from copies where id = 'legacy_copy'").run();
+  await env.DB.prepare("delete from collections where id = 'legacy_id'").run();
+});
+
+test("a removed member's collections and shelves are 404 to others, as /api/members hides them", async () => {
+  const nat = await signInAs(env.DB, natalie);
+  const s = await signInAs(env.DB, sam);
+  const k = (await (await send("POST", "/api/collections", nat.cookie, { name: "Beach house" })).json()) as { id: string };
+  expect((await get(`/api/members/${nat.member.id}/collections`, s.cookie)).status).toBe(200);
+  expect((await get(`/api/collections/${k.id}`, s.cookie)).status).toBe(200);
+  await env.DB.prepare("update members set removed_at = 1 where id = ?").bind(nat.member.id).run();
+  for (const path of [`/api/members/${nat.member.id}/collections`, `/api/collections/${k.id}`]) {
+    const res = await get(path, s.cookie);
+    expect(res.status, path).toBe(404);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ rejected: "not-found" });
+    expect(text).not.toContain("Beach");
+  }
+});
+
+test("an import with no collectionId and one with null both go to the default", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const row = (title: string) => ({ title, authors: [], isbn: null });
+  expect((await send("POST", "/api/imports", cookie, { rows: [row("One")] })).status).toBe(200);
+  expect((await send("POST", "/api/imports", cookie, { collectionId: null, rows: [row("Two")] })).status).toBe(200);
+  const mine = (await (await get("/api/collections/mine", cookie)).json()) as { collections: { isDefault: boolean; count: number }[] };
+  expect(mine.collections).toHaveLength(1);
+  expect(mine.collections[0]).toMatchObject({ isDefault: true, count: 2 });
+});
 
 test("/api/collections/mine is not taken for an id, and both id formats are accepted", async () => {
   const { cookie } = await signInAs(env.DB, natalie);
@@ -744,14 +856,16 @@ test("a member id that is not a member is 404", async () => {
   expect((await get("/api/members/nobody/collections", cookie)).status).toBe(404);
 });
 
-test("an import body over 16 KB is 400; 21 rows is 400; a missing or non-string collectionId is null or 400", async () => {
+test("an import body over 16 KB is 400; 21 rows is 400; a collectionId that is not a string or null is 400", async () => {
   const { cookie } = await signInAs(env.DB, natalie);
   const row = { title: "T", authors: [], isbn: null };
-  const over = await send("POST", "/api/imports", cookie, { collectionId: null, rows: [{ ...row, title: "x".repeat(16 * 1024) }] });
+  const over = await send("POST", "/api/imports", cookie, { rows: [{ ...row, title: "x".repeat(16 * 1024) }] });
   expect(over.status).toBe(400);
   expect(await over.json()).toEqual({ rejected: "invalid" });
-  const twentyOne = await send("POST", "/api/imports", cookie, { collectionId: null, rows: Array.from({ length: 21 }, (_, i) => ({ ...row, title: `T${i}` })) });
+  const twentyOne = await send("POST", "/api/imports", cookie, { rows: Array.from({ length: 21 }, (_, i) => ({ ...row, title: `T${i}` })) });
   expect(twentyOne.status).toBe(400);
+  const twenty = await send("POST", "/api/imports", cookie, { rows: Array.from({ length: 20 }, (_, i) => ({ ...row, title: `T${i}` })) });
+  expect(twenty.status).toBe(200);
   const ok = await send("POST", "/api/imports", cookie, { rows: [row] });
   expect(ok.status).toBe(200);
   expect(await ok.json()).toEqual({ added: 1, skipped: 0 });

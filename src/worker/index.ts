@@ -205,14 +205,21 @@ app.post("/api/collections/:id/default", member(async (c, who) => {
   return Array.isArray(result) ? c.json({ collections: result }) : answer(c, result);
 }));
 
+// A removed member's collections are hidden from everyone, as /api/members hides them.
+async function ownedByActive(c: AppContext, result: { rejected: string } | { owner: { id: string } }): Promise<Response> {
+  if ("rejected" in result) return answer(c, result as Rejection);
+  const active = await c.var.services.membership.members();
+  return active.some((p) => p.id === result.owner.id) ? c.json(result) : notFound(c);
+}
+
 app.get("/api/collections/:id", member(async (c) => {
   const id = idParam(c);
-  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.shelf(id));
+  return id === null ? notFound(c) : ownedByActive(c, await c.var.services.ledger.shelf(id));
 }));
 
 app.get("/api/members", member(async (c) => c.json({ members: await c.var.services.membership.members() })));
 
-app.get("/api/members/:id/collections", member(async (c) => answer(c, await c.var.services.ledger.collectionsOf(c.req.param("id") ?? ""))));
+app.get("/api/members/:id/collections", member(async (c) => ownedByActive(c, await c.var.services.ledger.collectionsOf(c.req.param("id") ?? ""))));
 
 app.get("/api/holding", member(async (c, who) => c.json({ items: await c.var.services.ledger.holding(who) })));
 
@@ -242,8 +249,10 @@ app.post("/api/copies/:id/label", member(async (c, who) => {
 app.post("/api/imports", member(async (c, who) => {
   const body = await objectBody(c);
   if (!body) return invalid(c);
-  if (body.collectionId !== undefined && typeof body.collectionId !== "string") return invalid(c);
-  return answer(c, await c.var.services.ledger.importCopies(who, { collectionId: body.collectionId ?? null, rows: body.rows as ImportRow[] }));
+  // Omitted or null means the importer's default, as for ledger.add; anything else must be an id.
+  const collectionId = body.collectionId ?? null;
+  if (collectionId !== null && typeof collectionId !== "string") return invalid(c);
+  return answer(c, await c.var.services.ledger.importCopies(who, { collectionId, rows: body.rows as ImportRow[] }));
 }));
 
 app.post("/api/labels/:code/claim", member(async (c, who) =>
