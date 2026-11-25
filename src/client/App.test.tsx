@@ -270,9 +270,30 @@ test("a copy reached by id loads with getCopy and never asks for a label", async
   expect(api.getLabel).not.toHaveBeenCalled();
 });
 
-test("the screens that come later render the not-found page for now", async () => {
+test("the shelf screens are routed", async () => {
   vi.mocked(api.getMe).mockResolvedValue(natalie);
-  at("/mine");
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [] });
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: { id: "2", name: "Ann", pictureUrl: null }, collections: [] });
+  vi.mocked(api.getShelf).mockRejectedValue(Object.assign(new api.ApiError(404, null), { status: 404 }));
+  for (const [path, text] of [
+    ["/mine", "My books"],
+    ["/holding", "You're not holding anyone else's books."],
+    ["/members", "No one else is here yet."],
+    ["/members/2", "No collections yet."],
+    ["/collections/k1", "That collection isn't here."],
+  ] as const) {
+    at(path);
+    const { unmount } = render(<App />);
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    unmount();
+  }
+});
+
+test("a screen that is not built yet renders the not-found page", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  at("/import");
   render(<App />);
   expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
 });
