@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { CollectionSummary } from "../../shared/types";
 import * as api from "../api";
-import { DATE_READ, FIXTURE, RATING, REVIEW_SENTINEL } from "../storygraph/fixture";
+import { DATE_READ, FIXTURE, FIXTURE_LINES, RATING, REVIEW_SENTINEL } from "../storygraph/fixture";
 import { Import } from "./Import";
 import { me, summary } from "./shelfFixtures";
 
@@ -67,8 +67,19 @@ test("Import sends each chunk once, in order, about a second apart, and no reque
   const sent = JSON.stringify(calls);
   for (const s of [REVIEW_SENTINEL, RATING, DATE_READ, "Translator", "hardcover"]) expect(sent).not.toContain(s);
   for (const [, rows] of calls) for (const r of rows) expect(Object.keys(r).sort()).toEqual(["authors", "isbn", "title"]);
-  expect(screen.getByText(/0 were already in your collection/)).toBeInTheDocument();
+  expect(screen.getByText(/0 were already in your books/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /Home library/ })).toHaveAttribute("href", "/collections/k1");
+});
+
+test("rows listed twice in the file are counted apart from books already held", async () => {
+  collections([home]);
+  vi.mocked(api.importRows).mockResolvedValue(ok(4, 3)); // 7 rows sent: the fixture already lists one ISBN twice, and the file repeats it again; one more is held
+  const user = setupUser();
+  show();
+  await choose(user, FIXTURE.trimEnd() + "\r\n" + FIXTURE_LINES[1] + "\r\n");
+  expect(await screen.findByText("7 books to import.")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Import" }));
+  expect(await screen.findByText("Added 4. 1 were already in your books. 2 listed twice in the file.")).toBeInTheDocument();
 });
 
 test("progress reads Added <a> of <n> while running", async () => {

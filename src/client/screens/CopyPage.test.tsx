@@ -421,6 +421,17 @@ test("a move refused not-found says the collection is gone and refreshes the cho
   expect(api.myCollections).toHaveBeenCalledTimes(2);
 });
 
+test("a move refused not-allowed says you can't move it and re-reads the copy", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  showById();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("You can't move this book.");
+  expect(api.getCopy).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("option", { name: "Cookbooks" })).toHaveAttribute("dir", "auto");
+});
+
 test("a move refused not-found while the collection still exists says the book is gone", async () => {
   vi.mocked(api.getCopy).mockResolvedValue(byId());
   vi.mocked(api.myCollections).mockResolvedValue(mine);

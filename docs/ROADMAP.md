@@ -140,7 +140,6 @@ Carry-overs from step 2, not touched by step 3:
 - `fetched_at` is never read, so an Open Library correction is never picked up.
   Refreshing the cache would change no stored book, because the ledger copies
   facts when a copy is added; it needs a design, not a patch.
-- A 2xx with a non-JSON body throws `SyntaxError`, not `ApiError`.
 - `returnTo` is tested only at the root route in the client; re-pin it on a
   `/b/<code>` page.
 

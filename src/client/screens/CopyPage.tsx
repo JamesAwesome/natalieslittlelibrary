@@ -64,7 +64,7 @@ function Copy(props: {
           <label>
             {actionText.move} to
             <select value={chosen} disabled={busy} onChange={(e) => setPicked(e.target.value)}>
-              {options.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {options.map((c) => <option key={c.id} value={c.id} dir="auto">{c.name}</option>)}
             </select>
           </label>
           <button type="button" disabled={busy} onClick={() => onMove(chosen)}>Move</button>
@@ -171,6 +171,8 @@ function Page(props: Props) {
           ? "That book isn't here any more."
           : "That collection is gone. Pick another.");
         return;
+      } else if (e instanceof ApiError && e.rejected === "not-allowed") {
+        setNotice("You can't move this book.");
       } else {
         setNotice("Something went wrong. Try again.");
       }

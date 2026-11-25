@@ -139,19 +139,21 @@ export function createUnlabelled(
 
     // Statements for a chunk of n rows: n * 3 (book, copy, event), plus the two of ensureDefault when there is no chosen
     // collection; at most 3 * 20 + 2 = 62, and a D1 batch is one query toward the 50 per invocation. Bound parameters:
-    // a book insert takes at most 6 + 1 + 2 + 3 = 12, a copy insert 7 + 1 + 2 + 3 + 1 = 14 (a named destination adds one
-    // more to each), an event 4; the widest is 15, well under 100.
+    // a book insert takes at most 6 + 1 + 2 + 5 = 14, a copy insert 7 + 1 + 2 + 5 + 1 = 16 (a named destination adds one
+    // more to each), an event 4; the widest is 17, well under 100.
     const statements: D1PreparedStatement[] = [];
     if (collectionId === null) statements.push(...ensureDefault(db, owner.id, at));
     const copyAt: number[] = [];
     for (const row of rows) {
       const authorsJson = JSON.stringify(row.authors);
-      // Skip a row the importer already has: by ISBN where the row has one, by exact title and authors where it has not.
+      // Skip a row the importer already has: by ISBN where the row has one, and by exact title and authors on a book with no
+      // ISBN (one paired earlier by typing); by exact title and authors alone where the row has no ISBN.
       const owned =
         row.isbn !== null
           ? {
-              sql: "not exists (select 1 from copies c join books b on b.id = c.book_id where c.owner_id = ? and (b.isbn = ? or c.import_isbn = ?))",
-              binds: [owner.id, row.isbn, row.isbn],
+              sql: `not exists (select 1 from copies c join books b on b.id = c.book_id where c.owner_id = ?
+                      and (b.isbn = ? or c.import_isbn = ? or (b.isbn is null and b.title = ? and b.authors = ?)))`,
+              binds: [owner.id, row.isbn, row.isbn, row.title, authorsJson],
             }
           : {
               sql: "not exists (select 1 from copies c join books b on b.id = c.book_id where c.owner_id = ? and b.title = ? and b.authors = ?)",
@@ -266,6 +268,18 @@ export function createUnlabelled(
     return label?.copy_id != null ? { rejected: "label-in-use" } : { rejected: "not-allowed" };
   }
 
+  // A copy imported without facts (its book has no ISBN, the copy has an import_isbn) gets them when the lookup can find
+  // the book; a miss or a failed lookup leaves it title-only. The one place labelling and scanning both ask.
+  async function enrichment(bookIsbn: string | null, importIsbn: string | null): Promise<Enrich | null> {
+    if (bookIsbn !== null || importIsbn === null) return null;
+    try {
+      const facts = cleanBookFacts(await lookup(importIsbn));
+      return facts ? { isbn: importIsbn, facts } : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function bound(owner: Member, copyId: string): Promise<CopyView> {
     const v = await render(copyId, owner);
     if (v === null) throw new Error("a copy just labelled has vanished");
@@ -280,13 +294,16 @@ export function createUnlabelled(
     if (!label) return { rejected: "label-unknown" };
     if (label.copy_id !== null) return { rejected: "label-in-use" };
     const copy = await db
-      .prepare("select owner_id, holder_member_id, exists (select 1 from labels where copy_id = copies.id) as labelled from copies where id = ?")
+      .prepare(
+        `select owner_id, holder_member_id, import_isbn, (select isbn from books where id = copies.book_id) as book_isbn,
+           exists (select 1 from labels where copy_id = copies.id) as labelled from copies where id = ?`,
+      )
       .bind(copyId)
-      .first<{ owner_id: string | null; holder_member_id: string | null; labelled: number }>();
+      .first<{ owner_id: string | null; holder_member_id: string | null; import_isbn: string | null; book_isbn: string | null; labelled: number }>();
     if (!copy) return { rejected: "not-found" };
     const decision = decide({ ownerId: copy.owner_id, holderMemberId: copy.holder_member_id, labelled: copy.labelled === 1 }, owner, "label");
     if ("rejected" in decision) return decision;
-    const refused = await bind(owner, copyId, code);
+    const refused = await bind(owner, copyId, code, await enrichment(copy.book_isbn, copy.import_isbn));
     return refused ?? (await bound(owner, copyId));
   }
 
@@ -294,16 +311,7 @@ export function createUnlabelled(
   async function bindToUnlabelled(owner: Member, code: string, isbn: string): Promise<CopyView | Rejection | null> {
     const copy = await oldestUnlabelledFor(db, owner.id, isbn);
     if (copy === null) return null;
-    // A copy imported without facts (its book has no ISBN) gets them now if the lookup can find the book.
-    let enrich: Enrich | null = null;
-    if (copy.book.isbn === null) {
-      try {
-        const facts = cleanBookFacts(await lookup(isbn));
-        if (facts) enrich = { isbn, facts };
-      } catch {
-        // A lookup that fails binds the title-only copy, as a miss does.
-      }
-    }
+    const enrich = await enrichment(copy.book.isbn, isbn);
     const refused = await bind(owner, copy.copyId, code, enrich);
     return refused ?? (await bound(owner, copy.copyId));
   }

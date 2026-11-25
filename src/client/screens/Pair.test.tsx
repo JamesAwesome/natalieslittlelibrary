@@ -711,6 +711,33 @@ test("with two collections the picker lists them default first plus New collecti
   expect(localStorage.getItem("nll.pair-collection.1")).toBe("g");
 });
 
+test("a scan that finds an imported copy tells you it stays where it was, and does not navigate", async () => {
+  mineIs(two);
+  vi.mocked(api.addCopy).mockResolvedValue({ ...copy, collection: { id: "h", name: "Home library" } });
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "g");
+  await click("stub label");
+  expect(await screen.findByText((_, el) => el?.tagName === "P" && el.textContent === "This book was already in Home library; it stays there.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open it" })).toHaveAttribute("href", "/b/t7k2q9xzmb");
+  expect(assign).not.toHaveBeenCalled();
+});
+
+test("a scan that lands in the picked collection navigates as before, and options carry dir=auto", async () => {
+  mineIs(two);
+  vi.mocked(api.addCopy).mockResolvedValue({ ...copy, collection: { id: "g", name: "Garage" } });
+  show();
+  await toConfirm();
+  await click("Yes");
+  const select = await screen.findByLabelText("Collection");
+  expect(screen.getByRole("option", { name: "Garage" })).toHaveAttribute("dir", "auto");
+  await userEvent.selectOptions(select, "g");
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(screen.queryByText(/it stays there/)).not.toBeInTheDocument();
+});
+
 test("the stored pick is preselected", async () => {
   localStorage.setItem("nll.pair-collection.1", "g");
   mineIs(two);

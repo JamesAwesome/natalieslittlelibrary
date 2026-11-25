@@ -54,8 +54,11 @@ export function shelfItem(r: ShelfRow): ShelfItem {
   };
 }
 
+// One collator for every sort: building one per comparison costs milliseconds on a long shelf.
+const COLLATOR = new Intl.Collator(undefined, { sensitivity: "base" });
+
 const byTitle = (a: ShelfItem, b: ShelfItem) =>
-  a.book.title.localeCompare(b.book.title, undefined, { sensitivity: "base" }) || (a.copyId < b.copyId ? -1 : 1);
+  COLLATOR.compare(a.book.title, b.book.title) || (a.copyId < b.copyId ? -1 : 1);
 
 type PersonRow = { id: string; name: string; picture_url: string | null };
 const person = (r: PersonRow): Person => ({ id: r.id, name: r.name, pictureUrl: r.picture_url });
@@ -83,7 +86,7 @@ export function createShelfReads(db: D1Database) {
     if (!row) return { rejected: "not-found" };
     const collections = (ks.results as SummaryRow[])
       .map((r): CollectionSummary => ({ id: r.id, name: r.name, isDefault: r.is_default === 1, count: r.n, unlabelled: r.unlabelled }))
-      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || COLLATOR.compare(a.name, b.name));
     return { owner: person(row), collections };
   }
 

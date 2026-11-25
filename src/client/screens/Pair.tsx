@@ -25,6 +25,8 @@ type Payload = { isbn: string } | { title: string; authors: string[] } | { copyI
 // `stays` is null for a new copy; otherwise the collection an existing copy stays in (name null when it has none).
 type Pending = { how: Payload; stays: { name: string | null } | null };
 
+// One collator for every sort: a new one per comparison is slow.
+const COLLATOR = new Intl.Collator();
 const LOST = Symbol("lost");
 // A request whose failure only means "no answer", except a lost session.
 async function soft<T>(p: Promise<T>): Promise<T | null | typeof LOST> {
@@ -80,6 +82,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [problem, setProblem] = useState<ScannerProblem | null>(null);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [stays, setStays] = useState<{ name: string; label: string } | null>(null);
   const inFlight = useRef(false);
   // A refused label still in front of the camera must not be saved again until another is read or typed.
   const refused = useRef<string | null>(null);
@@ -221,11 +224,21 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     const mine = seq.current;
     setCode(label);
     setNotice(undefined);
+    setStays(null);
     go("saving");
     try {
+      let stayed: { name: string } | null = null;
       if ("copyId" in p.how) await labelCopy(p.how.copyId, label);
-      else await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
-      if (collectionId !== undefined && member !== null) writePick(member.id, collectionId);
+      else {
+        const saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
+        // A scan that found an imported copy labels it where it is; the collection that was picked did not apply.
+        if (collectionId !== undefined && saved.collection != null && saved.collection.id !== collectionId) stayed = { name: saved.collection.name };
+      }
+      if (collectionId !== undefined && member !== null && stayed === null) writePick(member.id, collectionId);
+      if (stayed !== null) {
+        if (mine === seq.current && live.current) setStays({ name: stayed.name, label });
+        return;
+      }
       // Stay in flight once saved: the page is leaving, and a second tap must not save again.
       if (mine === seq.current && live.current) location.assign(`/b/${label}`);
       return;
@@ -362,7 +375,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       const made = await createCollection(clean.name);
       if (!live.current) return;
       const rest = (colsRef.current ?? []).filter((c) => c.id !== made.id);
-      const next = [...rest.filter((c) => c.isDefault), ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => x.name.localeCompare(y.name))];
+      const next = [...rest.filter((c) => c.isDefault), ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => COLLATOR.compare(x.name, y.name))];
       colsRef.current = next;
       setCols(next);
       colSeq.current++;
@@ -477,7 +490,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
                   setNewError(undefined);
                   if (e.target.value !== "new" && member !== null) writePick(member.id, e.target.value);
                 }}>
-                  {cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {cols.map((c) => <option key={c.id} value={c.id} dir="auto">{c.name}</option>)}
                   <option value="new">New collection…</option>
                 </select>
               </p>
@@ -522,7 +535,13 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           )}
         </>
       )}
-      {step === "saving" && <p>Saving…</p>}
+      {step === "saving" && stays === null && <p>Saving…</p>}
+      {step === "saving" && stays !== null && (
+        <>
+          <p role="status">This book was already in <Name>{stays.name}</Name>; it stays there.</p>
+          <p><a className="button" href={`/b/${stays.label}`}>Open it</a></p>
+        </>
+      )}
       {step === "failed" && code !== null && pending !== null && (
         <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}

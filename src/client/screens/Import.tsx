@@ -7,11 +7,13 @@ import { Name } from "./BookCard";
 import { SignIn } from "./SignIn";
 import { useGuard } from "./useGuard";
 
+// One collator for every sort: a new one per comparison is slow.
+const COLLATOR = new Intl.Collator();
 const GAP_MS = 1000; // between one chunk's answer and the next request
 const RETRY_WAITS = [2000, 5000, 12000]; // an "unavailable" or unanswered chunk is asked again after each wait, then the run stops
 const REQUEST_MS = 60000; // a chunk with no answer by then is cut off
 
-type Outcome = { kind: "done"; added: number; skipped: number; into: { id: string; name: string } | null } | { kind: "stopped"; done: number };
+type Outcome = { kind: "done"; added: number; skipped: number; listedTwice: number; into: { id: string; name: string } | null } | { kind: "stopped"; done: number };
 type Loaded = { rows: ImportRow[]; skipped: { notOwned: number; notPhysical: number } };
 
 const defaultOf = (list: CollectionSummary[]) => (list.find((c) => c.isDefault) ?? list[0])?.id ?? "";
@@ -126,7 +128,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
       const made = await createCollection(clean.name);
       if (!live.current) return;
       const rest = (cols ?? []).filter((c) => c.id !== made.id);
-      setCols([...rest.filter((c) => c.isDefault), ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => x.name.localeCompare(y.name))]);
+      setCols([...rest.filter((c) => c.isDefault), ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => COLLATOR.compare(x.name, y.name))]);
       choose(made.id);
       setNewName("");
     } catch (e) {
@@ -191,6 +193,14 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
       let added = 0;
       let skipped = 0;
       let done = 0;
+      // Rows that repeat an earlier row in the file are always skipped by the server; they are counted apart from books already held.
+      const seen = new Set<string>();
+      let listedTwice = 0;
+      for (const r of loaded.rows) {
+        const key = r.isbn ?? JSON.stringify([r.title, r.authors]);
+        if (seen.has(key)) listedTwice++;
+        seen.add(key);
+      }
       setProgress({ added: 0, total });
       for (let i = 0; i < chunks.length; i++) {
         if (i > 0) {
@@ -212,7 +222,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
       }
       const into = list.find((c) => c.id === target) ?? list.find((c) => c.isDefault) ?? null;
       setProgress(null);
-      setOutcome({ kind: "done", added, skipped, into: into && { id: into.id, name: into.name } });
+      setOutcome({ kind: "done", added, skipped, listedTwice, into: into && { id: into.id, name: into.name } });
     });
   }
 
@@ -263,7 +273,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
                   setNewError(undefined);
                   setNotice(undefined);
                 }}>
-                  {cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {cols.map((c) => <option key={c.id} value={c.id} dir="auto">{c.name}</option>)}
                   <option value="new">New collection…</option>
                 </select>
               </p>
@@ -290,7 +300,10 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
       {waiting && <p role="status">Waiting to try again…</p>}
       {outcome?.kind === "done" && (
         <>
-          <p role="status">Added {outcome.added}. {outcome.skipped} were already in your collection.</p>
+          <p role="status">
+            Added {outcome.added}. {Math.max(0, outcome.skipped - outcome.listedTwice)} were already in your books.
+            {outcome.listedTwice > 0 && ` ${outcome.listedTwice} listed twice in the file.`}
+          </p>
           <p>
             {outcome.into !== null
               ? <a className="button" href={`/collections/${encodeURIComponent(outcome.into.id)}`}>Open <Name>{outcome.into.name}</Name></a>

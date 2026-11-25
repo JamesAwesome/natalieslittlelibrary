@@ -356,6 +356,40 @@ test("labelCopy binds a label to an unlabelled copy the owner picked", async () 
   expect(asCopy(again).copyId).toBe(id);
 });
 
+test("labelCopy re-points an imported title-only copy at the book the lookup finds", async () => {
+  const { ledger, lookup } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("dune (csv)", DUNE.isbn)] })); // lookupMany missed
+  const [mine] = await copiesOf(natalie.id);
+  const [code] = await mint(ledger);
+  const v = ok(await ledger.labelCopy(natalie, mine.id, code));
+  expect(lookup).toHaveBeenCalledWith(DUNE.isbn);
+  expect(v.book).toEqual(DUNE);
+  expect(await count("books")).toBe(1);
+  expect((await copiesOf(natalie.id))[0].labels).toBe(1);
+});
+
+test("labelCopy on an imported copy the lookup still misses, or whose lookup throws, binds it title-only", async () => {
+  const { ledger, lookup } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Left Behind", MISSED), row("dune (csv)", DUNE.isbn)] }));
+  const copies = await copiesOf(natalie.id);
+  const [c1, c2] = await mint(ledger, 2);
+  const miss = ok(await ledger.labelCopy(natalie, copies.find((c) => c.import_isbn === MISSED)!.id, c1));
+  expect([miss.book.isbn, miss.book.title, miss.code]).toEqual([null, "Left Behind", c1]);
+  lookup.mockImplementation(async () => { throw new Error("down"); });
+  const down = ok(await ledger.labelCopy(natalie, copies.find((c) => c.import_isbn === DUNE.isbn)!.id, c2));
+  expect([down.book.isbn, down.book.title, down.code]).toEqual([null, "dune (csv)", c2]);
+});
+
+test("an ISBN row also matches a copy of a book with no ISBN by exact title and authors", async () => {
+  const { ledger, lookupMany } = make();
+  const [code] = await mint(ledger);
+  ok(await ledger.add(natalie, { code, book: { title: "Dune", authors: ["Frank Herbert"] } })); // paired by typing
+  lookupMany.mockImplementation(found(DUNE));
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Dune", DUNE.isbn, ["Frank Herbert"])] }))).toEqual({ added: 0, skipped: 1 });
+  expect(await count("copies")).toBe(1);
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows: [row("Dune", DUNE.isbn, ["Someone Else"])] }))).toEqual({ added: 1, skipped: 0 });
+});
+
 test("labelCopy accepts a pasted link", async () => {
   const { ledger } = make();
   const id = await importedUnlabelled(ledger);
