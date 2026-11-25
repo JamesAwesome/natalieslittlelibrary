@@ -57,7 +57,7 @@ beforeEach(() => {
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
+    setItem: (k: string, v: unknown) => void store.set(k, String(v)),
     removeItem: (k: string) => void store.delete(k),
   });
   vi.mocked(api.getCandidates).mockResolvedValue({ sameIsbn: null, similar: [] });
@@ -72,6 +72,9 @@ const show = (search = "", member: typeof me | null = me) => {
 const click = (name: string | RegExp) => userEvent.click(screen.getByRole("button", { name }));
 const wantOf = () => screen.getByTestId("scanner").dataset.want;
 const para = (t: string) => screen.getByText((_, el) => el?.tagName === "P" && el.textContent === t);
+const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((a) => { resolve = a; }); return { promise, resolve }; };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const owner = { id: "1", name: "Natalie", pictureUrl: null };
 const refuse = (status: number, rejected: api.ApiError["rejected"]) => new api.ApiError(status, rejected);
 
 async function toConfirm() {
@@ -784,9 +787,10 @@ test("a save refused not-found refreshes the choices and asks again, keeping the
   const select = await screen.findByLabelText("Collection");
   expect(Array.from((select as HTMLSelectElement).options).map((o) => o.text)).toEqual(["Home library", "Kitchen", "New collection…"]);
   expect(select).toHaveValue("h");
-  await click("stub other label");
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  await click("Use this label");
   await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(2));
-  expect(api.addCopy).toHaveBeenLastCalledWith({ code: "mmmmmmmmmm", isbn: "9780000000002", collectionId: "h" });
+  expect(api.addCopy).toHaveBeenLastCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002", collectionId: "h" });
 });
 
 test("localStorage that throws still lets a book be saved", async () => {
@@ -819,4 +823,318 @@ test("with two collections a code in the address still asks which collection", a
   expect(api.addCopy).not.toHaveBeenCalled();
   await click("Use this label");
   await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002", collectionId: "h" }));
+});
+
+// ---- Task 10 fix round 1 ----
+
+async function toPicker(pickId = "g") {
+  mineIs(two);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), pickId);
+}
+
+test("not-found with the label still in front of the camera: no second save until the person taps", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+  await toPicker();
+  mineIs([col("h", "Home library", true), col("k", "Kitchen")]);
+  mockOnMount = { want: "label", reading: { kind: "label", code: "t7k2q9xzmb" } };
+  await click("stub label");
+  await screen.findByText("That collection was just deleted. Pick another.");
+  await sleep(50);
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Collection")).toHaveValue("h");
+  await click("Use this label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(2));
+});
+
+test("not-found with the re-read pending and the camera on the label sends one save, not a loop", async () => {
+  vi.mocked(api.addCopy).mockRejectedValue(refuse(404, "not-found"));
+  await toPicker();
+  vi.mocked(api.myCollections).mockReturnValue(new Promise(() => {}));
+  mockOnMount = { want: "label", reading: { kind: "label", code: "t7k2q9xzmb" } };
+  await click("stub label");
+  await screen.findByRole("button", { name: "Use this label" });
+  await sleep(100);
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+});
+
+test("not-found with fewer than two collections left says where it goes and saves there on a tap", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+  await toPicker();
+  mineIs([col("h", "Home library", true)]);
+  await click("stub label");
+  await screen.findByText("That collection was just deleted, so this goes in Home library.");
+  expect(screen.queryByLabelText("Collection")).not.toBeInTheDocument();
+  await click("Use this label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(2));
+  expect(api.addCopy).toHaveBeenLastCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002" });
+});
+
+test("not-found when the re-read fails drops the deleted collection from the known list", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found"));
+  await toPicker();
+  vi.mocked(api.myCollections).mockRejectedValue(refuse(503, null));
+  await click("stub label");
+  await screen.findByText("That collection was just deleted, so this goes in Home library.");
+  expect(screen.queryByLabelText("Collection")).not.toBeInTheDocument();
+});
+
+test("a typed code is kept across a not-found refusal", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+  await toPicker();
+  mineIs([col("h", "Home library", true), col("k", "Kitchen")]);
+  await userEvent.type(screen.getByLabelText("Or type the code printed under it"), "mmmmmmmmmm");
+  await click("Use this code");
+  await screen.findByText("That collection was just deleted. Pick another.");
+  await click("Use this label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledTimes(2));
+  expect(api.addCopy).toHaveBeenLastCalledWith({ code: "mmmmmmmmmm", isbn: "9780000000002", collectionId: "h" });
+});
+
+test("a failed re-read on Yes keeps the list already known and the remembered pick", async () => {
+  localStorage.setItem("nll.pair-collection.1", "g");
+  mineIs(two);
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(1));
+  await sleep(10);
+  vi.mocked(api.myCollections).mockRejectedValue(refuse(503, null));
+  await toConfirm();
+  await click("Yes");
+  expect(await screen.findByLabelText("Collection")).toHaveValue("g");
+  await click("stub label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith(expect.objectContaining({ collectionId: "g" })));
+});
+
+test("typing a title while the first list is still loading asks, from the fresh list", async () => {
+  const slow = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValue(slow.promise);
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show("?label=T7K2Q9XZMB");
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  await sleep(20);
+  expect(api.addCopy).not.toHaveBeenCalled();
+  await act(async () => slow.resolve({ owner, collections: two }));
+  expect(await screen.findByLabelText("Collection")).toBeInTheDocument();
+  expect(api.addCopy).not.toHaveBeenCalled();
+});
+
+test("?label= with a failed first load still asks: the second read answers", async () => {
+  vi.mocked(api.myCollections).mockRejectedValueOnce(refuse(503, null)).mockResolvedValue({ owner, collections: two });
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show("?label=T7K2Q9XZMB");
+  await sleep(5);
+  await toConfirm();
+  await click("Yes");
+  expect(await screen.findByLabelText("Collection")).toBeInTheDocument();
+  expect(api.addCopy).not.toHaveBeenCalled();
+});
+
+test("when no list can be read, a trouble line with a retry replaces the scanner, and nothing is saved", async () => {
+  vi.mocked(api.myCollections).mockRejectedValue(refuse(503, null));
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show("?label=T7K2Q9XZMB");
+  await toConfirm();
+  await click("Yes");
+  await screen.findByText("We couldn't load your collections.");
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  expect(api.addCopy).not.toHaveBeenCalled();
+  mineIs(two);
+  await click("Try again");
+  expect(await screen.findByLabelText("Collection")).toBeInTheDocument();
+  await click("Use this label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith(expect.objectContaining({ collectionId: "h" })));
+});
+
+test("changing the pick clears the 'used last is gone' notice", async () => {
+  localStorage.setItem("nll.pair-collection.1", "deleted");
+  mineIs(two);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "g");
+  expect(screen.queryByText(/used last is gone/)).not.toBeInTheDocument();
+  expect(screen.queryByText((_, el) => el?.textContent?.includes("used last is gone") === true && el.tagName === "P")).not.toBeInTheDocument();
+});
+
+test("a re-read that lands after Create does not overwrite the new collection", async () => {
+  mineIs(two);
+  show();
+  await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(1));
+  await sleep(10);
+  const slow = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValue(slow.promise);
+  vi.mocked(api.createCollection).mockResolvedValue(col("n", "Cabin"));
+  await toConfirm();
+  await click("Yes");
+  await sleep(10);
+  await act(async () => slow.resolve({ owner, collections: two }));
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  const slow2 = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValue(slow2.promise);
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await click("Create");
+  await waitFor(() => expect(screen.getByLabelText("Collection")).toHaveValue("n"));
+  await act(async () => slow2.resolve({ owner, collections: two }));
+  expect(screen.getByLabelText("Collection")).toHaveValue("n");
+});
+
+test("a label scanned while New collection… is selected is kept, and used once the collection is created", async () => {
+  mineIs(two);
+  vi.mocked(api.createCollection).mockResolvedValue(col("n", "Cabin"));
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  await click("stub label");
+  await screen.findByText("Create the new collection first, or pick another.");
+  expect(api.addCopy).not.toHaveBeenCalled();
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await click("Create");
+  await waitFor(() => expect(screen.getByLabelText("Collection")).toHaveValue("n"));
+  await click("Use this label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002", collectionId: "n" }));
+});
+
+test("Use this label while New collection… is still selected saves nothing", async () => {
+  mineIs(two);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  await click("stub label");
+  await click("Use this label");
+  expect(api.addCopy).not.toHaveBeenCalled();
+});
+
+test("Create sent twice in one tap sends one request", async () => {
+  mineIs(two);
+  vi.mocked(api.createCollection).mockReturnValue(new Promise(() => {}));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  const b = screen.getByRole("button", { name: "Create" });
+  await act(async () => { b.click(); b.click(); });
+  expect(api.createCollection).toHaveBeenCalledTimes(1);
+});
+
+test("a lost session on Create shows sign-in", async () => {
+  mineIs(two);
+  vi.mocked(api.createCollection).mockRejectedValue(refuse(401, "signed-out"));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await click("Create");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("a lost session on the re-read after not-found shows sign-in", async () => {
+  vi.mocked(api.addCopy).mockRejectedValue(refuse(404, "not-found"));
+  await toPicker();
+  vi.mocked(api.myCollections).mockRejectedValue(refuse(401, "signed-out"));
+  await click("stub label");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("a lost session on the lookup alone shows sign-in", async () => {
+  vi.mocked(api.lookupBook).mockRejectedValue(refuse(401, "signed-out"));
+  show();
+  await click("stub isbn");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("a lost session on the by-ISBN candidates alone shows sign-in", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book });
+  vi.mocked(api.getCandidates).mockRejectedValue(refuse(401, "signed-out"));
+  show();
+  await click("stub isbn");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("a lost session on the typed title's candidates shows sign-in", async () => {
+  vi.mocked(api.getCandidates).mockRejectedValue(refuse(401, "signed-out"));
+  show();
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("a lost session on the by-title candidates after a lookup shows sign-in", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book });
+  vi.mocked(api.getCandidates).mockImplementation(async (q) => { if (q.title !== undefined) throw refuse(401, "signed-out"); return { sameIsbn: null, similar: [] }; });
+  show();
+  await click("stub isbn");
+  await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+test("not-allowed on a new copy is a plain failure, not 'already has a label'", async () => {
+  vi.mocked(api.addCopy).mockRejectedValue(refuse(403, "not-allowed"));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await click("stub label");
+  await screen.findByRole("button", { name: "Try again" });
+  expect(screen.queryByText("That book already has a label.")).not.toBeInTheDocument();
+});
+
+test("a pick made before a slow re-read lands survives it, even when storage throws", async () => {
+  mineIs(two);
+  const boom = () => { throw new Error("denied"); };
+  vi.stubGlobal("localStorage", { getItem: boom, setItem: boom, removeItem: boom });
+  show();
+  await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(1));
+  await sleep(5);
+  const slow = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValue(slow.promise);
+  await toConfirm();
+  await click("Yes");
+  await act(async () => slow.resolve({ owner, collections: two }));
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "g");
+  expect(screen.getByLabelText("Collection")).toHaveValue("g");
+});
+
+test("an older list answer does not overwrite a newer one", async () => {
+  const first = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValueOnce(first.promise).mockResolvedValue({ owner, collections: [col("h", "Home library", true), col("k", "Kitchen")] });
+  show();
+  await toConfirm();
+  await click("Yes");
+  await screen.findByLabelText("Collection");
+  await act(async () => first.resolve({ owner, collections: two }));
+  const opts = Array.from((screen.getByLabelText("Collection") as HTMLSelectElement).options).map((o) => o.text);
+  expect(opts).toEqual(["Home library", "Kitchen", "New collection…"]);
+});
+
+test("nothing is remembered after a save with no picker", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(localStorage.getItem("nll.pair-collection.1")).toBeNull();
+});
+
+test.each(["__proto__", "constructor", "", "new", "undefined", "toString"])("a stored %j falls back to the default", async (v) => {
+  localStorage.setItem("nll.pair-collection.1", v);
+  mineIs(two);
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await toConfirm();
+  await click("Yes");
+  expect(await screen.findByLabelText("Collection")).toHaveValue("h");
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  await click("stub label");
+  await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith(expect.objectContaining({ collectionId: "h" })));
 });

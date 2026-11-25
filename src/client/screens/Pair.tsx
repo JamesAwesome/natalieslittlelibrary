@@ -98,24 +98,24 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setPick(id);
   };
 
+  const colsRef = useRef<CollectionSummary[] | null>(null);
   // The member's collections, read again whenever a choice is about to be made: a once-read list goes stale.
-  async function loadCollections(gone = false) {
-    if (member === null) return;
+  // A failed read keeps the list already known; the answer is the list to decide from, or LOST.
+  async function loadCollections(gone = false): Promise<CollectionSummary[] | null | typeof LOST> {
+    if (member === null) return null;
     const mine = ++colSeq.current;
     const r = await soft(myCollections());
-    if (mine !== colSeq.current || !live.current) return;
+    if (mine !== colSeq.current || !live.current) return colsRef.current;
     if (r === LOST) {
       setLost(true);
-      return;
+      return LOST;
     }
-    if (r === null) {
-      setCols(null);
-      return;
-    }
+    if (r === null) return colsRef.current;
     const list = r.collections;
     const has = (id: string) => list.some((c) => c.id === id);
+    colsRef.current = list;
     setCols(list);
-    if (has(pickRef.current)) return;
+    if (has(pickRef.current)) return list;
     const stored = gone ? null : readPick(member.id);
     if (stored !== null && has(stored)) {
       choose(stored);
@@ -124,6 +124,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       choose(defaultOf(list));
       setStale(stored !== null);
     }
+    return list;
   }
 
   useEffect(() => {
@@ -143,7 +144,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         return;
       }
       setForCopy(view.book);
-      chosen({ copyId: id }, { name: view.collection?.name ?? null });
+      void chosen({ copyId: id }, { name: view.collection?.name ?? null });
     } catch (e) {
       if (mine !== seq.current || !live.current) return;
       if (e instanceof ApiError && e.status === 401) setLost(true);
@@ -153,6 +154,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   }
 
   const picking = (p: Pending) => p.stays === null && cols !== null && cols.length >= 2;
+  // A new copy cannot be filed while the member's collections are unknown: they may have several.
+  const unknown = (p: Pending) => p.stays === null && cols === null;
 
   const go = (next: Step) => {
     setProblem(null);
@@ -245,10 +248,18 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       } else if (existing && why === "not-found") {
         go("cannot");
       } else if (!existing && why === "not-found") {
-        // The collection was deleted since the list was read: read it again and ask again, keeping the label and book.
-        void loadCollections(true);
-        setNotice("That collection was just deleted. Pick another.");
+        // The collection was deleted since the list was read: drop it, keep the label and book, read the list again.
+        // The scanner stays away so a label still in front of the camera is not sent again until the person taps.
+        const rest = (colsRef.current ?? []).filter((c) => c.id !== collectionId);
+        if (colsRef.current !== null) {
+          colsRef.current = rest;
+          setCols(rest);
+          choose(defaultOf(rest));
+        }
+        setLinked(label);
+        setCode(null);
         go("label");
+        void afterGone();
       } else if (why === "book-not-found") {
         setNotice("We couldn't find that book. Type the title instead.");
         go("type");
@@ -259,22 +270,49 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     }
   }
 
+  async function afterGone() {
+    const list = await loadCollections(true);
+    if (list === LOST || !live.current) return;
+    if (list !== null && list.length >= 2) setNotice("That collection was just deleted. Pick another.");
+    else if (list !== null && list.length === 1) setNotice(`That collection was just deleted, so this goes in ${list[0].name}.`);
+    else setNotice("That collection was just deleted.");
+  }
+
   // The collection for a new copy comes from the pick the person made; an existing copy stays where it is.
   function withLabel(label: string, p: Pending) {
-    const target = picking(p) ? pickRef.current : undefined;
+    let target: string | undefined;
+    if (p.stays === null) {
+      const list = colsRef.current;
+      if (list === null) {
+        go("label");
+        return;
+      }
+      if (list.length >= 2) target = pickRef.current;
+    }
     if (target === "new") {
+      // Keep the code: once the collection is created it is one tap away.
+      setLinked(label);
       setNotice("Create the new collection first, or pick another.");
       return;
     }
     void save(label, p, target);
   }
-  // Once the payload is chosen: save now if the label is known (and no collection needs asking), otherwise ask for it.
-  function chosen(how: Payload, stays: Pending["stays"]) {
+  // Once the payload is chosen: save now if the label is known and no collection needs asking, otherwise ask for it.
+  // For a new copy the list is read first and decided from, never from what an earlier render saw.
+  async function chosen(how: Payload, stays: Pending["stays"]) {
     const p: Pending = { how, stays };
+    const mine = seq.current;
     setNotice(undefined);
     setPending(p);
-    if (stays === null) void loadCollections();
-    if (linked !== null && !picking(p)) withLabel(linked, p);
+    let list = colsRef.current;
+    if (stays === null) {
+      go("looking");
+      const r = await loadCollections();
+      if (mine !== seq.current || !live.current || r === LOST) return;
+      list = r;
+    }
+    const asks = stays === null && (list === null || list.length >= 2);
+    if (linked !== null && !asks) withLabel(linked, p);
     else go("label");
   }
   const rescan = () => {
@@ -298,7 +336,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       }
       const near = r?.similar ?? [];
       if (near.length === 0) {
-        chosen(how, null);
+        void chosen(how, null);
         return;
       }
       setSimilar(near);
@@ -318,15 +356,16 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       return;
     }
     creating.current = true;
+    colSeq.current++;
     setNewError(undefined);
     try {
       const made = await createCollection(clean.name);
       if (!live.current) return;
-      setCols((prev) => {
-        const rest = (prev ?? []).filter((c) => c.id !== made.id);
-        const home = rest.filter((c) => c.isDefault);
-        return [...home, ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => x.name.localeCompare(y.name))];
-      });
+      const rest = (colsRef.current ?? []).filter((c) => c.id !== made.id);
+      const next = [...rest.filter((c) => c.isDefault), ...[...rest.filter((c) => !c.isDefault), made].sort((x, y) => x.name.localeCompare(y.name))];
+      colsRef.current = next;
+      setCols(next);
+      colSeq.current++;
       choose(made.id);
       writePick(member.id, made.id);
       setNewName("");
@@ -390,11 +429,11 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           <p>
             <button type="button" onClick={() => {
               if (isbn === null) return;
-              if (imported !== null) chosen({ isbn }, { name: imported.collection?.name ?? null });
+              if (imported !== null) void chosen({ isbn }, { name: imported.collection?.name ?? null });
               else if (similar.length > 0) {
                 setAfter({ isbn });
                 go("similar");
-              } else chosen({ isbn }, null);
+              } else void chosen({ isbn }, null);
             }}>Yes</button>
             <button type="button" onClick={rescan}>No, scan again</button>
           </p>
@@ -407,10 +446,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
             <div key={s.copyId}>
               <Book title={s.book.title} authors={s.book.authors} coverUrl={s.book.coverUrl} />
               {s.collection && <p>From <Name>{s.collection.name}</Name></p>}
-              <p><button type="button" aria-label={`This one: ${s.book.title}`} onClick={() => chosen({ copyId: s.copyId }, { name: s.collection?.name ?? null })}>This one</button></p>
+              <p><button type="button" aria-label={`This one: ${s.book.title}`} onClick={() => void chosen({ copyId: s.copyId }, { name: s.collection?.name ?? null })}>This one</button></p>
             </div>
           ))}
-          <p><button type="button" onClick={() => after !== null && chosen(after, null)}>No, it's a different copy</button></p>
+          <p><button type="button" onClick={() => after !== null && void chosen(after, null)}>No, it's a different copy</button></p>
         </>
       )}
       {step === "miss" && (
@@ -434,6 +473,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
                 <label htmlFor="pair-collection">Collection</label>
                 <select id="pair-collection" value={pick} onChange={(e) => {
                   choose(e.target.value);
+                  setStale(false);
                   setNewError(undefined);
                   if (e.target.value !== "new" && member !== null) writePick(member.id, e.target.value);
                 }}>
@@ -454,8 +494,14 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
               )}
             </>
           )}
-          <p>Now scan a blank label.</p>
-          {linked !== null ? (
+          {unknown(pending) && (
+            <>
+              <p>We couldn't load your collections.</p>
+              <p><button type="button" onClick={() => void loadCollections()}>Try again</button></p>
+            </>
+          )}
+          {!unknown(pending) && <p>Now scan a blank label.</p>}
+          {unknown(pending) ? null : linked !== null ? (
             <p><button type="button" onClick={() => withLabel(linked, pending)}>Use this label</button></p>
           ) : (
             <>
