@@ -164,6 +164,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
             ? { kind: "member", person: { id: row.holder_member_id, name: row.holder_name, pictureUrl: row.holder_picture } }
             : { kind: "named", name: "" },
         home: row.owner_id !== null && row.owner_id === row.holder_member_id,
+        collection: null, // filled in by Task 4
         history: entries,
         actions: availableActions({ ownerId: row.owner_id, holderMemberId: row.holder_member_id }, viewer),
       },

@@ -77,16 +77,36 @@ const expectedShape: Record<
       ["owner_id", "TEXT", 0, 0],
       ["holder_member_id", "TEXT", 0, 0],
       ["created_at", "INTEGER", 1, 0],
+      ["collection_id", "TEXT", 0, 0],
+      ["import_isbn", "TEXT", 0, 0],
     ],
     foreignKeys: [
       ["book_id", "books", "id", "NO ACTION", "NO ACTION"],
+      ["collection_id", "collections", "id", "NO ACTION", "NO ACTION"],
       ["holder_member_id", "members", "id", "NO ACTION", "NO ACTION"],
       ["owner_id", "members", "id", "NO ACTION", "NO ACTION"],
     ],
     indexes: [
+      ["copies_collection_id_idx", 0, "c", 0, ["collection_id"]],
       ["copies_holder_member_id_idx", 0, "c", 0, ["holder_member_id"]],
       ["copies_owner_id_idx", 0, "c", 0, ["owner_id"]],
       ["sqlite_autoindex_copies_1", 1, "pk", 0, ["id"]],
+    ],
+  },
+  collections: {
+    columns: [
+      ["id", "TEXT", 1, 1],
+      ["owner_id", "TEXT", 1, 0],
+      ["name", "TEXT", 1, 0],
+      ["name_key", "TEXT", 1, 0],
+      ["is_default", "INTEGER", 1, 0],
+      ["created_at", "INTEGER", 1, 0],
+    ],
+    foreignKeys: [["owner_id", "members", "id", "NO ACTION", "NO ACTION"]],
+    indexes: [
+      ["collections_one_default", 1, "c", 1, ["owner_id"]],
+      ["collections_owner_name_key_unique", 1, "c", 0, ["owner_id", "name_key"]],
+      ["sqlite_autoindex_collections_1", 1, "pk", 0, ["id"]],
     ],
   },
   labels: {
@@ -189,6 +209,27 @@ test("books: many NULL isbns coexist, a repeated isbn is refused", async () => {
     env.DB.prepare("insert into books (id, isbn, title, authors, created_at) values (?, ?, 'T', '[]', 1)").bind(id, isbn);
   await env.DB.batch([insert("n1", null), insert("n2", null), insert("i1", "9780000000002")]);
   await expect(insert("i2", "9780000000002").run()).rejects.toThrow(/UNIQUE/);
+  await resetDatabase(env.DB);
+});
+
+const insertMember = (id: string) =>
+  env.DB.prepare("insert into members (id, name, email, created_at) values (?, ?, ?, 1)").bind(id, id, `${id}@example.com`);
+const insertCollection = (id: string, owner: string, nameKey: string, isDefault: number) =>
+  env.DB.prepare(
+    "insert into collections (id, owner_id, name, name_key, is_default, created_at) values (?, ?, ?, ?, ?, 1)",
+  ).bind(id, owner, nameKey, nameKey, isDefault);
+
+test("a second default for one owner is refused; defaults for two owners coexist", async () => {
+  await resetDatabase(env.DB);
+  await env.DB.batch([insertMember("m1"), insertMember("m2"), insertCollection("c1", "m1", "a", 1), insertCollection("c2", "m2", "a", 1), insertCollection("c3", "m1", "b", 0)]);
+  await expect(insertCollection("c4", "m1", "c", 1).run()).rejects.toThrow(/UNIQUE/);
+  await resetDatabase(env.DB);
+});
+
+test("names clash per owner by key, not across owners", async () => {
+  await resetDatabase(env.DB);
+  await env.DB.batch([insertMember("m1"), insertMember("m2"), insertCollection("c1", "m1", "beach", 0), insertCollection("c2", "m2", "beach", 0)]);
+  await expect(insertCollection("c3", "m1", "beach", 0).run()).rejects.toThrow(/UNIQUE/);
   await resetDatabase(env.DB);
 });
 

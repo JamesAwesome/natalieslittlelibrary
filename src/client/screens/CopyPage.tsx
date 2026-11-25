@@ -4,7 +4,12 @@ import { ApiError, claim, getLabel, returnCopy } from "../api";
 import { Book, Name } from "./BookCard";
 import { SignIn } from "./SignIn";
 
-const actionText: Record<ActionType, string> = { claim: "I have this book", return: "Mark as returned" };
+const actionText: Record<ActionType, string> = {
+  claim: "I have this book",
+  return: "Mark as returned",
+  move: "Move to another collection",
+  label: "Put a label on it",
+};
 const historyText: Record<HistoryEntry["type"], string> = {
   added: "added this book",
   labelled: "put a label on it",

@@ -37,6 +37,7 @@ const STATUS: Record<Rejection["rejected"], 400 | 401 | 403 | 404 | 409 | 503> =
   "label-unknown": 404,
   "book-not-found": 404,
   "label-in-use": 409,
+  "name-taken": 409,
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();

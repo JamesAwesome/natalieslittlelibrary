@@ -18,7 +18,7 @@ const book = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert", 
 
 function copyView(over: Partial<CopyView> = {}): CopyView {
   return {
-    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false,
+    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
     history: [
       { at: Date.UTC(2026, 10, 3, 12), type: "claimed", actor: bob },
       { at: Date.UTC(2026, 10, 1, 12), type: "labelled", actor: ann },
