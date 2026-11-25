@@ -2,7 +2,7 @@
 
 A shared lending record for Natalie's books: scan the label inside a book on your phone, sign in with Google, and the record of who has it updates itself. It is a React app served by a Cloudflare Worker, with a D1 database.
 
-Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). Step 1 (the skeleton) is live at https://books.waffle.haus as v0.1.0. Step 2 (the core loop) is built but not released.
+Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). Step 1 (the skeleton) is live at https://books.waffle.haus as v0.1.0. Step 2 (the core loop) is built but not released, and so is step 3 (collections, shelves, and the StoryGraph import); a release is a tag after the PR merges.
 
 ## How it works
 
@@ -11,6 +11,14 @@ Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superp
 3. **Scan.** Anyone who scans the label with their phone camera lands on the book's page.
 4. **Claim.** Signed in, they tap "I have this book". Everyone sees who holds it.
 5. **Return.** The owner taps "Mark as returned". The page keeps the history.
+
+## Collections, shelves and the import
+
+- **Collections.** Every owner has one default collection, "Home library", made for them when they first add a book. With one collection there is nothing to pick. Once someone has two or more, a picker appears when pairing and importing, and a copy's page shows a Move control for its owner. Make more collections, rename, make one the default, or delete an empty one from My books.
+- **Shelves.** My books lists each of your collections. What I'm holding lists what you have borrowed. Friends' shelves shows other members' collections: titles and holders, never label codes. A removed member's shelves are hidden.
+- **Put a label on it.** A book you own with no label (from the import) shows "Put a label on it" on your shelf. It opens Pair for that copy: scan or type the label code and the label is bound to that very copy, never a duplicate. Scanning a fresh label for an imported book works too.
+- **Import.** Open Import from StoryGraph on the home page and choose `storygraph_export.csv` (export it from StoryGraph; never commit it). The file is read in the browser. Only title, authors and ISBN of the rows you own as physical books leave it, in chunks; the format and everything else stay on the device. Rows not marked owned and digital or audio rows are counted and shown as skipped. Books go into the collection you pick. Books are looked up in Open Library in batches (Google Books is not asked during an import, only on a later scan of an imported book). If a chunk fails or the lookup source is down, the import retries and, if it still cannot, stops with a count: import the same file again to carry on. Books already added are skipped, so re-running is safe. For Natalie's file expect 248 books to import and 42 digital or audio rows skipped.
+- **Owed by James: the CSV header check.** The import's column names (`COLUMNS` and `OWNED_VALUE` in `src/client/storygraph/parse.ts`) are taken from StoryGraph's public export format, not from the real file. Paste the header line of the export (the first line only, not any book data) to confirm them; if one differs, the error names the missing column and the fix is a one-line change.
 
 No new commands: `pnpm dev`, `pnpm test` and the rest are as below.
 

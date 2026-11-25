@@ -413,3 +413,35 @@ Where the build departed from the text above. The text is left as written.
 - **A typed title saves by title.** In the typing form a filled title saves
   the book by title and author with no lookup; the ISBN, if given, is not
   stored with it. An ISBN with no title goes through lookup.
+
+## Corrections from the step 3 build (2026-11-25)
+
+Where the build departed from the text above. The text is left as written.
+
+- **Reads by owner and by id.** `collection(member, viewer)` became
+  `collectionsOf(ownerId)` and `shelf(id)`, with `holding(member)`.
+- **Copies by id.** A copy reached by id has its own page (`/copies/<id>`)
+  with no code and no claim.
+- **Format stays in the browser.** The text above says title, authors, ISBN and
+  format leave the browser in an import. Only title, authors and ISBN do; the
+  format is read in the browser to skip digital and audio rows.
+- **Imported ISBNs.** An imported ISBN the lookup cannot find is kept on the
+  copy as `import_isbn`, not on the shared book.
+- **Lookups during an import.** Imports ask only sources that take many ISBNs
+  in one request. Google Books is never asked during an import, but is asked on
+  a later scan of an imported book: when a label is bound to an imported copy
+  whose book has no ISBN, the single-ISBN lookup runs (enrich on bind).
+- **Failed chunks.** If Open Library fails or times out for a chunk, the
+  server refuses it (503, `unavailable`) and the browser retries. A chunk is
+  never stored title-only because a source was down.
+- **Duplicates.** A file with two copies of the same book imports one.
+- **StoryGraph columns.** The import's column map (`COLUMNS` and `OWNED_VALUE`
+  in `src/client/storygraph/parse.ts`) is a guess from StoryGraph's public
+  export format: Title, Authors, ISBN/UID, Format, Owned?. It is pending
+  James's check of the real header line; a missing column is named in the
+  error, and a correction is a one-line change to that constant.
+- **Collection names.** Names also refuse control, format and separator
+  characters (`\p{Cf}`, `\p{Zl}`, `\p{Zp}`) and lone surrogates, beyond the
+  collections design's "control and bidi-override".
+- **Removed members.** A removed member's collections and shelves answer 404
+  to other members, matching `/api/members` hiding them.
