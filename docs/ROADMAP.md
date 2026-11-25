@@ -44,8 +44,7 @@ browser and tells the person to open it in Safari or Chrome before offering
 sign-in; pages refetch who is signed in when restored from the back-forward
 cache.
 
-Built, not yet released (2026-11-25; release is v0.2.0 after
-the PR merges): label sheets for six Avery layouts and plain paper, with
+Built and released as v0.2.0 (2026-11-25): label sheets for six Avery layouts and plain paper, with
 an alignment test and nudge; pairing by ISBN scan or typed title; the copy page
 with claim, return and history; embedded-browser detection. Still to do:
 James's check below, which needs the app deployed and two phones, after a
@@ -68,8 +67,8 @@ Carry-overs from step 1:
 
 My collection, what I'm holding, other members' shelves. StoryGraph import.
 
-Built, not yet released (2026-11-25; release is v0.3.0, a tag after the PR
-merges): collections with a default and a picker, shelves (mine, holding,
+Built, not yet released (2026-11-25; release is the next free version tag, after the
+PR merges): collections with a default and a picker, shelves (mine, holding,
 friends'), copies by id, moving a copy, pairing into a collection, labelling an
 imported copy from its shelf, and the StoryGraph import parsed in the browser.
 Still to do: James's CSV header check (the column map is a guess from
@@ -96,8 +95,7 @@ Carry-overs from step 3:
   no feedback during the 503 backoff waits and the plural "1 books"; a
   240-row shelf renders at once and covers lack `loading="lazy"`; Mine treats a
   404 shelf as empty; Members filters the viewer twice; `useLoaded` has no
-  direct test; correlated count subqueries are O(collections x copies); names
-  allow zero-width marks the spec permits; the byte bound on import chunks is
+  direct test; correlated count subqueries are O(collections x copies); the byte bound on import chunks is
   not probed at its edge; stray-quote and whitespace-line CSV cases; three
   concurrent identical import chunks make three lookups; a refused `add` still
   creates the adder's default; move and label copy placeholders are plain.
@@ -111,8 +109,8 @@ Notes carried in from step 0 and step 2 (done in step 3 unless listed below):
 
 Carry-overs from step 2 taken into step 3: `parseLabelLink` now accepts one
 trailing slash; eslint ignores `dist` at any depth; `toIsbn13` now accepts
-979-1x ISBNs (it refused them). Not re-checked: `toIsbn13` still accepts 979-0
-(ISMN) and refuses a pasted "ISBN 978-..." prefix or en dash.
+979-1x ISBNs (it refused them). 979-0 is refused; an "ISBN 978-" prefix and
+en/em dashes are accepted.
 
 ## 4. Owner tools
 
