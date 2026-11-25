@@ -389,3 +389,25 @@ and a Google OAuth client. The builder cannot create these.
 ## Open before the big print run
 
 - The final domain.
+
+## Corrections from the step 2 build (2026-11-25)
+
+Where the build departed from the text above. The text is left as written.
+
+- **No native decoder.** The scanner always uses the bundled zxing-wasm
+  decoder; the browser's own `BarcodeDetector` path was dropped. The
+  three-frame rule was validated on a phone only against the bundled decoder,
+  and the native proof covered QR only. The page still proves the decoder
+  before trusting it, on a QR code it draws itself. So the scanner's "two
+  adapters" are one.
+- **Open Library User-Agent.** Open Library asks API clients to give contact
+  details in the User-Agent. The app sends its name and public repository
+  address but no email or phone, to keep them private, so lookups sit in the
+  1 request per second tier rather than 3.
+- **Round labels.** The QR is always centred. Round labels under 1.5 in
+  (Avery 6450) print no code text. Elsewhere there are at least 2 modules
+  between the QR and the code text, and at least 1.5 mm between any QR corner
+  and the cut. A 1 in round label can therefore be scanned but not typed.
+- **A typed title saves by title.** In the typing form a filled title saves
+  the book by title and author with no lookup; the ISBN, if given, is not
+  stored with it. An ISBN with no title goes through lookup.

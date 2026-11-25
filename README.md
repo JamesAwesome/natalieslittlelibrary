@@ -2,7 +2,17 @@
 
 A shared lending record for Natalie's books: scan the label inside a book on your phone, sign in with Google, and the record of who has it updates itself. It is a React app served by a Cloudflare Worker, with a D1 database.
 
-Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). This is step 1 (the skeleton); it is not deployed yet.
+Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). Step 2 (the core loop) is built; the app is not deployed yet.
+
+## How it works
+
+1. **Print.** On a computer, open Print labels, pick your sheet (or plain paper), run the alignment test on plain paper, then print the labels at 100% scale.
+2. **Pair.** Stick a label in a book. Open Add a book on a phone, scan the book's ISBN barcode (three matching reads, then confirm the title) or type the title, then scan the label.
+3. **Scan.** Anyone who scans the label with their phone camera lands on the book's page.
+4. **Claim.** Signed in, they tap to say they have it. Everyone sees who holds it.
+5. **Return.** The owner marks it returned. The page keeps the history.
+
+No new commands: `pnpm dev`, `pnpm test` and the rest are as below.
 
 ## Commands
 
@@ -69,3 +79,7 @@ CI pins the pnpm version (`11.17.0`) in the workflow; keep it in step with `pack
 4. Natalie's `storygraph_export.csv` must never be committed. It is gitignored.
 5. `pnpm wrangler types --check` only notices that `wrangler.jsonc` changed without regenerating; it does not notice hand edits to `worker-configuration.d.ts`. Never edit that file by hand; run `pnpm types`.
 6. Session cookies are `__Host-lib_session` and `__Host-lib_login` on https, and plain `lib_session` and `lib_login` on http (local development).
+7. Book titles and covers come from Open Library, which does not know every book, so typing a title is normal. Pairing works even when Open Library is down.
+8. Labels are printed from a computer at 100% scale (turn off "fit to page"), with the alignment test first. Printers shift, and the test shows by how much.
+9. An iPhone home-screen web app may be treated as an in-app browser by Google sign-in. If sign-in is refused there, open the site in Safari instead.
+10. 1 in round labels (Avery 6450) carry no printed code text, so they can only be scanned, not typed.

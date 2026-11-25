@@ -44,6 +44,14 @@ browser and tells the person to open it in Safari or Chrome before offering
 sign-in; pages refetch who is signed in when restored from the back-forward
 cache.
 
+Built (2026-11-25): label sheets for six Avery layouts and plain paper, with
+an alignment test and nudge; pairing by ISBN scan or typed title; the copy page
+with claim, return and history; embedded-browser detection. Still to do:
+James's check below, which needs the app deployed and two phones, after a
+release tag. Not yet confirmed on a device: printer registration on real Avery
+sheets, phone decoding of printed labels, and the sign-in round trip back to
+`/pair?label=`.
+
 Done when: Natalie labels five books, James claims one by scanning it with his
 camera, and Natalie sees that he has it.
 
@@ -72,10 +80,42 @@ Notes carried in from step 0 and step 2:
 - Lookups for an import must be batched. Open Library asks clients not to send
   hundreds of single-book requests.
 
+Carry-overs from step 2:
+
+- Found books are cached forever (`fetched_at` is never read), so an Open
+  Library correction is never picked up. Redirects from Open Library are
+  followed (the answer is still shape-checked). `safeCoverUrl` accepts nothing
+  with a port or credentials now; the ledger's copy of the rule should be
+  re-checked when the import adds a second writer.
+- `parseLabelLink` refuses a trailing slash (`/b/<code>/`). `toIsbn13` accepts
+  979-0 (ISMN) and refuses a pasted "ISBN 978-..." prefix or en dash.
+- Client tidy: a 2xx with a non-JSON body throws `SyntaxError`, not
+  `ApiError`; `bundledDecoder` is exported only for `check.ts`; `onRead` runs
+  inside the detect try; the not-a-book message is not cleared on hide/show;
+  Scanner tests do not restore `visibilityState`; the copy page's trouble
+  branch renders outside `.copy-page`.
+- Printing: Print stays enabled with an invalid custom layout; after a partial
+  mint, changing the sheet count drops the visible made labels without a
+  message and the "N of M sheets" line lingers.
+
 ## 4. Owner tools
 
 Loan to a named person without an account. Give to a member. Request and
 approve ownership. Release. Replace a label.
+
+Carry-overs from step 2:
+
+- Removing a copy is a soft delete: events reference copies.
+- Replacing a label retires the old one (`retired_at`); it does not unbind it.
+- Columns added to existing tables must be nullable (see Known hazards).
+- When a copy can have two labels, the copy view must be given the requested
+  code rather than reading it from the joined label row.
+- Loans to a named person change the copy view: today a copy with no holder
+  renders as held by the name "".
+- The claim guard SQL is built by string concatenation with a repeated spread;
+  tidy it before adding more actions. The view and `COPY_SELECT` are
+  near-duplicate selects. Claim on a blank label is not-found while add says
+  label-unknown.
 
 Done when: each has been done once with a real book.
 
@@ -83,6 +123,17 @@ Done when: each has been done once with a real book.
 
 Settle the domain. Scheduled database export. Switch from the allowlist to
 entry-by-label. Big print run.
+
+Carry-overs from step 2:
+
+- `act` does not check `removed_at`; membership does, leaving a one-request
+  window after a removal.
+- Refusals re-serialise the query (`%20` becomes `+`, `?a` becomes `?a=`), and
+  percent-encoding can grow a 1000-character `returnTo` to about 9 KB of
+  `Location`. The API's `onError` matches `/api/` but not a bare `/api`. The
+  16 KB body-limit test cannot tell "refused unread" from "read then measured".
+- Unconfirmed until it runs for real: the 10 ms CPU limit under large bodies,
+  and Cloudflare decoding percent-encoded `/auth` paths before routing.
 
 Carry-overs from step 1:
 

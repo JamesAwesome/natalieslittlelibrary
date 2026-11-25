@@ -821,3 +821,24 @@ test("on a round label the code's corners stay inside the circle", …); // qrIn
 - [ ] **Step 5: Commit.** `docs: step 2 in the README and roadmap`
 
 The roadmap's "done when" for this step (Natalie labels five books, James claims one by scanning it with his camera, Natalie sees that he has it) needs the app deployed and two phones. It is James's check, after a release tag.
+
+## Departures from this plan (2026-11-25)
+
+Recorded after the build; the task text above is left as written.
+
+- **Task 10, native decoder.** `nativeDecoder` and `chooseDecoder` were not
+  built. The scanner uses the bundled decoder only, proven on a QR it draws
+  itself before use (15 s limit), and 10 consecutive detect failures count as
+  `decoder-failed`.
+- **Task 10, Step 5.** `grep -r jsdelivr dist` cannot pass: zxing-wasm's
+  default CDN address is a string in its bundle even though the app overrides
+  it. The check was replaced by a browser run with the CDN host blocked,
+  showing only same-origin requests.
+- **Task 5, User-Agent.** Open Library asks for contact details; the app sends
+  none (privacy), so lookups are in the 1 req/s tier.
+- **Task 12, `codeBox`.** For round labels: QR centred; no code text under
+  1.5 in; at least 2 modules from QR to text; at least 1.5 mm from QR corners
+  to the cut. QR placement is computed in `layout.ts`, and the print check
+  decodes every label under a dark surround and a shift of 1 mm.
+- **Task 11, typing.** A filled title saves by title with no lookup; the ISBN
+  stays visible but is not sent with that save.
