@@ -1,7 +1,7 @@
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo } from "../../shared/types";
-import { openLibrary, type BookSource } from "./sources";
+import { googleBooks, openLibrary, type BookSource } from "./sources";
 
 export type BookLookupDeps = {
   db: D1Database;
@@ -16,6 +16,12 @@ export interface BookLookup {
 }
 
 const DEFAULT_TIMEOUT_MS = 4000;
+
+// Open Library first; Google Books after it only when a key is set.
+export function lookupSources(apiKey: unknown): BookSource[] {
+  const key = typeof apiKey === "string" ? apiKey.trim() : "";
+  return key === "" ? [openLibrary] : [openLibrary, googleBooks(key)];
+}
 
 export function createBookLookup(deps: BookLookupDeps): BookLookup {
   const { db } = deps;
@@ -76,8 +82,8 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
     }
   }
 
-  // One source, one time limit. Never throws; null means this source has nothing.
-  async function ask(source: BookSource, isbn: string): Promise<BookInfo | null> {
+  // One request, one time limit: on timeout the request is aborted and the answer is null. Never throws.
+  async function withLimit<T>(work: (signal: AbortSignal) => Promise<T | null>): Promise<T | null> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<null>((resolve) => {
@@ -87,14 +93,18 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
       }, timeoutMs);
     });
     try {
-      const found = await Promise.race([source.find(isbn, doFetch, controller.signal), timedOut]);
-      const facts = cleanBookFacts(found);
-      return facts && { isbn, ...facts };
+      return await Promise.race([work(controller.signal), timedOut]);
     } catch {
       return null;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  // One source, one time limit. Null means this source has nothing.
+  async function ask(source: BookSource, isbn: string): Promise<BookInfo | null> {
+    const facts = cleanBookFacts(await withLimit((signal) => source.find(isbn, doFetch, signal)));
+    return facts && { isbn, ...facts };
   }
 
   return {

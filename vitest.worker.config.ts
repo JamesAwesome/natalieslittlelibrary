@@ -16,6 +16,8 @@ export default defineConfig({
             GOOGLE_CLIENT_SECRET: "test-secret",
             ALLOWLIST_EMAILS: "natalie@example.com",
             ADMIN_EMAILS: "natalie@example.com",
+            // Pinned empty so a real key in .dev.vars never changes test behaviour; a test that needs a key passes its own env.
+            GOOGLE_BOOKS_API_KEY: "",
           },
         },
       };
