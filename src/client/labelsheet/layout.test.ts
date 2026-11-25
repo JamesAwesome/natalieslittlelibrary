@@ -49,7 +49,9 @@ test.each([
   [{ shape: "rectangle", w: 1, h: 1 }, { qrIn: 0.72, showText: true }],
   [{ shape: "rectangle", w: 2.625, h: 1 }, { qrIn: 0.72, showText: true }],
   [{ shape: "rectangle", w: 1.5, h: 1.5 }, { qrIn: 1.08, showText: true }],
-  [{ shape: "round", w: 1, h: 1 }, { qrIn: 0.62, showText: true }],
+  [{ shape: "round", w: 1, h: 1 }, { qrIn: 0.62, showText: false }],
+  [{ shape: "round", w: 1.4, h: 1.4 }, { qrIn: 0.868, showText: false }],
+  [{ shape: "round", w: 1.5, h: 1.5 }, { qrIn: 0.93, showText: true }],
   [{ shape: "round", w: 2, h: 2 }, { qrIn: 1.24, showText: true }],
   [{ shape: "rectangle", w: 1.75, h: 0.5 }, null],
   [{ shape: "rectangle", w: 0.85, h: 0.85 }, { qrIn: 0.612, showText: false }],
@@ -83,11 +85,62 @@ test("a half-inch label says why in the brief's words", () => {
   );
 });
 
-test("on a round label the code's corners stay inside the circle", () => {
-  const rounds = SHEETS.filter((s) => s.shape === "round");
-  expect(rounds.length).toBeGreaterThan(0);
-  for (const sheet of rounds) {
+const MM = 1 / 25.4;
+const CLEAR_IN = 1.5 * MM;
+// Distance from the QR's nearest edge (rectangle) or corner (circle) to the label's cut.
+function qrClearance(layout: SheetLayout): number {
+  const box = codeBox(layout)!;
+  const { widthIn: w, heightIn: h } = layout.label;
+  const x0 = box.qrLeftIn;
+  const y0 = box.qrTopIn;
+  const x1 = x0 + box.qrIn;
+  const y1 = y0 + box.qrIn;
+  if (layout.shape === "rectangle") return Math.min(x0, y0, w - x1, h - y1);
+  const r = w / 2;
+  return Math.min(...[[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]) => r - Math.hypot(x! - r, y! - r)));
+}
+
+test.each(SHEETS)("$name: the code keeps 1.5 mm clear of the cut", (sheet) => {
+  expect(qrClearance(sheet)).toBeGreaterThanOrEqual(CLEAR_IN);
+});
+
+test("on every round label the code is exactly centred", () => {
+  for (const sheet of SHEETS.filter((s) => s.shape === "round")) {
     const box = codeBox(sheet)!;
-    expect(box.qrIn * Math.SQRT2).toBeLessThan(sheet.label.widthIn);
+    expect(box.qrLeftIn).toBeCloseTo((sheet.label.widthIn - box.qrIn) / 2, 9);
+    expect(box.qrTopIn).toBeCloseTo((sheet.label.heightIn - box.qrIn) / 2, 9);
   }
+});
+
+test("a custom round label stays clear of the cut at its smallest allowed size", () => {
+  const round = { ...base, shape: "round" as const, label: { widthIn: 0.97, heightIn: 0.97 } };
+  expect(codeBox(round)).not.toBeNull();
+  expect(qrClearance(round)).toBeGreaterThanOrEqual(CLEAR_IN);
+});
+
+test.each([29, 33, 41])("the code text is at least 2 modules below a %i-module code, and inside the label", (modules) => {
+  let withText = 0;
+  for (const sheet of SHEETS) {
+    const box = codeBox(sheet, modules)!;
+    expect(box.qrIn).toBeCloseTo(codeBox(sheet)!.qrIn, 9); // the code is never shrunk to make room
+    if (!box.showText) continue;
+    withText++;
+    const gap = box.textTopIn - (box.qrTopIn + box.qrIn);
+    expect(gap).toBeGreaterThanOrEqual((2 * box.qrIn) / modules - 1e-9);
+    const { widthIn: w, heightIn: h } = sheet.label;
+    const textBottom = box.textTopIn + box.textHeightIn;
+    if (sheet.shape === "rectangle") expect(h - textBottom).toBeGreaterThanOrEqual(CLEAR_IN);
+    else {
+      const r = w / 2;
+      const corner = Math.hypot(box.textWidthIn / 2, textBottom - r);
+      expect(r - corner).toBeGreaterThanOrEqual(CLEAR_IN);
+    }
+  }
+  expect(withText).toBeGreaterThan(0);
+});
+
+test("round labels under 1.5 in carry no text; the 1 in round has none", () => {
+  const sheet = SHEETS.find((s) => s.id === "avery-6450")!;
+  expect(codeBox(sheet)!.showText).toBe(false);
+  expect(codeBox(SHEETS.find((s) => s.id === "avery-22807")!)!.showText).toBe(true);
 });

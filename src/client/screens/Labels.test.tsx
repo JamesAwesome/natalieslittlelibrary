@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
@@ -102,6 +102,65 @@ test("a double press mints once", async () => {
   release();
   await waitFor(() => expect(codes()).toHaveLength(48));
   expect(api.mintLabels).toHaveBeenCalledTimes(1);
+});
+
+test("two clicks inside one act mint once (the guard is the ref, not the disabled button)", async () => {
+  show();
+  const button = screen.getByRole("button", { name: "Make labels" });
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  await waitFor(() => expect(codes()).toHaveLength(48));
+  expect(api.mintLabels).toHaveBeenCalledTimes(1);
+});
+
+test("a failure after some sheets keeps and shows them, says how many, and Try again mints only the rest", async () => {
+  vi.mocked(api.mintLabels)
+    .mockImplementationOnce(fakeMint)
+    .mockRejectedValueOnce(new api.ApiError(500, null));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "3");
+  await make();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't make labels. Try again.");
+  expect(codes()).toHaveLength(48);
+  expect(screen.getByText("These labels now exist. If you don't print them, they simply go unused.")).toBeInTheDocument();
+  expect(screen.getByText("1 of 3 sheets was made.")).toBeInTheDocument();
+  const first = codes();
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(144));
+  expect(api.mintLabels).toHaveBeenCalledTimes(4); // 1 made, 1 failed, 2 more
+  expect(codes().slice(0, 48)).toEqual(first);
+  expect(new Set(codes()).size).toBe(144);
+  expect(screen.queryByText(/sheets? was made|sheets were made/)).not.toBeInTheDocument();
+});
+
+test("changing how many sheets after a partial failure starts afresh", async () => {
+  vi.mocked(api.mintLabels).mockImplementationOnce(fakeMint).mockRejectedValueOnce(new api.ApiError(500, null));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "3");
+  await make();
+  await screen.findByRole("alert");
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(96));
+});
+
+test("Print is disabled while the layout has problems", async () => {
+  show();
+  await make();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Print" })).toBeEnabled());
+  await userEvent.selectOptions(picker(), "custom");
+  fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "0" } });
+  expect(screen.getByRole("button", { name: "Print" })).toBeDisabled();
+});
+
+test("a saved custom value that is not a number loads safely and is refused with a reason", () => {
+  localStorage.setItem("labels.settings", JSON.stringify({ sheetId: "custom", custom: { columns: "abc", labelW: "1e999", rows: 5, shape: "oval" } }));
+  show();
+  expect(picker().value).toBe("custom");
+  expect(screen.getByRole("button", { name: "Make labels" })).toBeDisabled();
+  expect(screen.getByRole("alert")).toBeInTheDocument();
 });
 
 test("Print calls window.print", async () => {

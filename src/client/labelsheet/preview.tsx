@@ -14,6 +14,7 @@ const outlines = new URLSearchParams(location.search).has("outlines");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <div className="labels-page"><div className="sheet-area">
     {outlines && <style>{".sheet-label { outline: 0.5pt solid #000 !important; outline-offset: -0.5pt !important; }"}</style>}
     {SHEETS.map((layout, s) => {
       const labels = Array.from({ length: perSheet(layout) }, (_, i) => {
@@ -26,5 +27,6 @@ createRoot(document.getElementById("root")!).render(
         </div>
       );
     })}
+    </div></div>
   </StrictMode>,
 );

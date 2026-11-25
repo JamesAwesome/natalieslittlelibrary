@@ -214,16 +214,13 @@ a.button {
   color: #000;
   box-shadow: 0 0 0 1px #0003;
   overflow: hidden;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .sheet-label {
   position: absolute;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.03in;
   outline: 1px solid #00000026;
   outline-offset: -1px;
 }
@@ -234,37 +231,48 @@ a.button {
 
 .sheet-label svg {
   display: block;
-  flex: none;
 }
 
 .sheet-code {
+  position: absolute;
+  left: 0;
+  width: 100%;
   font: 6pt/1 ui-monospace, Menlo, Consolas, monospace;
+  text-align: center;
   white-space: nowrap;
 }
 
+/* Drawn with borders (set inline), which print even when background graphics are off. */
 .sheet-cut {
   position: absolute;
-  background: #999;
+  box-sizing: content-box;
+  width: 0;
+  height: 0;
 }
 
-/* Printing: the sheets alone, on Letter, edge to edge. */
-@page {
+/* Printing: the label sheets alone, on Letter, edge to edge. Only the sheets use this named page,
+   and the resets below apply only while the labels page is showing, so other screens print normally. */
+@page label-sheet {
   size: 8.5in 11in;
   margin: 0;
 }
 
+.sheets {
+  page: label-sheet;
+}
+
 @media print {
-  body {
+  body:has(.labels-page) {
     background: #fff;
   }
 
-  #root {
+  body:has(.labels-page) #root {
     max-width: none;
     margin: 0;
     padding: 0;
   }
 
-  .app-chrome,
+  body:has(.labels-page) .app-chrome,
   .labels-page > :not(.sheet-area) {
     display: none;
   }

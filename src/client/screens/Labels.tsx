@@ -77,6 +77,8 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
   const [labels, setLabels] = useState<Made[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  // A run of sheets that stopped part way: the sheets made so far are kept and the rest can be made.
+  const [partial, setPartial] = useState<{ made: number; total: number } | null>(null);
   const [aligning, setAligning] = useState(false);
   const inFlight = useRef(false);
   const live = useRef(true);
@@ -100,14 +102,24 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     inFlight.current = true;
     setBusy(true);
     setFailed(false);
+    // After a failure part way, go on from where it stopped; otherwise start a fresh run.
+    const resume = partial !== null && partial.total === sheetCount ? partial : null;
+    const total = sheetCount;
+    let made = resume?.made ?? 0;
+    let kept: Made[] = resume ? labels : [];
     try {
-      const made: Made[] = [];
-      for (let i = 0; i < sheetCount; i++) made.push(...(await mintLabels(perSheet(layout))).labels);
-      if (live.current) setLabels(made);
+      for (; made < total; made++) {
+        kept = [...kept, ...(await mintLabels(perSheet(layout))).labels];
+        if (live.current) setLabels(kept);
+      }
+      if (live.current) setPartial(null);
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) setLost(true);
-      else setFailed(true);
+      else {
+        setFailed(true);
+        setPartial(made > 0 ? { made, total } : null);
+      }
     } finally {
       inFlight.current = false;
       if (live.current) setBusy(false);
@@ -176,10 +188,11 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
         <button type="button" disabled={busy || problems.length > 0} onClick={() => void make()}>Make labels</button>
       </p>
       {failed && <p role="alert" className="refusal">Couldn't make labels. Try again.</p>}
+      {failed && partial !== null && <p>{partial.made} of {partial.total} sheets {partial.made === 1 ? "was" : "were"} made.</p>}
       {labels.length > 0 && <p>These labels now exist. If you don't print them, they simply go unused.</p>}
       <p>Print from a computer, at 100%, not "fit to page", on Letter paper.</p>
       <p>
-        <button type="button" disabled={labels.length === 0} onClick={() => window.print()}>Print</button>
+        <button type="button" disabled={labels.length === 0 || problems.length > 0} onClick={() => window.print()}>Print</button>
       </p>
       <fieldset className="nudge">
         <legend>If the print lands off the sheet</legend>

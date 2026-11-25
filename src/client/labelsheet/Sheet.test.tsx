@@ -76,6 +76,36 @@ test("the QR is built from the given url, verbatim, with error correction M", ()
   expect(drawn).toEqual(expected);
 });
 
+test("the code and its text sit where codeBox puts them", () => {
+  const layout = sheet(DEFAULT_SHEET_ID);
+  const box = codeBox(layout)!;
+  const { container } = render(<Sheet labels={made(1)} layout={layout} nudge={none} />);
+  const svg = container.querySelector("svg")!;
+  expect(inches(svg.style.left)).toBeCloseTo(box.qrLeftIn, 3);
+  expect(inches(svg.style.top)).toBeCloseTo(box.qrTopIn, 3);
+  expect(inches((container.querySelector(".sheet-code") as HTMLElement).style.top)).toBeCloseTo(box.textTopIn, 3);
+});
+
+test("the 1 in round label has its code centred and no text", () => {
+  const layout = sheet("avery-6450");
+  const { container } = render(<Sheet labels={made(1)} layout={layout} nudge={none} />);
+  const svg = container.querySelector("svg")!;
+  expect(inches(svg.style.left)).toBeCloseTo((1 - 0.62) / 2, 3);
+  expect(inches(svg.style.top)).toBeCloseTo((1 - 0.62) / 2, 3);
+  expect(container.querySelector(".sheet-code")).toBeNull();
+});
+
+test("cut marks are drawn with borders, not backgrounds, so they print without background graphics", () => {
+  const { container } = render(<Sheet labels={made(1)} layout={sheet("plain-63")} nudge={none} />);
+  const marks = [...container.querySelectorAll<HTMLElement>(".sheet-cut")];
+  expect(marks.length).toBeGreaterThan(0);
+  for (const m of marks) {
+    expect(m.style.background).toBe("");
+    expect(m.style.backgroundColor).toBe("");
+    expect(m.style.borderLeftStyle === "solid" || m.style.borderTopStyle === "solid").toBe(true);
+  }
+});
+
 test("only the plain-paper sheet draws cut marks", () => {
   const plain = render(<Sheet labels={made(1)} layout={sheet("plain-63")} nudge={none} />);
   expect(plain.container.querySelectorAll(".sheet-cut").length).toBeGreaterThan(0);
