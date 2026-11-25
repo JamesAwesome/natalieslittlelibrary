@@ -1,0 +1,142 @@
+# Google Books Fallback Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** When Open Library has no answer for an ISBN, ask Google Books before telling the person the book wasn't found.
+
+**Architecture:** A second `BookSource` adapter in `src/worker/booklookup/sources.ts`, placed after Open Library in the lookup's ordered source list. `lookupSources(key)` in the booklookup module decides the list, so the worker only passes the optional secret. The shared cover rule widens to Google's cover host, so the ledger accepts those covers too.
+
+**Tech Stack:** TypeScript, Hono Worker, D1, Vitest in workerd (`vitest.worker.config.ts`).
+
+**Spec:** `docs/superpowers/specs/2026-11-25-google-books-fallback-design.md` (and the main spec's "Lookup sources" section in `docs/superpowers/specs/2026-11-16-little-library-design.md`).
+
+## Global Constraints
+
+- Only the ISBN and the key go to Google. Nothing about a member, and never James's email (also not in a User-Agent).
+- Requests the shipped app makes send `User-Agent: NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)`; requests an agent makes by hand use a generic client name.
+- The key is a secret: never committed, never in a fixture, a cached row, a cover URL, a log line, or a test name. Tests use the literal `test-key`.
+- No key set means lookups behave exactly as today (Open Library only, no Google request).
+- Each source keeps its own time limit (the existing `ask` in `booklookup.ts`); nothing new may hang.
+- Tests never reach the network: the existing `fetch` stubs that throw stay in place.
+- Agents do not run `wrangler secret put`, `--remote`, or deploy.
+
+## Review Focus
+
+1. Google's `q=isbn:` search can return a volume for a different book. Expected: a volume counts only if its `industryIdentifiers` include this ISBN-13 (or its ISBN-10). Pinned in Task 2.
+2. Google sends thumbnails as `http://books.google.com/...&edge=curl`. Expected: stored as https, without the curl, and accepted by `safeCoverUrl`. Pinned in Tasks 1 and 2.
+3. Over quota or a bad key (Google answers 429 or 403). Expected: a failure, so the lookup returns null and the person types the title. Pinned in Task 2.
+4. The key leaking into stored data. Expected: no cached row or cover URL contains `test-key`. Pinned in Task 2.
+5. A look-alike cover host (`books.google.com.evil.test`, `evilbooks.google.com`, `http:`, credentials, port). Expected: refused. Pinned in Task 1.
+
+---
+
+### Task 1: Accept Google's cover host
+
+**Files:**
+- Modify: `src/shared/bookFacts.ts` (`COVER_HOST`, `safeCoverUrl`)
+- Test: `src/shared/bookFacts.test.ts`
+
+**Interfaces:**
+- Produces: `safeCoverUrl(raw: unknown): string | null` accepts https URLs on exactly `covers.openlibrary.org` or `books.google.com`, with no credentials and no port, returning the parsed `href`. The signature does not change.
+
+- [ ] **Step 1: Write the failing tests** in `bookFacts.test.ts`:
+
+```ts
+test("a Google Books cover over https is kept", () => {
+  const u = "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1&source=gbs_api";
+  expect(safeCoverUrl(u)).toBe(u);
+});
+test.each([
+  "http://books.google.com/books/content?id=abc",
+  "https://books.google.com.evil.test/books/content?id=abc",
+  "https://evilbooks.google.com/books/content?id=abc",
+  "https://user:pw@books.google.com/books/content?id=abc",
+  "https://books.google.com:8443/books/content?id=abc",
+  "https://google.com/books/content?id=abc",
+])("%s is refused", (u) => expect(safeCoverUrl(u)).toBeNull());
+```
+
+The existing Open Library cover tests stay as they are.
+
+- [ ] **Step 2: Run** `pnpm exec vitest run --config vitest.worker.config.ts src/shared/bookFacts.test.ts`. Expected: the first test fails, the refusals pass.
+- [ ] **Step 3: Implement.** Replace `COVER_HOST` with a two-entry set of exact hostnames; update the comment above `safeCoverUrl`.
+- [ ] **Step 4: Run** the same command, then `pnpm test`. Expected: all pass.
+- [ ] **Step 5: Commit.** `feat: covers from books.google.com are accepted`
+
+---
+
+### Task 2: The Google Books source and its wiring
+
+**Files:**
+- Modify: `src/worker/booklookup/sources.ts` (add `googleBooks`), `src/worker/booklookup/booklookup.ts` (add `lookupSources`), `src/worker/booklookup/index.ts` (export both), `src/worker/index.ts` (`servicesFor`)
+- Create: `src/worker/booklookup/fixtures/google-found.json`, `google-miss.json`, `google-other-isbn.json`
+- Test: `src/worker/booklookup/sources.test.ts`, `src/worker/booklookup/booklookup.test.ts`
+- Docs: `README.md` ("Things to know" and the setup notes), the main spec's "Lookup sources" paragraph
+
+**Interfaces:**
+- Consumes: `BookSource` (`sources.ts`), `safeCoverUrl` and `cleanBookFacts` (Task 1), `toIsbn13`.
+- Produces: `googleBooks(apiKey: string): BookSource` with `name: "google-books"`; `lookupSources(apiKey: unknown): BookSource[]`, which returns `[openLibrary, googleBooks(apiKey)]` when `apiKey` is a non-empty string after trim, and `[openLibrary]` otherwise.
+
+**Fixtures.** Try one keyless request by hand (generic User-Agent) for a Google Books response to `q=isbn:9798855427974`. If Google refuses, as it did on 2026-11-17, write the fixtures from the documented volume list format (https://developers.google.com/books/docs/v1/reference/volumes/list and the Volume resource), and say so in the report. `google-found.json` has `totalItems: 1` and one item whose `volumeInfo` has `title`, `subtitle`, two `authors`, `industryIdentifiers` with both ISBN_13 `9798855427974` and ISBN_10, and `imageLinks.thumbnail` as `http://books.google.com/books/content?id=…&printsec=frontcover&img=1&zoom=1&edge=curl&source=gbs_api`. `google-miss.json` is `{"kind":"books#volumes","totalItems":0}`. `google-other-isbn.json` is like `google-found.json`, but its only item's identifiers are a different ISBN.
+
+- [ ] **Step 1: Write the failing tests.** In `sources.test.ts`:
+
+```ts
+test("asks Google Books by ISBN with the key, naming the app", async () => {
+  const calls: Call[] = [];
+  await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound, calls), new AbortController().signal);
+  const url = new URL(calls[0].url);
+  expect(url.origin + url.pathname).toBe("https://www.googleapis.com/books/v1/volumes");
+  expect(url.searchParams.get("q")).toBe(`isbn:${FOUND_ISBN}`);
+  expect(url.searchParams.get("key")).toBe("test-key");
+  expect(new Headers(calls[0].init?.headers).get("user-agent")).toBe("NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)");
+});
+test("passes the abort signal to the request", …);            // same shape as the Open Library test
+test("a found volume gives its title (no subtitle), every author, and an https cover without the curl", async () => {
+  const book = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
+  expect(book).toEqual({ isbn: FOUND_ISBN, title: googleFound.items[0].volumeInfo.title,
+    authors: googleFound.items[0].volumeInfo.authors,
+    coverUrl: expect.stringMatching(/^https:\/\/books\.google\.com\/books\/content\?/) });
+  expect(book!.coverUrl).not.toContain("edge=curl");
+  expect(book!.coverUrl).not.toContain("test-key");
+});
+test("totalItems 0 is not found", …);                          // google-miss.json → null
+test("a volume for a different ISBN is not found", …);         // google-other-isbn.json → null
+test("an ISBN-10 identifier that matches counts", …);          // fixture variant whose only identifier is the ISBN-10 of FOUND_ISBN
+test.each([429, 403, 500])("a %i answer throws, so the lookup treats it as a failure", …);
+test("a body of the wrong shape is not found", …);             // items not an array, volumeInfo missing, title not a string
+test("no thumbnail gives a null cover", …);
+```
+
+In `booklookup.test.ts`:
+
+```ts
+test("lookupSources with no key, an empty key, or a blank key is Open Library only", () => {
+  for (const k of [undefined, null, "", "   ", 42]) expect(lookupSources(k).map((s) => s.name)).toEqual(["open-library"]);
+});
+test("lookupSources with a key puts Google Books after Open Library", () => {
+  expect(lookupSources("test-key").map((s) => s.name)).toEqual(["open-library", "google-books"]);
+});
+test("Open Library found: Google is never asked", …);         // fetch stub routes by host; assert zero googleapis calls
+test("Open Library miss then Google found: Google's book is returned and cached with source google-books", …);
+test("Open Library 500 or timeout then Google found", …);
+test("both miss: null, nothing cached", …);
+test("no cached row and no stored cover contain the key", …); // select * from book_lookups; JSON.stringify(rows) not containing "test-key"
+```
+
+Use the real `openLibrary` name as `lookupSources` returns it. If it is not `"open-library"`, use its actual name in the expectation and say so.
+
+- [ ] **Step 2: Run** `pnpm exec vitest run --config vitest.worker.config.ts src/worker/booklookup`. Expected: the new tests fail (no `googleBooks`, no `lookupSources`).
+- [ ] **Step 3: Implement `googleBooks(apiKey)`** in `sources.ts`.
+  - A non-2xx answer throws, which `ask` turns into a failure. A 200 with no matching volume returns null.
+  - The volume is the first item whose `industryIdentifiers` contain the ISBN-13, or the ISBN-10 that `toIsbn13` maps to it.
+  - The thumbnail is upgraded from `http:` to `https:`, and the `edge` parameter is removed with `URL.searchParams.delete`. The result goes through `cleanBookFacts`.
+  - Build the request URL with `URLSearchParams`, so a key containing `&` cannot add parameters.
+- [ ] **Step 4: Implement `lookupSources(apiKey: unknown)`** in `booklookup.ts`, and export both from `index.ts`. In `src/worker/index.ts`, `servicesFor` passes `sources: lookupSources((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY)`. The secret is optional, so do not add it to `secrets.required` in `wrangler.jsonc`, and do not hand-edit `worker-configuration.d.ts`.
+- [ ] **Step 5: Run** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm wrangler types --check`. Expected: all pass.
+- [ ] **Step 6: Docs.**
+  - README, "Things to know": lookups ask Open Library, then Google Books if `GOOGLE_BOOKS_API_KEY` is set. The key comes from the natalieslittlelibrary Cloud project with the Books API enabled, restricted to the Books API. It is set with `wrangler secret put GOOGLE_BOOKS_API_KEY` and in `.dev.vars` for local use, and lookups work without it.
+  - Spec, "Lookup sources": record the change with a dated note.
+- [ ] **Step 7: Commit.** `feat: Google Books answers when Open Library has no book`
+
+After the merge, James creates the key and runs `wrangler secret put GOOGLE_BOOKS_API_KEY`. Agents don't.
