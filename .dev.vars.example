@@ -4,5 +4,5 @@ GOOGLE_CLIENT_SECRET=
 ALLOWLIST_EMAILS=
 ADMIN_EMAILS=
 
-# Optional: Google Books suggests a title when Open Library has none.
+# Optional: Google Books fills in books Open Library lacks.
 GOOGLE_BOOKS_API_KEY=

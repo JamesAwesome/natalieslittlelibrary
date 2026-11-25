@@ -1,5 +1,10 @@
 # Google Books suggestions when Open Library misses
 
+> **Superseded.** What ships is **Revision 2** at the end of this document:
+> Google Books fills in books Open Library lacks, automatically, covers
+> included. The pre-fill design, goals, non-goals and anti-goals below are
+> kept as the record of the detour.
+
 Approved by James, 2026-11-25. Revised the same day, after the antagonist pass,
 from "Google Books fills in the book" to "Google Books pre-fills the typing
 form" (see Approaches).

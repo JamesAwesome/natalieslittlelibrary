@@ -1,5 +1,5 @@
 {
-  "_note": "Built by hand from Google's documented volumes.list / Volume format, not captured: a keyless request answered 429 on 2026-11-25. Ids and ISBN_10 are made up.",
+  "_note": "Built by hand from Google's documented volumes.list / Volume format, not captured: a keyless request answered 429 on 2026-11-25.",
   "kind": "books#volumes",
   "totalItems": 0
 }
