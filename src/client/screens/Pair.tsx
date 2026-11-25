@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BookInfo, Member, Suggestion } from "../../shared/types";
+import type { BookInfo, Member } from "../../shared/types";
 import { toIsbn13 } from "../../shared/isbn";
 import { parseLabelLink } from "../../shared/labelCode";
 import { addCopy, ApiError, lookupBook } from "../api";
@@ -29,7 +29,6 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [step, setStep] = useState<Step>("isbn");
   const [isbn, setIsbn] = useState<string | null>(null);
   const [book, setBook] = useState<BookInfo | null>(null);
-  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [typed, setTyped] = useState<Typed>({ title: "", author: "" });
   // A code from the address skips the label step until it is refused.
   const [linked, setLinked] = useState<string | null>(() => parseLabelLink(new URLSearchParams(location.search).get("label") ?? ""));
@@ -59,7 +58,6 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     seq.current++;
     setIsbn(null);
     setBook(null);
-    setSuggestion(null);
     setTyped({ title: "", author: "" });
     setCode(null);
     setPending(null);
@@ -74,11 +72,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setNotice(undefined);
     go("looking");
     let found: BookInfo | null = null;
-    let suggested: Suggestion | null = null;
     try {
-      const answer = await lookupBook(raw);
-      found = answer.book;
-      suggested = answer.suggestion ?? null;
+      found = (await lookupBook(raw)).book;
     } catch (e) {
       if (mine === seq.current && live.current && e instanceof ApiError && e.status === 401) {
         setLost(true);
@@ -87,10 +82,6 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     }
     if (mine !== seq.current || !live.current) return;
     setBook(found);
-    setSuggestion(suggested);
-    // The form opens with the suggestion for the person to check; nothing is saved until they continue.
-    // Always set, so Google's text is in the form only while its suggestion is.
-    setTyped(!found && suggested ? { title: suggested.title, author: suggested.authors[0] ?? "" } : { title: "", author: "" });
     go(found ? "confirm" : "miss");
   }
 
@@ -139,8 +130,6 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const rescan = () => {
     setIsbn(null);
     setBook(null);
-    setSuggestion(null);
-    setTyped({ title: "", author: "" });
     go("isbn");
   };
 
@@ -179,7 +168,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
               void look(r.isbn);
             }} />
           )}
-          {unavailable ? <TypeForm typed={typed} isbn={isbn} suggestion={null} onSubmit={onTyped} /> : (
+          {unavailable ? <TypeForm typed={typed} isbn={isbn} onSubmit={onTyped} /> : (
             <p><button type="button" className="link" onClick={() => go("type")}>No barcode? Type it in</button></p>
           )}
         </>
@@ -204,7 +193,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           </p>
         </>
       )}
-      {step === "type" && <TypeForm typed={typed} isbn={isbn} suggestion={suggestion} onSubmit={onTyped} />}
+      {step === "type" && <TypeForm typed={typed} isbn={isbn} onSubmit={onTyped} />}
       {step === "label" && (
         <>
           <p>Now scan a blank label.</p>
@@ -233,7 +222,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   );
 }
 
-function TypeForm(props: { typed: Typed; isbn: string | null; suggestion: Suggestion | null; onSubmit: (t: Typed, isbn: string) => void }) {
+function TypeForm(props: { typed: Typed; isbn: string | null; onSubmit: (t: Typed, isbn: string) => void }) {
   const [title, setTitle] = useState(props.typed.title);
   const [author, setAuthor] = useState(props.typed.author);
   const [raw, setRaw] = useState(props.isbn ?? "");
@@ -252,11 +241,6 @@ function TypeForm(props: { typed: Typed; isbn: string | null; suggestion: Sugges
 
   return (
     <form onSubmit={submit} noValidate>
-      {props.suggestion && (
-        <p>
-          <a href={props.suggestion.link} target="_blank" rel="noopener noreferrer">Suggested by Google Books</a>
-        </p>
-      )}
       <p>
         <label htmlFor="pair-title">Title</label>
         <input id="pair-title" type="text" maxLength={MAX_TITLE} value={title} onChange={(e) => setTitle(e.target.value)}

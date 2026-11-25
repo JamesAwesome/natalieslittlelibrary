@@ -3,8 +3,6 @@ export type RefusalReason = "not-invited" | "removed" | "unverified" | "failed" 
 
 export type Person = { id: string; name: string; pictureUrl: string | null };
 export type BookInfo = { isbn: string | null; title: string; authors: string[]; coverUrl: string | null };
-// A second catalogue's guess at a book, shown for the person to check; never stored.
-export type Suggestion = { title: string; authors: string[]; link: string };
 export type Holder = { kind: "member"; person: Person } | { kind: "named"; name: string };
 export type ActionType = "claim" | "return";
 export type HistoryEntry = { at: number; type: "added" | "labelled" | "claimed" | "returned"; actor: Person };

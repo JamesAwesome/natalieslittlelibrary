@@ -52,13 +52,18 @@ test("a bad cover becomes null without rejecting the book", () => {
   expect(cleanBookFacts({ title: "T", coverUrl: "javascript:alert(1)" })).toEqual({ title: "T", authors: [], coverUrl: null });
 });
 
+test("a Google Books cover over https is kept", () => {
+  const u = "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1&source=gbs_api";
+  expect(safeCoverUrl(u)).toBe(u);
+});
+
 test.each([
-  "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1&source=gbs_api",
   "http://books.google.com/books/content?id=abc",
   "https://books.google.com.evil.test/books/content?id=abc",
   "https://evilbooks.google.com/books/content?id=abc",
   "https://user@books.google.com/books/content?id=abc",
   "https://:pw@books.google.com/books/content?id=abc",
+  "https://user:pw@books.google.com/books/content?id=abc",
   "https://books.google.com:8443/books/content?id=abc",
   "https://google.com/books/content?id=abc",
 ])("%s is refused", (u) => expect(safeCoverUrl(u)).toBeNull());

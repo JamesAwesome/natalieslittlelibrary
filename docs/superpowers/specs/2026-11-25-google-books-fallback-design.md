@@ -99,3 +99,23 @@ it refuses requests without an API key (spec, "Lookup sources").
 
 How the route test sets a key, and the exact wording around the attribution
 line, which must contain "Google Books" and link to the book's page.
+
+## Revision 2 (James, 2026-11-25): automatic fill again
+
+James decided this is a small private app and Google's API terms (no permanent
+copies, attribution, per-book links) are not a concern for it, so Google
+Books answers are saved automatically, with their covers, as in the first
+design. The pre-fill suggestion (Revision 1) is removed. Saving by ISBN means
+later scans and the step 3 import match these books.
+
+What stays from the review rounds: the volume must list the scanned ISBN
+(ISBN-13, or the ISBN-10 that maps to it); the key goes in the request
+through `URLSearchParams`; a non-2xx answer is a failure; each source has its
+own time limit; tests pin `GOOGLE_BOOKS_API_KEY: ""`; and no stored row, cover
+URL or response contains the key.
+
+One mitigation for the risk that was accepted: cover images are requested with
+`referrerPolicy="no-referrer"`, so Google (and Open Library) are not told which
+page showed the cover. Members' browsers still contact `books.google.com` to
+load those covers; that is the cost of showing them.
+

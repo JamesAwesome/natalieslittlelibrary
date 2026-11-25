@@ -339,7 +339,7 @@ test("a rejection becomes its status; a lookup that knows nothing is null", asyn
   try {
     const res = await call("/api/books/lookup?isbn=9780306406157", { headers: { cookie } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ book: null, suggestion: null });
+    expect(await res.json()).toEqual({ book: null });
   } finally {
     fetchSpy.mockRestore();
   }
@@ -444,7 +444,7 @@ const lookupBody = async (e: Env) => {
   const { cookie } = await signInAs(env.DB, natalie);
   const res = await call(`/api/books/lookup?isbn=${ISBN}`, { headers: { cookie } }, e);
   expect(res.status).toBe(200);
-  return (await res.json()) as { book: { title: string } | null; suggestion: unknown };
+  return (await res.json()) as Record<string, unknown>;
 };
 // Answers Open Library with `open` and Google Books with `google`, recording the URLs.
 const stubBoth = (open: unknown, google: unknown) => {
@@ -456,43 +456,46 @@ const stubBoth = (open: unknown, google: unknown) => {
   }) as typeof fetch);
   return { urls, restore: () => spy.mockRestore() };
 };
+const googleOnly = (urls: string[]) => urls.filter((u) => u.includes("googleapis.com"));
 
-test("lookup miss with no key (the pinned empty one) answers no suggestion and never asks Google", async () => {
+test("lookup miss with no key (the pinned empty one) never asks Google", async () => {
   const stub = stubBoth({}, googleFound);
   try {
-    expect(await lookupBody(env)).toEqual({ book: null, suggestion: null });
-    expect(stub.urls.filter((u) => u.includes("googleapis.com"))).toEqual([]);
+    expect(await lookupBody(env)).toEqual({ book: null });
+    expect(googleOnly(stub.urls)).toEqual([]);
   } finally {
     stub.restore();
   }
 });
 
-test("lookup miss with a key answers Google's suggestion", async () => {
+test("lookup miss with a key: Google's book is answered with its cover, saved as google-books, and the key stays out of it", async () => {
   const stub = stubBoth({}, googleFound);
   try {
     const body = await lookupBody(withKey);
-    expect(body.book).toBeNull();
-    expect(body.suggestion).toEqual({
+    expect(Object.keys(body)).toEqual(["book"]);
+    expect(body.book).toMatchObject({
+      isbn: ISBN,
       title: googleFound.items[0].volumeInfo.title,
-      authors: googleFound.items[0].volumeInfo.authors,
-      link: "https://books.google.com/books?id=EXAMPLEID123",
+      coverUrl: expect.stringMatching(/^https:\/\/books\.google\.com\//),
     });
     expect(JSON.stringify(body)).not.toContain("test-key");
-    const google = stub.urls.filter((u) => u.includes("googleapis.com"));
+    const google = googleOnly(stub.urls);
     expect(google).toHaveLength(1);
     expect(new URL(google[0]).searchParams.get("key")).toBe("test-key");
+    const stored = (await env.DB.prepare("select source, cover_url from book_lookups").all()).results;
+    expect(stored).toEqual([{ source: "google-books", cover_url: expect.stringContaining("books.google.com") }]);
+    expect(JSON.stringify(stored)).not.toContain("test-key");
   } finally {
     stub.restore();
   }
 });
 
-test("lookup hit with a key answers no suggestion and never asks Google", async () => {
+test("lookup hit with a key never asks Google", async () => {
   const stub = stubBoth(found, googleFound);
   try {
     const body = await lookupBody(withKey);
-    expect(body.book?.title).toContain("Guy She Was Interested in");
-    expect(body.suggestion).toBeNull();
-    expect(stub.urls.filter((u) => u.includes("googleapis.com"))).toEqual([]);
+    expect((body.book as { title: string }).title).toContain("Guy She Was Interested in");
+    expect(googleOnly(stub.urls)).toEqual([]);
   } finally {
     stub.restore();
   }

@@ -113,11 +113,17 @@ test("what the source sends is a request workerd accepts", async () => {
   expect(() => new Request(calls[0].url, calls[0].init)).not.toThrow();
 });
 
-test("a found volume gives its title (no subtitle), every author, and its Google Books link, with no cover", async () => {
+test("a found volume gives its title (no subtitle), every author, and an https cover without the curl", async () => {
   const info = googleFound.items[0].volumeInfo;
-  const suggestion = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
-  expect(suggestion).toEqual({ title: info.title, authors: info.authors, link: "https://books.google.com/books?id=EXAMPLEID123" });
-  expect(JSON.stringify(suggestion)).not.toContain("test-key");
+  const book = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
+  expect(book).toEqual({
+    isbn: FOUND_ISBN,
+    title: info.title,
+    authors: info.authors,
+    coverUrl: expect.stringMatching(/^https:\/\/books\.google\.com\/books\/content\?/),
+  });
+  expect(book!.coverUrl).not.toContain("edge=curl");
+  expect(book!.coverUrl).not.toContain("test-key");
 });
 
 test("totalItems 0 is not found", async () => {
@@ -162,4 +168,18 @@ test.each([
   ["body not an object", null],
 ])("a body of the wrong shape is not found: %s", async (_name, body) => {
   expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toBeNull();
+});
+
+test("no thumbnail gives a null cover", async () => {
+  const body = volume({ title: "T", industryIdentifiers: [{ type: "ISBN_13", identifier: FOUND_ISBN }] });
+  expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toMatchObject({ coverUrl: null });
+});
+
+test("a thumbnail on another host is dropped, the book is kept", async () => {
+  const body = volume({
+    title: "T",
+    industryIdentifiers: [{ type: "ISBN_13", identifier: FOUND_ISBN }],
+    imageLinks: { thumbnail: "http://evil.test/x.jpg" },
+  });
+  expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toMatchObject({ title: "T", coverUrl: null });
 });

@@ -1,7 +1,7 @@
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, Suggestion } from "../../shared/types";
-import { openLibrary, type BookSource, type SuggestSource } from "./sources";
+import type { BookInfo } from "../../shared/types";
+import { googleBooks, openLibrary, type BookSource } from "./sources";
 
 export type BookLookupDeps = {
   db: D1Database;
@@ -9,16 +9,19 @@ export type BookLookupDeps = {
   now?: () => number;
   timeoutMs?: number;
   sources?: BookSource[];
-  suggestSource?: SuggestSource | null;
 };
 
 export interface BookLookup {
   lookup(isbn: string): Promise<BookInfo | null>;
-  // A suggestion for the person to check when lookup has nothing. Never cached or written; any failure is null.
-  suggest(isbn: string): Promise<Suggestion | null>;
 }
 
 const DEFAULT_TIMEOUT_MS = 4000;
+
+// Open Library first; Google Books after it only when a key is set.
+export function lookupSources(apiKey: unknown): BookSource[] {
+  const key = typeof apiKey === "string" ? apiKey.trim() : "";
+  return key === "" ? [openLibrary] : [openLibrary, googleBooks(key)];
+}
 
 export function createBookLookup(deps: BookLookupDeps): BookLookup {
   const { db } = deps;
@@ -26,7 +29,6 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
   const now = deps.now ?? Date.now;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const sources = deps.sources ?? [openLibrary];
-  const suggestSource = deps.suggestSource ?? null;
 
   // Bounds any promise by timeoutMs: a timeout settles as `onTimeout`, and the timer never outlives the call.
   async function bounded<T>(work: () => Promise<T>, onTimeout: T): Promise<T> {
@@ -105,14 +107,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
     return facts && { isbn, ...facts };
   }
 
-  async function suggest(raw: string): Promise<Suggestion | null> {
-    const isbn = typeof raw === "string" ? toIsbn13(raw) : null;
-    if (!isbn || !suggestSource) return null;
-    return withLimit((signal) => suggestSource.find(isbn, doFetch, signal));
-  }
-
   return {
-    suggest,
     async lookup(raw) {
       const isbn = typeof raw === "string" ? toIsbn13(raw) : null;
       if (!isbn) return null;
