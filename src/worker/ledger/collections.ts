@@ -4,7 +4,6 @@ import type { CollectionSummary, Member, Rejection } from "../../shared/types";
 // The active-actor guard; bind the actor's id once.
 export const ACTIVE = "exists (select 1 from members where id = ? and removed_at is null)";
 // The owner's default collection's id; bind the owner's id once.
-// Exported for Task 3's writes that place a copy in the owner's default.
 export const DEFAULT_OF = "(select id from collections where owner_id = ? and is_default = 1)";
 
 export const DEFAULT_NAME = "Home library";

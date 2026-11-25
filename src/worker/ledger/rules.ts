@@ -1,24 +1,29 @@
 import type { ActionType, Member, Rejection } from "../../shared/types";
 
-export type CopyState = { ownerId: string | null; holderMemberId: string | null };
+// `labelled`: the copy has a label bound to it.
+export type CopyState = { ownerId: string | null; holderMemberId: string | null; labelled: boolean };
 
-const ACTIONS: ActionType[] = ["claim", "return"];
+const ACTIONS: ActionType[] = ["claim", "return", "move", "label"];
 
 // The one place that says who may do what. Both the write and the list of buttons come from here.
 export function decide(
   state: CopyState,
   viewer: Member,
   action: ActionType,
-): { holderMemberId: string; event: "claimed" | "returned" } | Rejection {
-  const isOwner = state.ownerId === viewer.id;
+): { holderMemberId: string | null; event: "claimed" | "returned" | "labelled" | null } | Rejection {
+  const isOwner = state.ownerId !== null && state.ownerId === viewer.id;
   const isHolder = state.holderMemberId === viewer.id;
   if (action === "claim" && state.ownerId !== null && !isOwner && !isHolder) {
     return { holderMemberId: viewer.id, event: "claimed" };
   }
   if (action === "return" && isOwner && !isHolder) return { holderMemberId: viewer.id, event: "returned" };
+  // Moving between one's own collections changes neither holder nor history.
+  if (action === "move" && isOwner) return { holderMemberId: state.holderMemberId, event: null };
+  if (action === "label" && isOwner && !state.labelled) return { holderMemberId: state.holderMemberId, event: "labelled" };
   return { rejected: "not-allowed" };
 }
 
-export function availableActions(state: CopyState, viewer: Member): ActionType[] {
-  return ACTIONS.filter((a) => !("rejected" in decide(state, viewer, a)));
+// A claim is the proof of having the book in hand, so it is offered only when the label was read to get here.
+export function availableActions(state: CopyState, viewer: Member, opts: { labelInHand: boolean }): ActionType[] {
+  return ACTIONS.filter((a) => (a !== "claim" || opts.labelInHand) && !("rejected" in decide(state, viewer, a)));
 }

@@ -48,7 +48,7 @@ test("print, pair, claim, return", async () => {
   expect((await post(`/api/labels/${code}/claim`, james.cookie)).status).toBe(403);
 
   const nView = (await (await call(`/api/labels/${code}`, natalie.cookie)).json()) as Extract<LabelView, { kind: "copy" }>;
-  expect(nView.copy.actions).toEqual(["return"]);
+  expect(nView.copy.actions).toEqual(["return", "move"]);
 
   const returned = await post(`/api/copies/${nView.copy.copyId}/return`, natalie.cookie);
   expect(returned.status).toBe(200);
