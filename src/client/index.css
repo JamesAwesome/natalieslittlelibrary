@@ -445,3 +445,45 @@ a.button {
 .shelf-page .count {
   opacity: 0.85;
 }
+
+.import-page button,
+.import-page a.button {
+  min-height: 44px;
+}
+
+.import-page a.button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.import-page label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.import-page input[type="file"] {
+  max-width: 100%;
+  min-height: 44px;
+}
+
+.import-page select,
+.import-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  font: inherit;
+}
+
+.import-page .field-error {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--alert-fg);
+}
+
+.import-page p,
+.import-page .refusal {
+  overflow-wrap: anywhere;
+}

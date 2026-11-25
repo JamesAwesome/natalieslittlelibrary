@@ -291,9 +291,10 @@ test("the shelf screens are routed", async () => {
   }
 });
 
-test("a screen that is not built yet renders the not-found page", async () => {
+test("the import screen is routed", async () => {
   vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
   at("/import");
   render(<App />);
-  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
+  expect(await screen.findByLabelText(/StoryGraph export/)).toBeInTheDocument();
 });

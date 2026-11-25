@@ -4,6 +4,7 @@ import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
 import { CopyPage } from "./screens/CopyPage";
 import { Holding } from "./screens/Holding";
+import { Import } from "./screens/Import";
 import { Home } from "./screens/Home";
 import { Members } from "./screens/Members";
 import { Mine } from "./screens/Mine";
@@ -114,6 +115,8 @@ export function App() {
       <Shelf id={route.id} member={member} returnTo={returnTo} />
     ) : route.name === "holding" ? (
       <Holding member={member} returnTo={returnTo} />
+    ) : route.name === "import" ? (
+      <Import member={member} returnTo={returnTo} />
     ) : route.name === "members" ? (
       <Members member={member} returnTo={returnTo} />
     ) : route.name === "member" ? (
