@@ -20,11 +20,11 @@ function servicesFor(env: Env): Services {
     }),
     config: { siteUrl: env.SITE_URL, allowlist: env.ALLOWLIST_EMAILS, admins: env.ADMIN_EMAILS },
   });
-  const { lookup } = createBookLookup({
+  const { lookup, lookupMany } = createBookLookup({
     db: env.DB,
     sources: lookupSources((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY),
   });
-  const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup });
+  const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup, lookupMany });
   return { membership, ledger, lookup };
 }
 

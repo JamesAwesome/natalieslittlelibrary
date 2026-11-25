@@ -1,10 +1,11 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, CollectionSummary, CopyView, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
 import { createShelfReads, inCollection } from "./shelves";
+import { BLANK, cleanText, createUnlabelled, MAX_AUTHOR, MAX_AUTHORS, MAX_TITLE } from "./unlabelled";
 
 export type AddInput = {
   code: string;
@@ -28,25 +29,25 @@ export interface Ledger {
   renameCollection(member: Member, id: string, name: string): Promise<CollectionSummary | Rejection>;
   deleteCollection(member: Member, id: string): Promise<{ deleted: true } | Rejection>;
   makeDefault(member: Member, id: string): Promise<CollectionSummary[] | Rejection>; // the member's collections after
+  // 1 to 20 rows, unlabelled copies owned and held by the importer; rows they already have are skipped inside the write.
+  importCopies(owner: Member, input: { collectionId: string | null; rows: ImportRow[] }): Promise<ImportResult | Rejection>;
+  labelCopy(owner: Member, copyId: string, code: string): Promise<CopyView | Rejection>; // answers with the code the request carried
+  candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection>; // never a label code
 }
 
 export type LedgerDeps = {
   db: D1Database;
   siteUrl: string;
   lookup: (isbn: string) => Promise<BookInfo | null>;
+  lookupMany: (isbns: string[]) => Promise<Map<string, BookInfo>>;
   now?: () => number;
   randomBytes?: (n: number) => Uint8Array;
 };
 
 const MAX_MINT = 100;
 const MAX_MINT_ROUNDS = 10;
-const MAX_TITLE = 300;
-const MAX_AUTHORS = 10;
-const MAX_AUTHOR = 200;
 // The largest multiple of the alphabet size that fits in a byte; bytes at or above it would bias the draw.
 const BYTE_LIMIT = 248;
-
-const BLANK = "(select 1 from labels where code = ? and copy_id is null)";
 
 type CopyRow = {
   copy_id: string | null;
@@ -69,15 +70,8 @@ function person(r: PersonRow): Person {
   return { id: r.id, name: r.name, pictureUrl: r.picture_url };
 }
 
-function cleanText(s: unknown, max: number): string | null {
-  if (typeof s !== "string") return null;
-  const t = s.trim();
-  const length = Array.from(t).length;
-  return length >= 1 && length <= max ? t : null;
-}
-
 export function createLedger(deps: LedgerDeps): Ledger {
-  const { db, lookup } = deps;
+  const { db, lookup, lookupMany } = deps;
   const now = deps.now ?? Date.now;
   const randomBytes = deps.randomBytes ?? ((n: number) => crypto.getRandomValues(new Uint8Array(n)));
 
@@ -92,6 +86,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     return code;
   }
+
+  // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, or scanning an imported copy).
+  const unlabelled = createUnlabelled(db, now, lookupMany, async (copyId, viewer) => {
+    const v = await renderCopy(copyId, viewer, true);
+    return v?.kind === "copy" ? v.copy : null;
+  });
 
   async function mintLabels(member: Member, count: number) {
     if (!Number.isInteger(count) || count < 1 || count > MAX_MINT) return { rejected: "invalid" } as const;
@@ -226,6 +226,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const label = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
     if (!label) return { rejected: "label-unknown" };
     if (label.copy_id !== null) return { rejected: "label-in-use" };
+
+    // A scan of an ISBN the adder already has an unlabelled copy of (imported, say) labels that copy: no lookup, no new copy, and the picked collection does not apply to a copy that exists.
+    if (isbn !== null) {
+      const bound = await unlabelled.bindToUnlabelled(owner, code, isbn);
+      if (bound !== null) return bound;
+    }
 
     let newBook: BookInfo | null = null; // set when a books row has to be written
     if (isbn !== null) {
@@ -409,5 +415,6 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
-  return { mintLabels, add, view, act, viewCopy, moveCopy, ...createShelfReads(db), ...createCollectionWrites(db, now) };
+  const { importCopies, labelCopy, candidates } = unlabelled;
+  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createCollectionWrites(db, now) };
 }

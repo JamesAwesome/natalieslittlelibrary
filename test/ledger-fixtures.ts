@@ -14,8 +14,9 @@ export type Deps = Partial<Parameters<typeof createLedger>[0]>;
 
 export function make(deps: Deps = {}) {
   const lookup = vi.fn(async (isbn: string): Promise<BookInfo | null> => (isbn === DUNE.isbn ? DUNE : isbn === EMMA.isbn ? EMMA : null));
-  const ledger = createLedger({ db: env.DB, siteUrl: "https://books.test", lookup, now: () => 1000, ...deps });
-  return { ledger, lookup };
+  const lookupMany = vi.fn<(isbns: string[]) => Promise<Map<string, BookInfo>>>(async () => new Map());
+  const ledger = createLedger({ db: env.DB, siteUrl: "https://books.test", lookup, lookupMany, now: () => 1000, ...deps });
+  return { ledger, lookup, lookupMany };
 }
 
 export async function count(table: string): Promise<number> {
