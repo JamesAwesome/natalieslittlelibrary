@@ -31,6 +31,7 @@ test("a removed or unknown member shows not-found, not an error", async () => {
   vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(404, null));
   render(<Members id="2" member={me} returnTo="/members/2" />);
   expect(await screen.findByText("That member isn't here.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 

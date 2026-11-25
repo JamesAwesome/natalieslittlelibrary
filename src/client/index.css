@@ -385,9 +385,12 @@ a.button {
 }
 
 .shelf-page h3 a,
-.shelf-page .plain-list a {
-  display: inline-block;
-  padding: 10px 0;
+.shelf-page .plain-list a,
+.shelf-page p a:not(.button),
+.shelf-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 
 .shelf-page .plain-list,
@@ -427,12 +430,10 @@ a.button {
   margin: 0 0 4px;
 }
 
-.shelf-title {
-  display: block;
+.shelf-page .shelf-title {
+  display: flex;
   font-weight: 600;
   line-height: 1.3;
-  padding: 10px 0;
-  min-height: 0;
   overflow-wrap: anywhere;
 }
 

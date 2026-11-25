@@ -13,7 +13,7 @@ export function ShelfList(props: { items: ShelfItem[]; viewerId?: string; showOw
           <li key={item.copyId} className="shelf-row">
             <Cover url={item.book.coverUrl} />
             <div className="shelf-text">
-              <a className="shelf-title" href={`/copies/${encodeURIComponent(item.copyId)}`}>{item.book.title}</a>
+              <a className="shelf-title" href={`/copies/${encodeURIComponent(item.copyId)}`}><Name>{item.book.title}</Name></a>
               {item.book.authors.length > 0 && (
                 <p className="authors">
                   {item.book.authors.map((a, i) => <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>)}

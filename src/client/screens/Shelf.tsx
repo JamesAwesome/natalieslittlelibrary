@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Member, Shelf as ShelfData } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
 import { ApiError, deleteCollection, getShelf, makeDefault, renameCollection } from "../api";
+import { BackLink } from "./BackLink";
 import { Name } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
 import { SignIn } from "./SignIn";
@@ -24,6 +25,11 @@ function Page({ id, member, returnTo }: Props) {
   const [deleted, setDeleted] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const { busy, guard, live } = useGuard();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [renamed, setRenamed] = useState(0);
+  useEffect(() => {
+    if (renamed > 0) heading.current?.focus();
+  }, [renamed]);
 
   // Runs one change. Any refusal shows its words and re-reads the shelf, so the screen shows the truth.
   function change(send: () => Promise<unknown>, refusals: Partial<Record<string, string>>, done?: () => void) {
@@ -53,12 +59,12 @@ function Page({ id, member, returnTo }: Props) {
       setNotice("A collection name is 1 to 60 characters, with no control characters.");
       return;
     }
-    change(() => renameCollection(id, clean.name), { "name-taken": "You already have a collection called that." }, () => setRenaming(false));
+    change(() => renameCollection(id, clean.name), { "name-taken": "You already have a collection called that." }, () => { setRenaming(false); setRenamed((n) => n + 1); });
   }
 
   const body = () => {
     if (member === null || state.status === "lost") return <SignIn returnTo={returnTo} />;
-    if (state.status === "gone") return deleted ? <p>Deleted. <a href="/mine">Back to my books</a></p> : <p>That collection isn't here.</p>;
+    if (state.status === "gone") return deleted ? <p ref={(el) => el?.focus()} tabIndex={-1}>Deleted. <a href="/mine">Back to my books</a></p> : <><p>That collection isn't here.</p><BackLink /></>;
     if (state.status === "failed") return <Trouble onRetry={retry} />;
     if (state.status !== "ok") return null;
     const { collection, owner, items } = state.data;
@@ -67,7 +73,7 @@ function Page({ id, member, returnTo }: Props) {
     return (
       <>
         {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
-        <h2><Name>{collection.name}</Name></h2>
+        <h2 ref={heading} tabIndex={-1}><Name>{collection.name}</Name></h2>
         <p>Owned by <Name>{owner.name}</Name> &middot; <BookCount n={collection.count} /></p>
         {isOwner && !renaming && !confirming && (
           <p className="controls">

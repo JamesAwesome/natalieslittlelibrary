@@ -44,3 +44,9 @@ test("a forged code on the item is never rendered", () => {
   expect(container.innerHTML).not.toContain("SECRET-CODE-123");
   expect(container.innerHTML).not.toContain("/b/");
 });
+
+test("the title is inside bdi, and covers load lazily", () => {
+  render(<ShelfList items={[item({ copyId: "c1", book: { isbn: null, title: "Dune", authors: [], coverUrl: "https://x/y.jpg" } })]} />);
+  expect(screen.getByText("Dune").tagName).toBe("BDI");
+  expect(document.querySelector("img.cover")).toHaveAttribute("loading", "lazy");
+});

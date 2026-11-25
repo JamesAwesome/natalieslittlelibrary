@@ -1,10 +1,13 @@
 import type { CollectionSummary, Member, Person } from "../../shared/types";
 import { listMembers, memberCollections } from "../api";
+import { BackLink } from "./BackLink";
 import { Name } from "./BookCard";
 import { BookCount } from "./ShelfList";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useLoaded } from "./useLoaded";
+
+const others = (people: Person[], selfId: string) => people.filter((p) => p.id !== selfId);
 
 type Props = { member: Member | null; returnTo: string; id?: string };
 
@@ -28,18 +31,18 @@ function Page({ member, returnTo, id }: Props) {
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
       ) : state.status === "gone" ? (
-        <p>That member isn't here.</p>
+        <><p>That member isn't here.</p><BackLink /></>
       ) : state.status === "failed" ? (
         <Trouble onRetry={retry} />
       ) : state.status === "ok" ? (
         state.data.owner === null ? (
           <>
             <h2>Friends' shelves</h2>
-            {state.data.people.filter((p) => p.id !== member.id).length === 0 ? (
+            {others(state.data.people, member.id).length === 0 ? (
               <p>No one else is here yet.</p>
             ) : (
               <ul className="plain-list">
-                {state.data.people.filter((p) => p.id !== member.id).map((p) => (
+                {others(state.data.people, member.id).map((p) => (
                   <li key={p.id}><a href={`/members/${encodeURIComponent(p.id)}`}><Name>{p.name}</Name></a></li>
                 ))}
               </ul>

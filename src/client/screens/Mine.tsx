@@ -9,7 +9,8 @@ import { Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
 import { useLoaded } from "./useLoaded";
 
-type Group = { collection: CollectionSummary; shelf: Shelf };
+// shelf is null when that one read failed: its group shows trouble and the others stay.
+type Group = { collection: CollectionSummary; shelf: Shelf | null };
 
 async function loadGroups(): Promise<Group[]> {
   const { collections } = await myCollections();
@@ -20,11 +21,12 @@ async function loadGroups(): Promise<Group[]> {
       } catch (e) {
         // Deleted between the two reads: it is simply not there any more.
         if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
+        if (e instanceof ApiError && e.status === 401) throw e;
+        return { collection, shelf: null };
       }
     }),
   );
-  return shelves.filter((g): g is Group => g !== null);
+  return shelves.filter((g) => g !== null);
 }
 
 export function Mine({ member, returnTo }: { member: Member | null; returnTo: string }) {
@@ -65,12 +67,12 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
       <h1>Natalie's Little Library</h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
-      ) : state.status === "failed" ? (
+      ) : state.status === "failed" || state.status === "gone" ? (
         <Trouble onRetry={retry} />
-      ) : state.status === "ok" || state.status === "gone" ? (
+      ) : state.status === "ok" ? (
         <>
           <h2>My books</h2>
-          {state.status === "gone" || state.data.length === 0 ? (
+          {state.data.length === 0 ? (
             <p>
               No books yet. <a href="/pair">Pair a book</a> or <a href="/import">import from StoryGraph</a>.
             </p>
@@ -80,7 +82,17 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
                 <input type="checkbox" checked={onlyUnlabelled} onChange={(e) => setOnlyUnlabelled(e.target.checked)} />
                 Show only books without a label
               </label>
-              {state.data.map(({ collection, shelf }) => {
+              {state.data.map(({ collection: listed, shelf }) => {
+                if (shelf === null) {
+                  return (
+                    <section key={listed.id} className="group">
+                      <h3><Name>{listed.name}</Name></h3>
+                      <Trouble onRetry={retry} />
+                    </section>
+                  );
+                }
+                // The heading and count come from the same read as the rows, so they always agree.
+                const collection = shelf.collection;
                 const items = onlyUnlabelled ? shelf.items.filter((i) => !i.labelled) : shelf.items;
                 return (
                   <section key={collection.id} className="group">

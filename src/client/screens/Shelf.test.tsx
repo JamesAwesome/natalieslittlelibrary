@@ -190,3 +190,27 @@ test("navigating to another shelf starts from nothing (open rename form, notice)
   expect(screen.queryByLabelText("New name")).not.toBeInTheDocument();
   expect(api.getShelf).toHaveBeenLastCalledWith("k1");
 });
+
+test("the not-found page has a way back", async () => {
+  vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(404, null));
+  show();
+  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+});
+
+test("after a rename focus moves to the heading", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(beach, []));
+  vi.mocked(api.renameCollection).mockResolvedValue(summary({ id: "k2", name: "Lake" }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Rename" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.getByRole("heading", { level: 2 })).toHaveFocus());
+});
+
+test("after a delete focus moves to the message", async () => {
+  vi.mocked(api.getShelf).mockResolvedValueOnce(shelfOf(beach, [])).mockRejectedValue(new api.ApiError(404, null));
+  vi.mocked(api.deleteCollection).mockResolvedValue({ deleted: true });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+  await userEvent.click(screen.getByRole("button", { name: "Yes, delete it" }));
+  await waitFor(() => expect(screen.getByText(/^Deleted\./)).toHaveFocus());
+});

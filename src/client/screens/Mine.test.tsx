@@ -161,3 +161,49 @@ test("collection names render in bdi", async () => {
   show();
   expect((await screen.findByText("W".repeat(70))).tagName).toBe("BDI");
 });
+
+test("a group's heading and count come from its own shelf read, not the summary", async () => {
+  setup();
+  const fresh = summary({ id: "k2", name: "Beach cabin", count: 3, unlabelled: 2 });
+  vi.mocked(api.getShelf).mockImplementation(async (id) =>
+    id === "k1" ? shelfOf(home, homeItems) : shelfOf(fresh, [item({ copyId: "x" }), item({ copyId: "y" }), item({ copyId: "z" })]));
+  show();
+  expect(await screen.findByRole("link", { name: "Beach cabin" })).toBeInTheDocument();
+  expect(screen.queryByText("Beach house")).not.toBeInTheDocument();
+  expect(screen.getByText("3 books")).toBeInTheDocument();
+  expect(screen.getByText("2 without a label")).toBeInTheDocument();
+});
+
+test("one failing shelf shows trouble for that group only, the others stay, and Try again re-reads", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k2") throw new api.ApiError(500, null);
+    return shelfOf(home, homeItems);
+  });
+  show();
+  expect(await screen.findByRole("alert")).toHaveTextContent("having trouble");
+  expect(screen.getByRole("link", { name: "Book a" })).toBeInTheDocument();
+  expect(screen.getByText("Beach house").tagName).toBe("BDI");
+  vi.mocked(api.getShelf).mockImplementation(async (id) => (id === "k1" ? shelfOf(home, homeItems) : shelfOf(beach, beachItems)));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("link", { name: "Book c" })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a 401 on any one shelf goes to sign-in", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k2") throw new api.ApiError(401, null);
+    return shelfOf(home, homeItems);
+  });
+  show();
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+  expect(screen.queryByText("Home library")).not.toBeInTheDocument();
+});
+
+test("a 404 from myCollections is trouble, not 'No books yet'", async () => {
+  vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(404, null));
+  show();
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByText(/No books yet/)).not.toBeInTheDocument();
+});
