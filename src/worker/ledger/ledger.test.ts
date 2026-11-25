@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { isLabelCode } from "../../shared/labelCode";
 import type { BookInfo, CopyView, Rejection } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
-import { gated, racing } from "../../../test/racing";
+import { gated, racing, run } from "../../../test/racing";
 import { DUNE, EMMA, asCopy, count, homeCopy, insertMembers, kim, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 
 beforeEach(async () => {
@@ -523,7 +523,6 @@ test("the acting viewer's actions reflect the new state", async () => {
   expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual([]);
 });
 
-const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();
 const holders = async () =>
   (await env.DB.prepare("select id, owner_id, holder_member_id from copies order by id").all()).results;
 

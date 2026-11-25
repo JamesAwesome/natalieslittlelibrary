@@ -17,3 +17,10 @@ test.each(["", "   ", "x".repeat(61), "👍".repeat(61), "a\nb", "a\u0000b", "�
     expect(cleanCollectionName(raw)).toBeNull();
   },
 );
+
+test.each(["a​b", "a‎b", "a‏b", "a؜b", "a b", "a b", "a﻿b", "a­b", "a\u{e0041}b", "a\ud800b"])(
+  "%j (format, separator or surrogate) is refused",
+  (raw) => {
+    expect(cleanCollectionName(raw)).toBeNull();
+  },
+);

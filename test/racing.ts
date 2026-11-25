@@ -31,3 +31,6 @@ export function racing(beforeBatch: () => Promise<unknown>): D1Database {
     },
   } as unknown as D1Database;
 }
+
+// A step for `racing`: runs one statement against the real database.
+export const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();

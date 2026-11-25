@@ -4,21 +4,36 @@ import type { CollectionSummary, Member, Rejection } from "../../shared/types";
 // The active-actor guard; bind the actor's id once.
 export const ACTIVE = "exists (select 1 from members where id = ? and removed_at is null)";
 // The owner's default collection's id; bind the owner's id once.
+// Exported for Task 3's writes that place a copy in the owner's default.
 export const DEFAULT_OF = "(select id from collections where owner_id = ? and is_default = 1)";
 
 export const DEFAULT_NAME = "Home library";
 
-// Gives an active member a default collection if they have none. Run it first in any batch that gives them a copy, then
-// select the persisted default; never use an id this call proposed. It works for a member who owns copies with a null
-// collection_id and no collection row at all (what old code leaves).
-export function ensureDefault(db: D1Database, ownerId: string, at: number): D1PreparedStatement {
+// Gives an active member a default collection if they have none, then pins any of their owned copies that old code left
+// with a null collection_id to that default (so a later change of default cannot silently move them). Spread the two
+// statements first into any batch that gives the member a copy, then select the persisted default; never use an id this
+// call proposed. It works for a member who owns such copies and has no collection row at all.
+export function ensureDefault(db: D1Database, ownerId: string, at: number): D1PreparedStatement[] {
+  return [
+    db
+      .prepare(
+        `insert into collections (id, owner_id, name, name_key, is_default, created_at)
+         select ?, ?, ?, ?, 1, ? where ${ACTIVE} and not exists (select 1 from collections where owner_id = ? and is_default = 1)
+         on conflict do nothing`,
+      )
+      .bind(crypto.randomUUID(), ownerId, DEFAULT_NAME, DEFAULT_NAME.toLowerCase(), at, ownerId, ownerId),
+    pinNullCopies(db, ownerId),
+  ];
+}
+
+// Owned copies with no collection (old code) belong to the owner's current default; this makes it so.
+function pinNullCopies(db: D1Database, ownerId: string): D1PreparedStatement {
   return db
     .prepare(
-      `insert into collections (id, owner_id, name, name_key, is_default, created_at)
-       select ?, ?, ?, ?, 1, ? where ${ACTIVE} and not exists (select 1 from collections where owner_id = ? and is_default = 1)
-       on conflict do nothing`,
+      `update copies set collection_id = ${DEFAULT_OF}
+       where owner_id = ? and collection_id is null and ${ACTIVE} and exists ${DEFAULT_OF}`,
     )
-    .bind(crypto.randomUUID(), ownerId, DEFAULT_NAME, DEFAULT_NAME.toLowerCase(), at, ownerId, ownerId);
+    .bind(ownerId, ownerId, ownerId, ownerId);
 }
 
 type SummaryRow = { id: string; name: string; is_default: number; n: number; unlabelled: number };
@@ -52,16 +67,12 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
     return (await summariesOf(db, ownerId)).find((c) => c.id === id) ?? null;
   }
 
-  // The collection and whether the owner has another one under the same key.
-  async function reread(id: string, ownerId: string, key: string | null) {
+  // The collection, if it is the owner's.
+  async function reread(id: string, ownerId: string) {
     const row = await db
-      .prepare(
-        `select k.owner_id, k.is_default, k.name_key,
-           exists (select 1 from collections o where o.owner_id = k.owner_id and o.id <> k.id and o.name_key = ?) as clash
-         from collections k where k.id = ?`,
-      )
-      .bind(key, id)
-      .first<{ owner_id: string; is_default: number; name_key: string; clash: number }>();
+      .prepare("select owner_id, is_default from collections where id = ?")
+      .bind(id)
+      .first<{ owner_id: string; is_default: number }>();
     return row && row.owner_id === ownerId ? row : null;
   }
 
@@ -115,7 +126,7 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
     if (changes === 0) {
       // Removed actor first, then missing or not theirs, then a clash.
       if (!(await isActive(member.id))) return { rejected: "not-allowed" };
-      return (await reread(id, member.id, clean.key)) === null ? { rejected: "not-found" } : { rejected: "name-taken" };
+      return (await reread(id, member.id)) === null ? { rejected: "not-found" } : { rejected: "name-taken" };
     }
     const renamed = await summaryOne(member.id, id);
     if (!renamed) throw new Error("a collection just renamed has vanished");
@@ -135,14 +146,15 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
     ]);
     if (r.meta.changes === 1) return { deleted: true };
     if (!(await isActive(member.id))) return { rejected: "not-allowed" };
-    return (await reread(id, member.id, null)) === null ? { rejected: "not-found" } : { rejected: "not-allowed" };
+    return (await reread(id, member.id)) === null ? { rejected: "not-found" } : { rejected: "not-allowed" };
   }
 
   async function makeDefault(member: Member, id: string): Promise<CollectionSummary[] | Rejection> {
     if (typeof id !== "string") return (await isActive(member.id)) ? { rejected: "not-found" } : { rejected: "not-allowed" };
     // One batch is one transaction. The clear is guarded on the new default existing and being the actor's, so it cannot
     // leave the member with none; the set is guarded on there being none left.
-    const [, set] = await db.batch([
+    const [, , set] = await db.batch([
+      pinNullCopies(db, member.id),
       db
         .prepare(
           `update collections set is_default = 0
@@ -160,7 +172,7 @@ export function createCollectionWrites(db: D1Database, now: () => number) {
     ]);
     if (set.meta.changes === 1) return summariesOf(db, member.id);
     if (!(await isActive(member.id))) return { rejected: "not-allowed" };
-    const now = await reread(id, member.id, null);
+    const now = await reread(id, member.id);
     if (now === null) return { rejected: "not-found" };
     // Already the default: nothing to change.
     return now.is_default === 1 ? summariesOf(db, member.id) : { rejected: "not-found" };

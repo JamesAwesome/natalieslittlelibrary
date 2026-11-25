@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import type { CollectionSummary, Member, Rejection } from "../../shared/types";
 import { invariantViolations } from "../../../test/invariant";
 import { homeCopy, insertMembers, kim, make, natalie, ok, sam } from "../../../test/ledger-fixtures";
-import { gated, racing } from "../../../test/racing";
+import { gated, racing, run } from "../../../test/racing";
 import { resetDatabase } from "../../../test/reset";
 import { ensureDefault } from "./collections";
 
@@ -17,7 +17,6 @@ afterEach(async () => {
 });
 
 type Row = { id: string; owner_id: string; name: string; name_key: string; is_default: number };
-const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();
 const rows = async (): Promise<Row[]> =>
   (await env.DB.prepare("select id, owner_id, name, name_key, is_default from collections order by owner_id, name_key").all<Row>()).results;
 const defaultsOf = async (ownerId: string) =>
@@ -204,9 +203,9 @@ test("a removed member's collection writes are not-allowed and change nothing", 
 
 test("ensureDefault makes one default, once, and never for a removed member", async () => {
   await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(kim.id).run();
-  await env.DB.batch([ensureDefault(env.DB, kim.id, 10), ensureDefault(env.DB, kim.id, 10)]);
+  await env.DB.batch([...ensureDefault(env.DB, kim.id, 10), ...ensureDefault(env.DB, kim.id, 10)]);
   expect(await rows()).toEqual([]);
-  await env.DB.batch([ensureDefault(env.DB, sam.id, 10), ensureDefault(env.DB, sam.id, 11)]);
+  await env.DB.batch([...ensureDefault(env.DB, sam.id, 10), ...ensureDefault(env.DB, sam.id, 11)]);
   expect(await rows()).toEqual([
     { id: expect.stringMatching(/^[0-9a-f-]{36}$/), owner_id: sam.id, name: "Home library", name_key: "home library", is_default: 1 },
   ]);
@@ -214,8 +213,7 @@ test("ensureDefault makes one default, once, and never for a removed member", as
 
 test("a member with a copy but no collection row (old code) gets a default, and a first collection becomes it", async () => {
   // What an old Worker, or a rollback, leaves: an owned copy with a null collection_id and no default for the owner.
-  const { code, copyId } = await homeCopy(make().ledger);
-  void code;
+  const { copyId } = await homeCopy(make().ledger);
   await env.DB.batch([
     env.DB.prepare("update copies set collection_id = null where id = ?").bind(copyId),
     env.DB.prepare("delete from collections"),
@@ -224,9 +222,11 @@ test("a member with a copy but no collection row (old code) gets a default, and 
     `copy ${copyId}: owner and collection are not both null or both set`,
     `member ${natalie.id}: owns a copy and has 0 default collections`,
   ]);
-  await env.DB.batch([ensureDefault(env.DB, natalie.id, 10)]);
+  await env.DB.batch(ensureDefault(env.DB, natalie.id, 10));
   expect(await defaultsOf(natalie.id)).toBe(1);
-  expect(await invariantViolations(env.DB)).toEqual([`copy ${copyId}: owner and collection are not both null or both set`]);
+  // ensureDefault also pins the old-code copy to the new default, so the invariant holds again.
+  expect(await invariantViolations(env.DB)).toEqual([]);
+  await env.DB.prepare("update copies set collection_id = null where id = ?").bind(copyId).run();
 
   // The same state, but the member's first collection is made by hand: it is the default.
   await env.DB.prepare("delete from collections").run();
@@ -234,4 +234,56 @@ test("a member with a copy but no collection row (old code) gets a default, and 
   expect(beach.isDefault).toBe(true);
   // The next ledger write to the copy sets the column; here the test does it.
   await env.DB.prepare("update copies set collection_id = ? where id = ?").bind(beach.id, copyId).run();
+});
+
+test("deleting someone else's empty, non-default collection is not-found, and it still exists", async () => {
+  await create(sam, "Sam's");
+  const spare = await create(sam, "Spare");
+  expect(await make().ledger.deleteCollection(natalie, spare.id)).toEqual({ rejected: "not-found" });
+  expect((await rows()).map((r) => r.name)).toEqual(["Sam's", "Spare"]);
+});
+
+test("switching my default leaves another member's default alone", async () => {
+  await create(sam, "Sam's");
+  await create(natalie, "Home");
+  const beach = await create(natalie, "Beach");
+  ok(await make().ledger.makeDefault(natalie, beach.id));
+  expect(await defaultsOf(sam.id)).toBe(1);
+  expect(await defaultsOf(natalie.id)).toBe(1);
+});
+
+test("a member with no collections cannot make someone else's collection a default", async () => {
+  await create(sam, "Sam's");
+  const spare = await create(sam, "Spare");
+  const before = await rows();
+  expect(await make().ledger.makeDefault(kim, spare.id)).toEqual({ rejected: "not-found" });
+  expect(await rows()).toEqual(before);
+});
+
+test("an old-code copy with no collection is pinned to the default, so changing the default cannot move it", async () => {
+  const home = await create(natalie, "Home");
+  const { copyId } = await homeCopy(make().ledger);
+  await env.DB.prepare("update copies set collection_id = null where id = ?").bind(copyId).run();
+  const beach = await create(natalie, "Beach");
+  const after = ok(await make().ledger.makeDefault(natalie, beach.id));
+  expect(await make().ledger.deleteCollection(natalie, home.id)).toEqual({ rejected: "not-allowed" });
+  expect((await env.DB.prepare("select collection_id as c from copies where id = ?").bind(copyId).first<{ c: string }>())!.c).toBe(home.id);
+  expect(after.find((c) => c.id === home.id)).toMatchObject({ count: 1, unlabelled: 0 });
+  expect(after.find((c) => c.id === beach.id)).toMatchObject({ count: 0, isDefault: true });
+});
+
+test.each([
+  ["a zero-width space", "a\u200bb"],
+  ["a left-to-right mark", "a\u200eb"],
+  ["a right-to-left mark", "a\u200fb"],
+  ["an Arabic letter mark", "a\u061cb"],
+  ["a line separator", "a\u2028b"],
+  ["a paragraph separator", "a\u2029b"],
+  ["a byte order mark", "a\ufeffb"],
+  ["a soft hyphen", "a\u00adb"],
+  ["a tag character", "a\u{e0041}b"],
+  ["a lone surrogate", "a\ud800b"],
+])("a name with %s is invalid", async (_what, name) => {
+  expect(await make().ledger.createCollection(natalie, name)).toEqual({ rejected: "invalid" });
+  expect(await rows()).toEqual([]);
 });
