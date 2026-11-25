@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { CollectionSummary } from "../../shared/types";
@@ -231,16 +231,159 @@ test("leaving the page mid-run sends nothing more", async () => {
   expect(api.importRows).toHaveBeenCalledTimes(1);
 });
 
-test("neither the file nor its rows are written to storage", async () => {
+// Real-like stores: the client test environment has no localStorage of its own, so a spy would watch nothing.
+function fakeStore() {
+  const data = new Map<string, string>();
+  return {
+    data,
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, String(v)),
+    removeItem: (k: string) => void data.delete(k),
+    clear: () => data.clear(),
+  };
+}
+
+test("neither the file nor its rows are written to storage or the console", async () => {
   collections([home]);
   vi.mocked(api.importRows).mockResolvedValue(ok(6));
-  const set = vi.spyOn(Storage.prototype, "setItem");
+  const local = fakeStore();
+  const session = fakeStore();
+  vi.stubGlobal("localStorage", local);
+  vi.stubGlobal("sessionStorage", session);
+  // The stubs are reachable the way the app would reach them.
+  localStorage.setItem("probe", "1");
+  sessionStorage.setItem("probe", "1");
+  expect(local.data.get("probe")).toBe("1");
+  expect(session.data.get("probe")).toBe("1");
+  local.clear();
+  session.clear();
+  const logs = (["log", "debug", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
   const user = setupUser();
   show();
   await choose(user);
   await user.click(await screen.findByRole("button", { name: "Import" }));
   await waitFor(() => expect(screen.getByText(/^Added 6\./)).toBeInTheDocument());
-  expect(set).not.toHaveBeenCalled();
+  expect(local.data.size).toBe(0);
+  expect(session.data.size).toBe(0);
+  const printed = JSON.stringify(logs.flatMap((l) => l.mock.calls));
+  for (const s of [REVIEW_SENTINEL, "Hardcover Book", RATING, DATE_READ]) expect(printed).not.toContain(s);
+  vi.unstubAllGlobals();
+});
+
+test("a member with no collections who re-runs after a stop still sends null, never an empty id", async () => {
+  collections([]);
+  vi.mocked(api.importRows)
+    .mockResolvedValueOnce(ok(20))
+    .mockRejectedValueOnce(new api.ApiError(500, null))
+    .mockResolvedValue(ok(1));
+  const user = setupUser();
+  show();
+  await choose(user, bigExport(45));
+  await user.click(await screen.findByRole("button", { name: "Import" }));
+  expect(await screen.findByText(/^Stopped after 20 of 51/)).toBeInTheDocument();
+  collections([home]); // the server made the default while chunk 1 ran
+  await user.click(screen.getByRole("button", { name: "Import" }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  const ids = vi.mocked(api.importRows).mock.calls.map((c) => c[0]);
+  expect(ids).not.toContain("");
+  expect(ids.slice(2).every((id) => id === "k1")).toBe(true);
+});
+
+test("a wrong Owned? value does not read as a bare zero: the skipped counts are shown", async () => {
+  collections([home]);
+  const user = setupUser();
+  show();
+  await choose(user);
+  expect(await screen.findByText("1 not marked owned.")).toBeInTheDocument();
+  expect(screen.getByText("2 digital or audio skipped.")).toBeInTheDocument();
+});
+
+test("one book reads in the singular", async () => {
+  collections([home]);
+  const user = setupUser();
+  show();
+  await choose(user, FIXTURE.split("\r\n").slice(0, 2).join("\r\n") + "\r\n");
+  expect(await screen.findByText("1 book to import.")).toBeInTheDocument();
+});
+
+test("a file that decodes with replacement characters says it may be garbled", async () => {
+  collections([home]);
+  const user = setupUser();
+  show();
+  await choose(user, FIXTURE.replace("Hardcover Book", "Hardcover B\uFFFDok"));
+  expect(await screen.findByText("This file doesn't look like UTF-8; some titles may be garbled.")).toBeInTheDocument();
+  cleanup();
+  show();
+  await choose(user);
+  await screen.findByText("6 books to import.");
+  expect(screen.queryByText(/UTF-8/)).not.toBeInTheDocument();
+});
+
+test("the waits before asking an unavailable chunk again are 2, 5 and 12 seconds, with a notice while waiting", async () => {
+  collections([home]);
+  vi.mocked(api.importRows).mockRejectedValue(new api.ApiError(503, "unavailable"));
+  const user = setupUser();
+  show();
+  await choose(user);
+  await user.click(await screen.findByRole("button", { name: "Import" }));
+  const calls = () => vi.mocked(api.importRows).mock.calls.length;
+  expect(calls()).toBe(1);
+  expect(await screen.findByText("Waiting to try again…")).toBeInTheDocument();
+  const step = async (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  await step(1800);
+  expect(calls()).toBe(1);
+  await step(400);
+  expect(calls()).toBe(2);
+  await step(4600);
+  expect(calls()).toBe(2);
+  await step(400);
+  expect(calls()).toBe(3);
+  await step(11600);
+  expect(calls()).toBe(3);
+  await step(400);
+  expect(calls()).toBe(4);
+  expect(await screen.findByText(/^Stopped after 0 of 6\./)).toBeInTheDocument();
+  expect(screen.queryByText("Waiting to try again…")).not.toBeInTheDocument();
+});
+
+test("a 503 that is not 'unavailable' is not retried", async () => {
+  collections([home]);
+  vi.mocked(api.importRows).mockRejectedValue(new api.ApiError(503, null));
+  const user = setupUser();
+  show();
+  await choose(user);
+  await user.click(await screen.findByRole("button", { name: "Import" }));
+  expect(await screen.findByText(/^Stopped after 0 of 6\./)).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(api.importRows).toHaveBeenCalledTimes(1);
+});
+
+test("a chunk with no answer for 60 seconds is cut off and retried like an unavailable one", async () => {
+  collections([home]);
+  const signals: AbortSignal[] = [];
+  vi.mocked(api.importRows).mockImplementation((_id, _rows, signal) => {
+    if (signal) signals.push(signal);
+    if (signals.length > 1) return Promise.resolve(ok(6));
+    return new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+  });
+  const user = setupUser();
+  show();
+  await choose(user);
+  await user.click(await screen.findByRole("button", { name: "Import" }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(59000);
+  });
+  expect(signals[0].aborted).toBe(false);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(signals[0].aborted).toBe(true);
+  expect(await screen.findByText(/^Added 6\./)).toBeInTheDocument();
+  expect(api.importRows).toHaveBeenCalledTimes(2);
 });
 
 test("a session already lost shows sign-in", () => {

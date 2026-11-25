@@ -157,3 +157,17 @@ test.each<[string, () => Promise<unknown>, string, string, unknown]>([
   expect(f).toHaveBeenCalledOnce();
   expect(sent(f)).toEqual({ url, method, body });
 });
+
+test("an imported StoryGraph row travels as title, authors and isbn under collectionId and rows, and nothing else", async () => {
+  const { FIXTURE, REVIEW_SENTINEL, RATING, DATE_READ } = await import("./storygraph/fixture");
+  const { parseExport } = await import("./storygraph");
+  const parsed = parseExport(FIXTURE);
+  if (!parsed.ok) throw new Error("fixture");
+  const f = stubFetch(async () => json({ added: 0, skipped: 0 }));
+  await importRows("k1", parsed.rows);
+  const raw = String((f.mock.calls[0][1] as RequestInit).body);
+  const body = JSON.parse(raw) as { collectionId: string; rows: Record<string, unknown>[] };
+  expect(Object.keys(body).sort()).toEqual(["collectionId", "rows"]);
+  for (const r of body.rows) expect(Object.keys(r).sort()).toEqual(["authors", "isbn", "title"]);
+  for (const s of [REVIEW_SENTINEL, RATING, DATE_READ, "Translator"]) expect(raw).not.toContain(s);
+});

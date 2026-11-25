@@ -16,13 +16,14 @@ export function chunkRows(rows: ImportRow[], maxRows = 20, maxBytes = 12000): Im
   let current: ImportRow[] = [];
   let size = base;
   for (const row of rows) {
-    const add = bytes(JSON.stringify(row)) + (current.length > 0 ? 1 : 0);
-    if (current.length > 0 && (current.length >= maxRows || size + add > maxBytes)) {
+    const own = bytes(JSON.stringify(row));
+    // Every row after the first in a chunk also costs the comma before it.
+    if (current.length > 0 && (current.length >= maxRows || size + own + 1 > maxBytes)) {
       chunks.push(current);
       current = [];
       size = base;
     }
-    size += bytes(JSON.stringify(row)) + (current.length > 0 ? 1 : 0);
+    size += own + (current.length > 0 ? 1 : 0);
     current.push(row);
   }
   if (current.length > 0) chunks.push(current);

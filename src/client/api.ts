@@ -24,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+async function call<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(
     path,
     method === "GET"
@@ -32,6 +32,7 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
       : {
           method,
           ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+          ...(signal === undefined ? {} : { signal }),
         },
   );
   if (!res.ok) {
@@ -105,5 +106,5 @@ export const moveCopy = (copyId: string, collectionId: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/move`, "POST", { collectionId });
 export const labelCopy = (copyId: string, code: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/label`, "POST", { code });
-export const importRows = (collectionId: string | null, rows: ImportRow[]) =>
-  call<ImportResult>("/api/imports", "POST", { collectionId, rows });
+export const importRows = (collectionId: string | null, rows: ImportRow[], signal?: AbortSignal) =>
+  call<ImportResult>("/api/imports", "POST", { collectionId, rows }, signal);

@@ -75,3 +75,20 @@ test("a row too big for any chunk still travels alone, and no rows means no chun
   expect(chunkRows([big, big], 20, 100)).toEqual([[big], [big]]);
   expect(chunkRows([])).toEqual([]);
 });
+
+test("a line holding only whitespace is not a book and is not counted", () => {
+  const head = FIXTURE_LINES[0];
+  const r = parseExport(`${head}\r\n   \r\n,,,,,,,,,\r\n`);
+  expect(r).toEqual({ ok: true, rows: [], skipped: { notOwned: 0, notPhysical: 0, noTitle: 0 } });
+});
+
+test("the byte bound holds at exactly maxBytes and gives way at one byte less", () => {
+  const row: ImportRow = { title: "Dune", authors: ["Frank Herbert"], isbn: null };
+  const exact = new TextEncoder().encode(JSON.stringify({ collectionId: "x".repeat(36), rows: [row, row] })).length;
+  expect(chunkRows([row, row], 20, exact)).toEqual([[row, row]]);
+  expect(chunkRows([row, row], 20, exact - 1)).toEqual([[row], [row]]);
+  const three = [row, row, row];
+  const body3 = new TextEncoder().encode(JSON.stringify({ collectionId: "x".repeat(36), rows: three })).length;
+  expect(chunkRows(three, 20, body3)).toEqual([three]);
+  expect(chunkRows(three, 20, body3 - 1).length).toBe(2);
+});

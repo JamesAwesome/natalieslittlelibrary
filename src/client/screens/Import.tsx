@@ -8,10 +8,11 @@ import { SignIn } from "./SignIn";
 import { useGuard } from "./useGuard";
 
 const GAP_MS = 1000; // between one chunk's answer and the next request
-const RETRY_WAITS = [2000, 5000, 12000]; // an "unavailable" chunk is asked again after each wait, then the run stops
+const RETRY_WAITS = [2000, 5000, 12000]; // an "unavailable" or unanswered chunk is asked again after each wait, then the run stops
+const REQUEST_MS = 60000; // a chunk with no answer by then is cut off
 
 type Outcome = { kind: "done"; added: number; skipped: number; into: { id: string; name: string } | null } | { kind: "stopped"; done: number };
-type Loaded = { rows: ImportRow[]; skipped: { notPhysical: number } };
+type Loaded = { rows: ImportRow[]; skipped: { notOwned: number; notPhysical: number } };
 
 const defaultOf = (list: CollectionSummary[]) => (list.find((c) => c.isDefault) ?? list[0])?.id ?? "";
 
@@ -19,6 +20,8 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
   const [lost, setLost] = useState(false);
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [readFailed, setReadFailed] = useState(false);
+  const [garbled, setGarbled] = useState(false);
+  const [waiting, setWaiting] = useState(false);
   const [cols, setCols] = useState<CollectionSummary[] | null>(null);
   const [colsFailed, setColsFailed] = useState(false);
   const [pick, setPick] = useState("");
@@ -33,6 +36,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
   const colSeq = useRef(0);
   const creating = useRef(false);
   const sleeps = useRef(new Set<{ timer: ReturnType<typeof setTimeout>; wake: () => void }>());
+  const request = useRef<AbortController | null>(null);
 
   // Leaving the page ends any wait, so a run never sends once its page is gone.
   useEffect(() => {
@@ -43,6 +47,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
         s.wake();
       }
       waiting.clear();
+      request.current?.abort();
     };
   }, []);
 
@@ -96,9 +101,11 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
     setProgress(null);
     setNotice(undefined);
     setReadFailed(false);
+    setGarbled(false);
     try {
       const text = await file.text();
       if (!live.current || mine !== fileSeq.current) return;
+      setGarbled(text.includes("\uFFFD"));
       setParsed(parseExport(text));
     } catch {
       if (live.current && mine === fileSeq.current) setReadFailed(true);
@@ -131,12 +138,15 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
     }
   }
 
-  // One request, asked again after a wait while the server says its lookup was unavailable. Returns the answer, or
-  // null when the run must stop (the reason is already shown for a lost session).
+  // One request, asked again after a wait while the server says its lookup was unavailable or nothing answered
+  // within REQUEST_MS. Returns the answer, or null when the run must stop (a lost session shows sign-in instead).
   async function send(collectionId: string | null, rows: ImportRow[]) {
     for (let attempt = 0; ; attempt++) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), REQUEST_MS);
+      request.current = ctl;
       try {
-        return await importRows(collectionId, rows);
+        return await importRows(collectionId, rows, ctl.signal);
       } catch (e) {
         if (!live.current) return null;
         if (e instanceof ApiError && e.status === 401) {
@@ -144,10 +154,16 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
           return null;
         }
         const unavailable = e instanceof ApiError && e.status === 503 && e.rejected === "unavailable";
-        if (!unavailable || attempt >= RETRY_WAITS.length) return null;
-        await sleep(RETRY_WAITS[attempt]);
-        if (!live.current) return null;
+        const timedOut = ctl.signal.aborted && !(e instanceof ApiError);
+        if (!(unavailable || timedOut) || attempt >= RETRY_WAITS.length) return null;
+      } finally {
+        clearTimeout(timer);
+        if (request.current === ctl) request.current = null;
       }
+      setWaiting(true);
+      await sleep(RETRY_WAITS[attempt]);
+      setWaiting(false);
+      if (!live.current) return null;
     }
   }
 
@@ -168,7 +184,8 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
         setNotice("That collection is gone. Check where these books go, then press Import again.");
         return;
       }
-      const target: string | null = list.length > 0 ? wanted : null;
+      // From the list as it is now: with no collection yet the server files into the default, so the id is null, never "".
+      const target: string | null = list.length > 0 ? picked.current : null;
       const total = loaded.rows.length;
       const chunks = chunkRows(loaded.rows);
       let added = 0;
@@ -225,9 +242,11 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
       {parsed !== null && !parsed.ok && (
         <p role="alert" className="refusal">This doesn't look like a StoryGraph export. Missing: {parsed.missing.join(", ")}.</p>
       )}
+      {garbled && <p role="alert" className="refusal">This file doesn't look like UTF-8; some titles may be garbled.</p>}
       {ready !== null && (
         <>
           <p>{total} {total === 1 ? "book" : "books"} to import.</p>
+          {ready.skipped.notOwned > 0 && <p>{ready.skipped.notOwned} not marked owned.</p>}
           {ready.skipped.notPhysical > 0 && <p>{ready.skipped.notPhysical} digital or audio skipped.</p>}
           {colsFailed && needsList && (
             <>
@@ -268,6 +287,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
         </>
       )}
       {progress !== null && <p role="status">Added {progress.added} of {progress.total}…</p>}
+      {waiting && <p role="status">Waiting to try again…</p>}
       {outcome?.kind === "done" && (
         <>
           <p role="status">Added {outcome.added}. {outcome.skipped} were already in your collection.</p>

@@ -11,6 +11,8 @@ test.each([
   ["a,b", [["a", "b"]]],
   ["a,b\rc,d\r", [["a", "b"], ["c", "d"]]],
   ["", []],
+  ["a\"b,c\n", [["a\"b", "c"]]], // a quote inside an unquoted field is just a character
+  ["a\n  \nb\n", [["a"], ["  "], ["b"]]],
   ["a\n\nb\n", [["a"], [""], ["b"]]],
 ])("%j parses to %j", (text, expected) => {
   expect(parseCsv(text)).toEqual(expected);
