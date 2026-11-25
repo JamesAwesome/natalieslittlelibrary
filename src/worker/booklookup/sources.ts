@@ -59,7 +59,7 @@ export function googleBooks(apiKey: string): SuggestSource {
       for (const item of items) {
         const info = (item as { volumeInfo?: unknown } | null)?.volumeInfo;
         if (typeof info !== "object" || info === null) continue;
-        const v = info as { title?: unknown; authors?: unknown; industryIdentifiers?: unknown; canonicalVolumeLink?: unknown; infoLink?: unknown };
+        const v = info as { title?: unknown; authors?: unknown; industryIdentifiers?: unknown };
         const ids = Array.isArray(v.industryIdentifiers) ? v.industryIdentifiers : [];
         const matches = ids.some((id) => {
           const raw = (id as { identifier?: unknown } | null)?.identifier;
@@ -67,7 +67,7 @@ export function googleBooks(apiKey: string): SuggestSource {
         });
         if (!matches) continue;
         const facts = cleanBookFacts({ title: v.title, authors: v.authors, coverUrl: null });
-        const link = googleLink(v.canonicalVolumeLink, apiKey) ?? googleLink(v.infoLink, apiKey);
+        const link = googleLink((item as { id?: unknown }).id);
         return facts && link ? { title: facts.title, authors: facts.authors, link } : null;
       }
       return null;
@@ -75,14 +75,8 @@ export function googleBooks(apiKey: string): SuggestSource {
   };
 }
 
-// Kept only if it is https on books.google.com with no credentials or port, and does not carry the key.
-function googleLink(raw: unknown, apiKey: string): string | null {
-  if (typeof raw !== "string") return null;
-  try {
-    const u = new URL(raw);
-    const ok = u.protocol === "https:" && u.hostname === "books.google.com" && !u.username && !u.password && !u.port;
-    return ok && !u.href.includes(apiKey) ? u.href : null;
-  } catch {
-    return null;
-  }
+// Built from the volume id alone, so it is always https on books.google.com and cannot carry the key or anything else.
+// Google's own links are not used: canonicalVolumeLink can be on play.google.com and infoLink is http.
+function googleLink(id: unknown): string | null {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? `https://books.google.com/books?id=${id}` : null;
 }

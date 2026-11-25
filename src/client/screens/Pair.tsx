@@ -89,7 +89,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setBook(found);
     setSuggestion(suggested);
     // The form opens with the suggestion for the person to check; nothing is saved until they continue.
-    if (!found && suggested) setTyped({ title: suggested.title, author: suggested.authors[0] ?? "" });
+    // Always set, so Google's text is in the form only while its suggestion is.
+    setTyped(!found && suggested ? { title: suggested.title, author: suggested.authors[0] ?? "" } : { title: "", author: "" });
     go(found ? "confirm" : "miss");
   }
 
@@ -139,6 +140,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setIsbn(null);
     setBook(null);
     setSuggestion(null);
+    setTyped({ title: "", author: "" });
     go("isbn");
   };
 

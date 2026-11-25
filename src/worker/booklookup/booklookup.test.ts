@@ -296,33 +296,34 @@ test("suggest gives Google's title, authors and an https books.google.com link",
   expect(s).toEqual({
     title: googleFound.items[0].volumeInfo.title,
     authors: googleFound.items[0].volumeInfo.authors,
-    link: googleFound.items[0].volumeInfo.canonicalVolumeLink,
+    link: "https://books.google.com/books?id=EXAMPLEID123",
   });
 });
 
-test("suggest falls back to infoLink, upgraded only if it is already https on books.google.com", async () => {
-  const withInfo = (infoLink: string) => ({
-    items: [{ volumeInfo: { title: "T", industryIdentifiers: [{ type: "ISBN_13", identifier: ISBN }], infoLink } }],
-  });
-  expect(await suggester(fixedFetch(withInfo("https://books.google.com/books?id=1"))).suggest(ISBN)).toMatchObject({
-    link: "https://books.google.com/books?id=1",
-  });
-  // The fixture's infoLink is http, so with no canonical link there is no usable link and no suggestion.
-  const httpOnly = withInfo(googleFound.items[0].volumeInfo.infoLink);
-  expect(await suggester(fixedFetch(httpOnly)).suggest(ISBN)).toBeNull();
+const withId = (id: unknown) => ({
+  items: [{ id, volumeInfo: { title: "T", industryIdentifiers: [{ type: "ISBN_13", identifier: ISBN }] } }],
 });
 
-test.each([
-  "http://books.google.com/books?id=1",
-  "https://books.google.com.evil.test/books?id=1",
-  "https://evil.test/books?id=1",
-  "https://user:pw@books.google.com/books?id=1",
-  "https://books.google.com:8443/books?id=1",
-  "https://books.google.com/books?id=1&key=test-key",
-  "javascript:alert(1)",
-])("suggest refuses the link %s", async (link) => {
-  const body = { items: [{ volumeInfo: { title: "T", industryIdentifiers: [{ type: "ISBN_13", identifier: ISBN }], canonicalVolumeLink: link } }] };
-  expect(await suggester(fixedFetch(body)).suggest(ISBN)).toBeNull();
+test("suggest builds the link from the volume id, not from Google's own links", async () => {
+  // google-found.json's canonicalVolumeLink is on play.google.com and its infoLink is http; neither is used.
+  expect(googleFound.items[0].volumeInfo.canonicalVolumeLink).toContain("play.google.com");
+  expect(await suggester(fixedFetch(withId("abc_DEF-123"))).suggest(ISBN)).toMatchObject({
+    link: "https://books.google.com/books?id=abc_DEF-123",
+  });
+});
+
+test.each([[""], ["../x"], ["a&key=k"], ["a".repeat(65)], [undefined], [42], ["a b"], ["test-key&"]])(
+  "suggest has no suggestion for the volume id %j",
+  async (id) => {
+    expect(await suggester(fixedFetch(withId(id))).suggest(ISBN)).toBeNull();
+  },
+);
+
+test("an accepted link is only the id: no key parameter, nothing else", async () => {
+  const s = await suggester(fixedFetch(withId("abc123"))).suggest(ISBN);
+  const url = new URL(s!.link);
+  expect([...url.searchParams.keys()]).toEqual(["id"]);
+  expect(s!.link).not.toContain("test-key");
 });
 
 test("suggest is null for a miss, another ISBN, a non-2xx, and a bad ISBN", async () => {

@@ -475,7 +475,7 @@ test("lookup miss with a key answers Google's suggestion", async () => {
     expect(body.suggestion).toEqual({
       title: googleFound.items[0].volumeInfo.title,
       authors: googleFound.items[0].volumeInfo.authors,
-      link: googleFound.items[0].volumeInfo.canonicalVolumeLink,
+      link: "https://books.google.com/books?id=EXAMPLEID123",
     });
     expect(JSON.stringify(body)).not.toContain("test-key");
     const google = stub.urls.filter((u) => u.includes("googleapis.com"));

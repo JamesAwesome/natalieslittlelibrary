@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { BookInfo, CopyView } from "../../shared/types";
 import * as api from "../api";
 import { Pair } from "./Pair";
@@ -536,4 +536,70 @@ test("with no suggestion the form is empty and has no Google link", async () => 
   await click("Type the title");
   expect(screen.getByLabelText("Title")).toHaveValue("");
   expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
+});
+
+describe("Google text never outlives its suggestion", () => {
+  const missWith = (s: typeof SUGGESTION | null) => vi.mocked(api.lookupBook).mockResolvedValueOnce({ book: null, suggestion: s });
+
+  test("Scan again, then No barcode? Type it in, is empty with no Google line", async () => {
+    missWith(SUGGESTION);
+    show();
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Scan again");
+    await click("No barcode? Type it in");
+    expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+    expect(screen.getByLabelText("Author")).toHaveValue("");
+  });
+
+  test("a later miss without a suggestion opens an empty form", async () => {
+    missWith(SUGGESTION);
+    missWith(null);
+    show();
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Scan again");
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Type the title");
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+    expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
+  });
+
+  test("a later failed lookup opens an empty form", async () => {
+    missWith(SUGGESTION);
+    vi.mocked(api.lookupBook).mockRejectedValueOnce(refuse(503, null));
+    show();
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Scan again");
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Type the title");
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+  });
+
+  test("with the camera unavailable after a suggested miss, the form is empty", async () => {
+    missWith(SUGGESTION);
+    show();
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Scan again");
+    await click("stub no-camera");
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+    expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
+  });
+
+  test("Start over clears it", async () => {
+    missWith(SUGGESTION);
+    show();
+    await click("stub isbn");
+    await screen.findByText("We couldn't find that book.");
+    await click("Type the title");
+    await click("Start over");
+    await click("No barcode? Type it in");
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+    expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
+  });
 });

@@ -79,7 +79,7 @@ test("a body of the wrong shape is not found", async () => {
 
 const signal = () => new AbortController().signal;
 const UA = "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)";
-const volume = (volumeInfo: unknown) => ({ totalItems: 1, items: [{ volumeInfo }] });
+const volume = (volumeInfo: unknown) => ({ totalItems: 1, items: [{ id: "vol1", volumeInfo }] });
 
 test("asks Google Books by ISBN with the key, naming the app", async () => {
   const calls: Call[] = [];
@@ -114,10 +114,10 @@ test("what the source sends is a request workerd accepts", async () => {
 });
 
 test("a found volume gives its title (no subtitle), every author, and its Google Books link, with no cover", async () => {
-  const vi0 = googleFound.items[0].volumeInfo;
-  const found1 = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
-  expect(found1).toEqual({ title: vi0.title, authors: vi0.authors, link: vi0.canonicalVolumeLink });
-  expect(JSON.stringify(found1)).not.toContain("test-key");
+  const info = googleFound.items[0].volumeInfo;
+  const suggestion = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
+  expect(suggestion).toEqual({ title: info.title, authors: info.authors, link: "https://books.google.com/books?id=EXAMPLEID123" });
+  expect(JSON.stringify(suggestion)).not.toContain("test-key");
 });
 
 test("totalItems 0 is not found", async () => {
@@ -134,7 +134,6 @@ test("an ISBN-10 identifier that matches counts", async () => {
     title: "T",
     authors: [],
     industryIdentifiers: [{ type: "ISBN_10", identifier: "3141592659" }],
-    canonicalVolumeLink: "https://books.google.com/books?id=1",
   });
   expect(await googleBooks("test-key").find(MISS_ISBN, serve(body), signal())).toMatchObject({ title: "T" });
 });
@@ -142,7 +141,7 @@ test("an ISBN-10 identifier that matches counts", async () => {
 test("the first matching volume is used, not the first volume", async () => {
   const body = {
     items: [
-      { volumeInfo: { title: "Wrong", industryIdentifiers: googleOther.items[0].volumeInfo.industryIdentifiers } },
+      { id: "wrong1", volumeInfo: { title: "Wrong", industryIdentifiers: googleOther.items[0].volumeInfo.industryIdentifiers } },
       googleFound.items[0],
     ],
   };

@@ -39,7 +39,7 @@ it refuses requests without an API key (spec, "Lookup sources").
   the attribution link. Google cover images would load from books.google.com
   on every page view, including the public label page.
 - Sending anything about a member to Google: the server's request carries the
-  ISBN and the key only.
+  ISBN, the key and the app's User-Agent (its name and repo URL), and no member data.
 
 ## Approaches
 
@@ -65,9 +65,11 @@ it refuses requests without an API key (spec, "Lookup sources").
     built). The volume must list the scanned ISBN (as an ISBN-13, or the
     ISBN-10 it maps to).
   - Title and authors are cleaned with the same rules as book facts.
-  - `link` is the volume's `canonicalVolumeLink` or `infoLink`, kept only if
-    it is https on `books.google.com`; with no usable link there is no
-    suggestion.
+  - `link` is built from the volume's `id`:
+    `https://books.google.com/books?id=<id>`. The id must match
+    `^[A-Za-z0-9_-]{1,64}$`; otherwise there is no suggestion. Google's own
+    links are not used (`canonicalVolumeLink` can be on play.google.com, and
+    `infoLink` is http), and the pattern means the link cannot carry the key.
   - Nothing is cached or written.
   - It has its own time limit, and any failure means no suggestion.
 - **Route.** `GET /api/books/lookup` returns `{ book, suggestion }`. The

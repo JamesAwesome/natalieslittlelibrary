@@ -13,6 +13,7 @@ test.each([
   ["https://covers.openlibrary.org:8443/b/id/1-M.jpg", null],
   ["https://user:pass@covers.openlibrary.org/b/id/1-M.jpg", null],
   ["https://user@covers.openlibrary.org/b/id/1-M.jpg", null],
+  ["https://:pw@covers.openlibrary.org/b/id/1-M.jpg", null],
   ["not a url", null],
   ["", null],
   [42, null],
@@ -56,7 +57,8 @@ test.each([
   "http://books.google.com/books/content?id=abc",
   "https://books.google.com.evil.test/books/content?id=abc",
   "https://evilbooks.google.com/books/content?id=abc",
-  "https://user:pw@books.google.com/books/content?id=abc",
+  "https://user@books.google.com/books/content?id=abc",
+  "https://:pw@books.google.com/books/content?id=abc",
   "https://books.google.com:8443/books/content?id=abc",
   "https://google.com/books/content?id=abc",
 ])("%s is refused", (u) => expect(safeCoverUrl(u)).toBeNull());

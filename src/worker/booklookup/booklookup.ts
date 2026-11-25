@@ -80,8 +80,8 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
     }
   }
 
-  // One source, one time limit. Never throws; null means this source has nothing.
-  async function ask(source: BookSource, isbn: string): Promise<BookInfo | null> {
+  // One request, one time limit: on timeout the request is aborted and the answer is null. Never throws.
+  async function withLimit<T>(work: (signal: AbortSignal) => Promise<T | null>): Promise<T | null> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<null>((resolve) => {
@@ -91,9 +91,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
       }, timeoutMs);
     });
     try {
-      const found = await Promise.race([source.find(isbn, doFetch, controller.signal), timedOut]);
-      const facts = cleanBookFacts(found);
-      return facts && { isbn, ...facts };
+      return await Promise.race([work(controller.signal), timedOut]);
     } catch {
       return null;
     } finally {
@@ -101,24 +99,16 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
     }
   }
 
+  // One source, one time limit. Null means this source has nothing.
+  async function ask(source: BookSource, isbn: string): Promise<BookInfo | null> {
+    const facts = cleanBookFacts(await withLimit((signal) => source.find(isbn, doFetch, signal)));
+    return facts && { isbn, ...facts };
+  }
+
   async function suggest(raw: string): Promise<Suggestion | null> {
     const isbn = typeof raw === "string" ? toIsbn13(raw) : null;
     if (!isbn || !suggestSource) return null;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<null>((resolve) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        resolve(null);
-      }, timeoutMs);
-    });
-    try {
-      return await Promise.race([suggestSource.find(isbn, doFetch, controller.signal), timedOut]);
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
+    return withLimit((signal) => suggestSource.find(isbn, doFetch, signal));
   }
 
   return {
