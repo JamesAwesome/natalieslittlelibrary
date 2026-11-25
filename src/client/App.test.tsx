@@ -115,6 +115,21 @@ test("on a label page, signed out, the sign-in link returns to that page", async
   expect(api.getLabel).toHaveBeenCalledWith("abc");
 });
 
+test("the pair page signed out signs back in to /pair with its label", async () => {
+  at("/pair?label=T7K2Q9XZMB");
+  render(<App />);
+  const link = await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fpair%3Flabel%3DT7K2Q9XZMB");
+});
+
+test("removing refused keeps ?label= on the pair page", async () => {
+  const replace = vi.spyOn(history, "replaceState");
+  at("/pair?refused=failed&label=T7K2Q9XZMB");
+  render(<App />);
+  await screen.findByRole("alert");
+  expect(replace.mock.calls[0][2]).toBe("/pair?label=T7K2Q9XZMB");
+});
+
 test("removing refused keeps the fragment", async () => {
   const replace = vi.spyOn(history, "replaceState");
   vi.mocked(api.getLabel).mockResolvedValue({ kind: "unknown" });

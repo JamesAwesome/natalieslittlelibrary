@@ -118,3 +118,41 @@ a.button {
   padding: 10px;
   font: inherit;
 }
+
+.pair-page button {
+  min-height: 44px;
+}
+
+.pair-page button + button {
+  margin-left: 8px;
+}
+
+.pair-page button.link {
+  padding: 10px 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.pair-page label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.pair-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  font: inherit;
+}
+
+.pair-page .field-error {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--alert-fg);
+}
+
+.pair-page .refusal {
+  overflow-wrap: anywhere;
+}

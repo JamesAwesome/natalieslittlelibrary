@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionType, CopyView, HistoryEntry, LabelView, Member } from "../../shared/types";
 import { ApiError, claim, getLabel, returnCopy } from "../api";
-import { embeddedBrowser } from "../embedded";
+import { Book, Name } from "./BookCard";
+import { SignIn } from "./SignIn";
 
 const actionText: Record<ActionType, string> = { claim: "I have this book", return: "Mark as returned" };
 const historyText: Record<HistoryEntry["type"], string> = {
@@ -10,66 +11,6 @@ const historyText: Record<HistoryEntry["type"], string> = {
   claimed: "took it",
   returned: "marked it returned",
 };
-
-const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
-
-function Cover({ url }: { url: string | null }) {
-  const [broken, setBroken] = useState(false);
-  return url && !broken ? <img className="cover" src={url} alt="" onError={() => setBroken(true)} /> : <div className="cover cover-missing" aria-hidden="true" />;
-}
-
-function Book(props: { title: string; authors: string[]; coverUrl: string | null }) {
-  return (
-    <div className="book">
-      <Cover url={props.coverUrl} />
-      <div>
-        <h2>{props.title}</h2>
-        {props.authors.length > 0 && <p className="authors">{props.authors.map((a, i) => (
-          <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>
-        ))}</p>}
-      </div>
-    </div>
-  );
-}
-
-// No query or hash: the address is for sharing, not for carrying this visit's state.
-const address = () => location.origin + location.pathname;
-
-function CopyLink() {
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(address());
-      setState("copied");
-    } catch {
-      setState("manual");
-    }
-  }
-  return (
-    <>
-      <button type="button" onClick={copy}>{state === "copied" ? "Copied" : "Copy link"}</button>
-      {state === "manual" && (
-        <p>
-          <input type="text" readOnly aria-label="Address of this page" value={address()}
-            onFocus={(e) => e.currentTarget.select()} />
-        </p>
-      )}
-    </>
-  );
-}
-
-function SignIn({ returnTo }: { returnTo: string }) {
-  const app = embeddedBrowser(navigator.userAgent);
-  if (app !== null) {
-    return (
-      <>
-        <p>Google won't let you sign in inside {app}. Open this page in Safari or Chrome.</p>
-        <CopyLink />
-      </>
-    );
-  }
-  return <a className="button" href={`/auth/login?returnTo=${encodeURIComponent(returnTo)}`}>Sign in with Google</a>;
-}
 
 // A stable key per entry; a counter breaks ties between identical entries.
 function historyKeys(history: HistoryEntry[]): [string, HistoryEntry][] {

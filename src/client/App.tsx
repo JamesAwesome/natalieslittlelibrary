@@ -5,6 +5,7 @@ import { matchRoute } from "./route";
 import { CopyPage } from "./screens/CopyPage";
 import { Home } from "./screens/Home";
 import { NotFound } from "./screens/NotFound";
+import { Pair } from "./screens/Pair";
 
 const refusalText: Record<RefusalReason, string> = {
   "not-invited": "This library is invite-only right now. Ask Natalie to add you.",
@@ -94,6 +95,8 @@ export function App() {
       />
     ) : route.name === "copy" ? (
       <CopyPage code={route.code} member={member} returnTo={returnTo} />
+    ) : route.name === "pair" ? (
+      <Pair member={member} returnTo={returnTo} />
     ) : (
       <NotFound />
     );
