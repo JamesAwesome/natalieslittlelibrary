@@ -180,3 +180,31 @@ The design was revised after the antagonist pass found Google's API terms forbid
 - [ ] **Step 4: Run** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm wrangler types --check`. Expected: all pass. This is a full pass, so check the machine-coordination note first.
 - [ ] **Step 5: Docs.** As in the design's Docs bullet. `.dev.vars.example`, if present, gains `GOOGLE_BOOKS_API_KEY=` with an "optional" comment.
 - [ ] **Step 6: Commit.** `feat: Google Books suggests a title when Open Library has none`
+
+---
+
+### Task 4: Back to automatic fill (revision 2, 2026-11-25)
+
+James: this is a small private app, so Google's terms are not a concern, and he chose automatic fill again. It saves books with their ISBN and a cover, so later scans and the step-3 import match them. This brings back Tasks 1–2 behaviour and keeps every fix made since.
+
+**Behaviour:**
+- Lookup asks Open Library, then Google Books when a key is set (`lookupSources(apiKey)`). A Google answer is cached and saved like an Open Library answer, with `source = "google-books"`.
+- `safeCoverUrl` accepts https `books.google.com` again, as in Task 1, with the look-alike refusals and the separate username-only and password-only tests.
+- Google thumbnail: upgraded from http to https, `edge` removed, then cleaned.
+- The suggestion feature is removed:
+  - `suggest`, `suggestSourceFor`, `Suggestion`, the route's `suggestion` field, and Pair's pre-fill and attribution line.
+  - The route answers `{ book }`, as before Task 3.
+  - Pair's form returns to its pre-Task-3 behaviour.
+  - Keep the Task 3 fix-round tests that a form opened after a rescan or start over is empty, where they still apply.
+- Kept from Tasks 2–3: the ISBN-13/ISBN-10 match against `industryIdentifiers`, the `URLSearchParams` URL, a non-2xx throws, the shared `withLimit` helper, `GOOGLE_BOOKS_API_KEY: ""` pinned in `miniflare.bindings`, a route test with a key set (miss at Open Library, found at Google, cached as `google-books`), the fixtures without the impossible ISBN-10, and the setup and `.dev.vars.example` lines.
+- New: cover `<img>` elements get `referrerPolicy="no-referrer"` (BookCard.tsx), so a cover request does not tell Google or Open Library which page it came from. Add a test.
+- Docs:
+  - The design doc gains a "Revision 2" section saying the terms risk was accepted by James for a private app, with the referrer mitigation.
+  - README item 7: lookups ask Open Library, then Google Books when keyed; neither knows every book, so typing is normal; covers may come from either.
+  - The main spec's "Lookup sources" note is updated.
+
+- [ ] **Step 1: Failing tests** for the behaviour above, especially: Google cover accepted; route with key, miss then Google found and cached; the `no-referrer` attribute; no `suggestion` in the route answer.
+- [ ] **Step 2: Run** the focused suites. Expected: the new tests fail.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the focused suites, then the full pass (`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm wrangler types --check`), but only once the machine coordinator allows it.
+- [ ] **Step 5: Commit.** `feat: Google Books fills in books Open Library lacks, covers included`
