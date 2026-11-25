@@ -1,6 +1,6 @@
 import { toIsbn13 } from "../../shared/isbn";
 import { cleanBookFacts } from "../../shared/bookFacts";
-import type { BookInfo } from "../../shared/types";
+import type { BookInfo, Suggestion } from "../../shared/types";
 
 export type BookSource = {
   name: string;
@@ -29,9 +29,21 @@ export const openLibrary: BookSource = {
   },
 };
 
+export type SuggestSource = {
+  name: string;
+  find(isbn: string, fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<Suggestion | null>;
+};
+
+// The suggestion source exists only when a key is set.
+export function suggestSourceFor(apiKey: unknown): SuggestSource | null {
+  const key = typeof apiKey === "string" ? apiKey.trim() : "";
+  return key === "" ? null : googleBooks(key);
+}
+
 // A miss is `totalItems: 0`. `q=isbn:` can return a different book, so a volume counts only if it lists this ISBN.
-// Non-2xx (429 over quota, 403 bad key) throws, which the lookup treats as a failure.
-export function googleBooks(apiKey: string): BookSource {
+// Non-2xx (429 over quota, 403 bad key) throws, which the caller treats as no suggestion.
+// Nothing here is a cover: Google's content is shown once, with a link back, and never stored.
+export function googleBooks(apiKey: string): SuggestSource {
   return {
     name: "google-books",
     async find(isbn, fetch, signal) {
@@ -47,30 +59,29 @@ export function googleBooks(apiKey: string): BookSource {
       for (const item of items) {
         const info = (item as { volumeInfo?: unknown } | null)?.volumeInfo;
         if (typeof info !== "object" || info === null) continue;
-        const v = info as { title?: unknown; authors?: unknown; industryIdentifiers?: unknown; imageLinks?: unknown };
+        const v = info as { title?: unknown; authors?: unknown; industryIdentifiers?: unknown; canonicalVolumeLink?: unknown; infoLink?: unknown };
         const ids = Array.isArray(v.industryIdentifiers) ? v.industryIdentifiers : [];
         const matches = ids.some((id) => {
           const raw = (id as { identifier?: unknown } | null)?.identifier;
           return typeof raw === "string" && toIsbn13(raw) === isbn;
         });
         if (!matches) continue;
-        const facts = cleanBookFacts({ title: v.title, authors: v.authors, coverUrl: googleCover(v.imageLinks) });
-        return facts && { isbn, ...facts };
+        const facts = cleanBookFacts({ title: v.title, authors: v.authors, coverUrl: null });
+        const link = googleLink(v.canonicalVolumeLink, apiKey) ?? googleLink(v.infoLink, apiKey);
+        return facts && link ? { title: facts.title, authors: facts.authors, link } : null;
       }
       return null;
     },
   };
 }
 
-// Google sends http thumbnails with a page-curl effect; store https without the curl.
-function googleCover(links: unknown): string | null {
-  const thumb = typeof links === "object" && links !== null ? (links as { thumbnail?: unknown }).thumbnail : null;
-  if (typeof thumb !== "string") return null;
+// Kept only if it is https on books.google.com with no credentials or port, and does not carry the key.
+function googleLink(raw: unknown, apiKey: string): string | null {
+  if (typeof raw !== "string") return null;
   try {
-    const u = new URL(thumb);
-    if (u.protocol === "http:") u.protocol = "https:";
-    u.searchParams.delete("edge");
-    return u.href;
+    const u = new URL(raw);
+    const ok = u.protocol === "https:" && u.hostname === "books.google.com" && !u.username && !u.password && !u.port;
+    return ok && !u.href.includes(apiKey) ? u.href : null;
   } catch {
     return null;
   }

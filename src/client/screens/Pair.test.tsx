@@ -57,7 +57,7 @@ const wantOf = () => screen.getByTestId("scanner").dataset.want;
 const refuse = (status: number, rejected: api.ApiError["rejected"]) => new api.ApiError(status, rejected);
 
 async function toConfirm() {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book, suggestion: null });
   await click("stub isbn");
   await screen.findByText("Is this the book?");
 }
@@ -98,7 +98,7 @@ test("No, scan again returns to the barcode step and saves nothing", async () =>
 });
 
 test("a lookup miss offers typing first, keeping the ISBN", async () => {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: null });
   show();
   await click("stub isbn");
   await screen.findByText("We couldn't find that book.");
@@ -127,7 +127,7 @@ test("typed title and author save without an ISBN", async () => {
 });
 
 test("a typed ISBN that is valid goes to the confirm step in 13-digit form", async () => {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book, suggestion: null });
   show();
   await click("No barcode? Type it in");
   await userEvent.type(screen.getByLabelText("ISBN (optional)"), "0-00-000000-0");
@@ -320,7 +320,7 @@ test("?label=: a title typed with an empty author saves with no authors, which t
 });
 
 test("a miss then a title (ISBN still in the field) saves by title with one lookup", async () => {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: null });
   vi.mocked(api.addCopy).mockResolvedValue(copy);
   show(LINKED);
   await click("stub isbn");
@@ -335,7 +335,7 @@ test("a miss then a title (ISBN still in the field) saves by title with one look
 });
 
 test("a miss, a title, and without a linked label the title goes to the label step with no lookup", async () => {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: null });
   vi.mocked(api.addCopy).mockResolvedValue(copy);
   show();
   await click("stub isbn");
@@ -391,7 +391,7 @@ test("?label=: Try again after a failed typed save resends the typed title", asy
 });
 
 test("an ISBN that was never confirmed is never sent", async () => {
-  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: null });
   vi.mocked(api.addCopy).mockResolvedValue(copy);
   show();
   await click("stub isbn");
@@ -420,13 +420,13 @@ test("two submits in one tick send one request", async () => {
 });
 
 test("a lookup that comes back after Start over is ignored", async () => {
-  let answer: (v: { book: BookInfo | null }) => void = () => {};
+  let answer: (v: { book: BookInfo | null; suggestion: null }) => void = () => {};
   vi.mocked(api.lookupBook).mockReturnValue(new Promise((r) => (answer = r)));
   show();
   await click("stub isbn");
   await screen.findByText("Looking that up…");
   await click("Start over");
-  answer({ book });
+  answer({ book, suggestion: null });
   await new Promise((r) => setTimeout(r, 20));
   expect(screen.getByText("Scan the barcode on the back of the book.")).toBeInTheDocument();
   expect(screen.queryByText("Is this the book?")).not.toBeInTheDocument();
@@ -489,4 +489,51 @@ test("the typing fields stop at the server's limits, so a long title cannot loop
   await click("No barcode? Type it in");
   expect(screen.getByLabelText("Title")).toHaveAttribute("maxlength", "300");
   expect(screen.getByLabelText("Author")).toHaveAttribute("maxlength", "200");
+});
+
+const SUGGESTION = { title: "Guessed Title", authors: ["G. Author", "Second"], link: "https://books.google.com/books/about/x.html?id=abc" };
+
+async function missWithSuggestion() {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: SUGGESTION });
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(LINKED);
+  await click("stub isbn");
+  await screen.findByText("We couldn't find that book.");
+  await click("Type the title");
+}
+
+test("a suggestion pre-fills the typing form and credits Google Books with a link", async () => {
+  await missWithSuggestion();
+  expect(screen.getByLabelText("Title")).toHaveValue("Guessed Title");
+  expect(screen.getByLabelText("Author")).toHaveValue("G. Author");
+  const link = screen.getByRole("link", { name: /Google Books/ });
+  expect(link).toHaveAttribute("href", SUGGESTION.link);
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link.getAttribute("rel")).toContain("noopener");
+  expect(link.getAttribute("rel")).toContain("noreferrer");
+});
+
+test("saving a suggestion sends the title and first author", async () => {
+  await missWithSuggestion();
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Guessed Title", authors: ["G. Author"] }]);
+});
+
+test("an edited suggestion is sent as edited", async () => {
+  await missWithSuggestion();
+  await userEvent.clear(screen.getByLabelText("Title"));
+  await userEvent.type(screen.getByLabelText("Title"), "My Title");
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "My Title", authors: ["G. Author"] }]);
+});
+
+test("with no suggestion the form is empty and has no Google link", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null, suggestion: null });
+  show();
+  await click("stub isbn");
+  await click("Type the title");
+  expect(screen.getByLabelText("Title")).toHaveValue("");
+  expect(screen.queryByRole("link", { name: /Google Books/ })).toBeNull();
 });

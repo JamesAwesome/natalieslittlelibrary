@@ -113,16 +113,11 @@ test("what the source sends is a request workerd accepts", async () => {
   expect(() => new Request(calls[0].url, calls[0].init)).not.toThrow();
 });
 
-test("a found volume gives its title (no subtitle), every author, and an https cover without the curl", async () => {
-  const book = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
-  expect(book).toEqual({
-    isbn: FOUND_ISBN,
-    title: googleFound.items[0].volumeInfo.title,
-    authors: googleFound.items[0].volumeInfo.authors,
-    coverUrl: expect.stringMatching(/^https:\/\/books\.google\.com\/books\/content\?/),
-  });
-  expect(book!.coverUrl).not.toContain("edge=curl");
-  expect(book!.coverUrl).not.toContain("test-key");
+test("a found volume gives its title (no subtitle), every author, and its Google Books link, with no cover", async () => {
+  const vi0 = googleFound.items[0].volumeInfo;
+  const found1 = await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound), signal());
+  expect(found1).toEqual({ title: vi0.title, authors: vi0.authors, link: vi0.canonicalVolumeLink });
+  expect(JSON.stringify(found1)).not.toContain("test-key");
 });
 
 test("totalItems 0 is not found", async () => {
@@ -135,8 +130,13 @@ test("a volume for a different ISBN is not found", async () => {
 
 test("an ISBN-10 identifier that matches counts", async () => {
   // 979-prefixed ISBNs have no ISBN-10, so this uses the other fixture's 978 book (ISBN-10 3141592659).
-  const body = volume({ title: "T", authors: [], industryIdentifiers: [{ type: "ISBN_10", identifier: "3141592659" }] });
-  expect(await googleBooks("test-key").find(MISS_ISBN, serve(body), signal())).toMatchObject({ isbn: MISS_ISBN, title: "T" });
+  const body = volume({
+    title: "T",
+    authors: [],
+    industryIdentifiers: [{ type: "ISBN_10", identifier: "3141592659" }],
+    canonicalVolumeLink: "https://books.google.com/books?id=1",
+  });
+  expect(await googleBooks("test-key").find(MISS_ISBN, serve(body), signal())).toMatchObject({ title: "T" });
 });
 
 test("the first matching volume is used, not the first volume", async () => {
@@ -163,9 +163,4 @@ test.each([
   ["body not an object", null],
 ])("a body of the wrong shape is not found: %s", async (_name, body) => {
   expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toBeNull();
-});
-
-test("no thumbnail gives a null cover", async () => {
-  const body = volume({ title: "T", industryIdentifiers: [{ type: "ISBN_13", identifier: FOUND_ISBN }] });
-  expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toMatchObject({ coverUrl: null });
 });

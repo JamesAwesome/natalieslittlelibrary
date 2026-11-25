@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Member, Rejection, RejectionReason } from "../shared/types";
-import { createBookLookup, lookupSources, type BookLookup } from "./booklookup";
+import { createBookLookup, suggestSourceFor, type BookLookup } from "./booklookup";
 import { createLedger, type Ledger } from "./ledger";
 import { createMembership, googleProvider, type Identified, type Membership } from "./membership";
 
-type Services = { membership: Membership; ledger: Ledger; lookup: BookLookup["lookup"] };
+type Services = { membership: Membership; ledger: Ledger; lookup: BookLookup["lookup"]; suggest: BookLookup["suggest"] };
 type Vars = { services: Services; identified: Identified };
 type AppContext = Context<{ Bindings: Env; Variables: Vars }>;
 
@@ -20,12 +20,12 @@ function servicesFor(env: Env): Services {
     }),
     config: { siteUrl: env.SITE_URL, allowlist: env.ALLOWLIST_EMAILS, admins: env.ADMIN_EMAILS },
   });
-  const { lookup } = createBookLookup({
+  const { lookup, suggest } = createBookLookup({
     db: env.DB,
-    sources: lookupSources((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY),
+    suggestSource: suggestSourceFor((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY),
   });
   const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup });
-  return { membership, ledger, lookup };
+  return { membership, ledger, lookup, suggest };
 }
 
 const STATUS: Record<Rejection["rejected"], 400 | 401 | 403 | 404 | 409 | 503> = {
@@ -158,7 +158,8 @@ app.get("/api/books/lookup", async (c, next) => {
 }, member(async (c) => {
   const isbn = c.req.query("isbn");
   if (isbn === undefined) return invalid(c);
-  return c.json({ book: await c.var.services.lookup(isbn) });
+  const book = await c.var.services.lookup(isbn);
+  return c.json({ book, suggestion: book ? null : await c.var.services.suggest(isbn) });
 }));
 
 app.post("/api/copies", member(async (c, who) => {

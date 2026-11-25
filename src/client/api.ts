@@ -1,4 +1,4 @@
-import type { BookInfo, CopyView, LabelView, Member, RejectionReason } from "../shared/types";
+import type { BookInfo, CopyView, LabelView, Member, RejectionReason, Suggestion } from "../shared/types";
 
 export class ApiError extends Error {
   status: number;
@@ -50,7 +50,7 @@ export const mintLabels = (count: number) =>
   call<{ labels: { code: string; url: string }[] }>("/api/labels", "POST", { count });
 
 export const lookupBook = (isbn: string) =>
-  call<{ book: BookInfo | null }>(`/api/books/lookup?isbn=${encodeURIComponent(isbn)}`);
+  call<{ book: BookInfo | null; suggestion: Suggestion | null }>(`/api/books/lookup?isbn=${encodeURIComponent(isbn)}`);
 
 export const addCopy = (input: { code: string; isbn: string } | { code: string; title: string; authors: string[] }) =>
   call<CopyView>("/api/copies", "POST", input);

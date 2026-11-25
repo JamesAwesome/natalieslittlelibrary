@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { resetDatabase } from "../../test/reset";
 import found from "./booklookup/fixtures/found.json";
+import googleFound from "./booklookup/fixtures/google-found.json";
 import app from "./index";
 import { signInAs } from "./membership/testing";
 
@@ -338,7 +339,7 @@ test("a rejection becomes its status; a lookup that knows nothing is null", asyn
   try {
     const res = await call("/api/books/lookup?isbn=9780306406157", { headers: { cookie } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ book: null });
+    expect(await res.json()).toEqual({ book: null, suggestion: null });
   } finally {
     fetchSpy.mockRestore();
   }
@@ -435,6 +436,65 @@ test("lookup finds a book; add by ISBN saves it; add by ISBN that nobody knows i
     expect(await res.json()).toEqual({ rejected: "book-not-found" });
   } finally {
     miss.restore();
+  }
+});
+
+const withKey = { ...env, GOOGLE_BOOKS_API_KEY: "test-key" } as Env;
+const lookupBody = async (e: Env) => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const res = await call(`/api/books/lookup?isbn=${ISBN}`, { headers: { cookie } }, e);
+  expect(res.status).toBe(200);
+  return (await res.json()) as { book: { title: string } | null; suggestion: unknown };
+};
+// Answers Open Library with `open` and Google Books with `google`, recording the URLs.
+const stubBoth = (open: unknown, google: unknown) => {
+  const urls: string[] = [];
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    return new Response(JSON.stringify(url.includes("googleapis.com") ? google : open), { status: 200 });
+  }) as typeof fetch);
+  return { urls, restore: () => spy.mockRestore() };
+};
+
+test("lookup miss with no key (the pinned empty one) answers no suggestion and never asks Google", async () => {
+  const stub = stubBoth({}, googleFound);
+  try {
+    expect(await lookupBody(env)).toEqual({ book: null, suggestion: null });
+    expect(stub.urls.filter((u) => u.includes("googleapis.com"))).toEqual([]);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("lookup miss with a key answers Google's suggestion", async () => {
+  const stub = stubBoth({}, googleFound);
+  try {
+    const body = await lookupBody(withKey);
+    expect(body.book).toBeNull();
+    expect(body.suggestion).toEqual({
+      title: googleFound.items[0].volumeInfo.title,
+      authors: googleFound.items[0].volumeInfo.authors,
+      link: googleFound.items[0].volumeInfo.canonicalVolumeLink,
+    });
+    expect(JSON.stringify(body)).not.toContain("test-key");
+    const google = stub.urls.filter((u) => u.includes("googleapis.com"));
+    expect(google).toHaveLength(1);
+    expect(new URL(google[0]).searchParams.get("key")).toBe("test-key");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("lookup hit with a key answers no suggestion and never asks Google", async () => {
+  const stub = stubBoth(found, googleFound);
+  try {
+    const body = await lookupBody(withKey);
+    expect(body.book?.title).toContain("Guy She Was Interested in");
+    expect(body.suggestion).toBeNull();
+    expect(stub.urls.filter((u) => u.includes("googleapis.com"))).toEqual([]);
+  } finally {
+    stub.restore();
   }
 });
 

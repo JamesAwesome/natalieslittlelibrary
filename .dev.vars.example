@@ -3,3 +3,6 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 ALLOWLIST_EMAILS=
 ADMIN_EMAILS=
+
+# Optional: Google Books suggests a title when Open Library has none.
+GOOGLE_BOOKS_API_KEY=

@@ -335,7 +335,7 @@ an API key (tested 2026-11-17); adding it later is one more adapter plus a key.
 In the same test Open Library missed two real books out of three, so typing the
 title is a normal path, not an edge case.
 
-*Update 2026-11-25:* Google Books is now the second source, asked only when Open Library has no answer and a `GOOGLE_BOOKS_API_KEY` secret is set. Without the key, lookups are Open Library only. See `2026-11-25-google-books-fallback-design.md`.
+*Update 2026-11-25:* Google Books is now a suggestion, not a source. When Open Library has no answer and a `GOOGLE_BOOKS_API_KEY` secret is set, the lookup route also returns Google's title and author, and the typing form opens pre-filled under a "Suggested by Google Books" link to the book's page. Nothing from Google is cached, saved without the person's confirmation, or used for covers: Google's API terms forbid keeping its content and require attribution and a link. See `2026-11-25-google-books-fallback-design.md`.
 
 ### Membership (worker)
 

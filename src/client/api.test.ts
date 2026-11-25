@@ -74,8 +74,8 @@ test("mintLabels POSTs the count", async () => {
 });
 
 test("lookupBook GETs with the ISBN encoded", async () => {
-  const f = stubFetch(async () => json({ book: null }));
-  expect(await lookupBook("978 &x")).toEqual({ book: null });
+  const f = stubFetch(async () => json({ book: null, suggestion: null }));
+  expect(await lookupBook("978 &x")).toEqual({ book: null, suggestion: null });
   expect(sent(f)).toEqual({ url: "/api/books/lookup?isbn=978%20%26x", method: "GET", body: undefined });
 });
 
