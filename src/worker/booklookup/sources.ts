@@ -5,6 +5,8 @@ import type { BookInfo } from "../../shared/types";
 export type BookSource = {
   name: string;
   find(isbn: string, fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<BookInfo | null>;
+  // Optional: one request for many ISBNs. Resolves with the books it found, keyed by ISBN-13.
+  findMany?(isbns: string[], fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<Map<string, BookInfo>>;
 };
 
 // Open Library asks API clients to name themselves and say where to reach them.
@@ -14,18 +16,27 @@ const USER_AGENT = "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/na
 export const openLibrary: BookSource = {
   name: "openlibrary",
   async find(isbn, fetch, signal) {
-    const url = `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`;
+    return (await openLibrary.findMany!([isbn], fetch, signal)).get(isbn) ?? null;
+  },
+  // `bibkeys` takes a comma-separated list; ISBNs with no record are simply absent from the body.
+  async findMany(isbns, fetch, signal) {
+    const found = new Map<string, BookInfo>();
+    if (isbns.length === 0) return found;
+    const url = `https://openlibrary.org/api/books?bibkeys=${isbns.map((i) => `ISBN:${i}`).join(",")}&format=json&jscmd=data`;
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal });
-    if (res.status !== 200) return null;
+    if (res.status !== 200) return found;
     const body: unknown = await res.json();
-    if (typeof body !== "object" || body === null) return null;
-    const entry = (body as Record<string, unknown>)[`ISBN:${isbn}`];
-    if (typeof entry !== "object" || entry === null) return null;
-    const e = entry as { title?: unknown; authors?: unknown; cover?: unknown };
-    const authors = Array.isArray(e.authors) ? e.authors.map((a) => (a as { name?: unknown } | null)?.name) : [];
-    const cover = typeof e.cover === "object" && e.cover !== null ? (e.cover as { medium?: unknown }).medium : null;
-    const facts = cleanBookFacts({ title: e.title, authors, coverUrl: cover });
-    return facts && { isbn, ...facts };
+    if (typeof body !== "object" || body === null) return found;
+    for (const isbn of isbns) {
+      const entry = (body as Record<string, unknown>)[`ISBN:${isbn}`];
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as { title?: unknown; authors?: unknown; cover?: unknown };
+      const authors = Array.isArray(e.authors) ? e.authors.map((a) => (a as { name?: unknown } | null)?.name) : [];
+      const cover = typeof e.cover === "object" && e.cover !== null ? (e.cover as { medium?: unknown }).medium : null;
+      const facts = cleanBookFacts({ title: e.title, authors, coverUrl: cover });
+      if (facts) found.set(isbn, { isbn, ...facts });
+    }
+    return found;
   },
 };
 

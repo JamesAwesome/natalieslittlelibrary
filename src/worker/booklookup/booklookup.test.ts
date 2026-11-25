@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BookInfo } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
+import many from "./fixtures/many.json";
 import found from "./fixtures/found.json";
 import googleFound from "./fixtures/google-found.json";
 import { createBookLookup, lookupSources, type BookSource } from "./index";
@@ -348,4 +349,214 @@ test("no cached row and no stored cover contain the key", async () => {
   const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}), json(googleFound)) });
   await lookup.lookup(ISBN);
   expect(JSON.stringify(await rows())).not.toContain("test-key");
+});
+
+// ---- lookupMany ----
+
+const ISBN_DUNE = "9780441172719";
+const ISBN_MISS = "9783141592658";
+const DUNE: BookInfo = { isbn: ISBN_DUNE, title: "Dune", authors: ["Frank Herbert"], coverUrl: null };
+
+function manySource(
+  name: string,
+  result: (isbns: string[], signal: AbortSignal) => Promise<Map<string, BookInfo>>,
+): BookSource & { calls: string[][]; signals: AbortSignal[] } {
+  const calls: string[][] = [];
+  const signals: AbortSignal[] = [];
+  return {
+    name,
+    calls,
+    signals,
+    async find() {
+      throw new Error("lookupMany must not use find");
+    },
+    async findMany(isbns, _fetch, signal) {
+      calls.push(isbns);
+      signals.push(signal);
+      return result(isbns, signal);
+    },
+  };
+}
+
+const finds = (name: string, ...books: BookInfo[]) =>
+  manySource(name, async () => new Map<string, BookInfo>(books.map((b): [string, BookInfo] => [b.isbn as string, b])));
+
+test("lookupMany answers cached ISBNs without a request and asks once for the rest", async () => {
+  const seed = createBookLookup({ db: env.DB, sources: [returns("seed", A)], now: () => 1 });
+  await seed.lookup(ISBN);
+  const s = finds("a", DUNE);
+  const got = await createBookLookup({ db: env.DB, sources: [s] }).lookupMany([ISBN, ISBN_DUNE]);
+  expect(s.calls).toEqual([[ISBN_DUNE]]);
+  expect(got).toEqual(new Map([[ISBN, A], [ISBN_DUNE, DUNE]]));
+});
+
+test("lookupMany with everything cached makes no request", async () => {
+  await createBookLookup({ db: env.DB, sources: [returns("seed", A)] }).lookup(ISBN);
+  const s = finds("a");
+  expect((await createBookLookup({ db: env.DB, sources: [s] }).lookupMany([ISBN])).get(ISBN)).toEqual(A);
+  expect(s.calls).toEqual([]);
+});
+
+test("lookupMany caches what it found in one batch", async () => {
+  const s = finds("a", A, DUNE);
+  const statements: string[] = [];
+  const spyDb = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "batch") return (stmts: unknown[]) => { statements.push(`batch:${stmts.length}`); return target.batch(stmts as never); };
+      const v = Reflect.get(target, prop);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  await createBookLookup({ db: spyDb, sources: [s], now: () => 7 }).lookupMany([ISBN, ISBN_DUNE, ISBN_MISS]);
+  expect(statements).toEqual(["batch:2"]);
+  expect((await rows()).map((r) => [r.isbn, r.source, r.fetched_at]).sort()).toEqual(
+    [[ISBN, "a", 7], [ISBN_DUNE, "a", 7]].sort(),
+  );
+  // A second import is answered from the cache.
+  const again = finds("b");
+  const got = await createBookLookup({ db: env.DB, sources: [again] }).lookupMany([ISBN, ISBN_DUNE]);
+  expect(again.calls).toEqual([]);
+  expect([...got.keys()].sort()).toEqual([ISBN, ISBN_DUNE].sort());
+});
+
+test("lookupMany normalises ISBN-10s, drops non-ISBNs, and asks for each ISBN once", async () => {
+  const s = finds("a");
+  const got = await createBookLookup({ db: env.DB, sources: [s] }).lookupMany([
+    "0441172717", // Dune as an ISBN-10
+    ISBN_DUNE,
+    "978-0-441-17271-9",
+    "not an isbn",
+    "9780306406158",
+    "",
+    5 as unknown as string,
+  ]);
+  expect(s.calls).toEqual([[ISBN_DUNE]]);
+  expect(got.size).toBe(0);
+});
+
+test("lookupMany of no usable ISBN asks nothing", async () => {
+  const s = finds("a");
+  expect((await createBookLookup({ db: env.DB, sources: [s] }).lookupMany(["x", ""])).size).toBe(0);
+  expect(s.calls).toEqual([]);
+});
+
+test("lookupMany asks each source once, in order, only for what is still missing", async () => {
+  const a = finds("a", A);
+  const b = finds("b", DUNE);
+  const c = finds("c");
+  const got = await createBookLookup({ db: env.DB, sources: [a, b, c] }).lookupMany([ISBN, ISBN_DUNE]);
+  expect(a.calls).toEqual([[ISBN, ISBN_DUNE]]);
+  expect(b.calls).toEqual([[ISBN_DUNE]]);
+  expect(c.calls).toEqual([]);
+  expect(got.get(ISBN_DUNE)).toEqual(DUNE);
+  expect((await rows()).find((r) => r.isbn === ISBN_DUNE)?.source).toBe("b");
+});
+
+test("a source without findMany is not asked by lookupMany", async () => {
+  const single = returns("single", A);
+  const many1 = finds("many", DUNE);
+  const got = await createBookLookup({ db: env.DB, sources: [single, many1] }).lookupMany([ISBN, ISBN_DUNE]);
+  expect(single.calls).toEqual([]);
+  expect([...got.keys()]).toEqual([ISBN_DUNE]);
+});
+
+test("lookupMany with the real source asks Open Library once and parses the fixture", async () => {
+  const urls: string[] = [];
+  const got = await createBookLookup({ db: env.DB, fetch: stubFetch(many, urls) }).lookupMany([ISBN, ISBN_DUNE, ISBN_MISS]);
+  expect(urls).toEqual([
+    `https://openlibrary.org/api/books?bibkeys=ISBN:${ISBN},ISBN:${ISBN_DUNE},ISBN:${ISBN_MISS}&format=json&jscmd=data`,
+  ]);
+  expect([...got.keys()].sort()).toEqual([ISBN, ISBN_DUNE].sort());
+});
+
+const manyFailures: [string, () => Promise<Map<string, BookInfo>>][] = [
+  ["a rejected fetch", async () => { throw new TypeError("network down"); }],
+  ["a 500", async () => new Map()],
+  ["a body that is not JSON", async () => { throw new SyntaxError("Unexpected token"); }],
+  ["a request that never answers", () => new Promise<never>(() => {})],
+];
+
+test.each(manyFailures.map(([name]) => name))("%s gives an empty map, never a throw", async (name) => {
+  const bad = manySource("bad", manyFailures.find(([n]) => n === name)![1]);
+  const got = await createBookLookup({ db: env.DB, sources: [bad], batchTimeoutMs: 20 }).lookupMany([ISBN]);
+  expect(got.size).toBe(0);
+  expect(bad.calls).toHaveLength(1);
+});
+
+test("a source that errors does not stop the next source", async () => {
+  const bad = manySource("bad", async () => { throw new Error("boom"); });
+  const b = finds("b", A);
+  expect((await createBookLookup({ db: env.DB, sources: [bad, b] }).lookupMany([ISBN])).get(ISBN)).toEqual(A);
+});
+
+test("a source answering the wrong shape contributes nothing", async () => {
+  const bad = manySource("bad", async () => ({ nonsense: true }) as never);
+  const bad2 = manySource("bad2", async () => new Map([[ISBN, { title: 5 } as never]]));
+  const got = await createBookLookup({ db: env.DB, sources: [bad, bad2] }).lookupMany([ISBN]);
+  expect(got.size).toBe(0);
+  expect(await rows()).toEqual([]);
+});
+
+test("a batch that never answers is aborted: its signal fires", async () => {
+  const never = manySource("never", () => new Promise<never>(() => {}));
+  await createBookLookup({ db: env.DB, sources: [never], batchTimeoutMs: 20 }).lookupMany([ISBN]);
+  expect(never.signals[0].aborted).toBe(true);
+});
+
+test("the batch time limit is batchTimeoutMs, not timeoutMs", async () => {
+  const slow = manySource("slow", async () => { await new Promise((r) => setTimeout(r, 60)); return new Map([[ISBN, A]]); });
+  const got = await createBookLookup({ db: env.DB, sources: [slow], timeoutMs: 20, batchTimeoutMs: 500 }).lookupMany([ISBN]);
+  expect(got.get(ISBN)).toEqual(A);
+});
+
+test("lookupMany of 21 ISBNs throws RangeError; 20 is fine", async () => {
+  const s = finds("a");
+  const lookup = createBookLookup({ db: env.DB, sources: [s] });
+  const isbns = Array.from({ length: 21 }, (_, i) => {
+    const first12 = `978${String(i).padStart(9, "0")}`;
+    const sum = [...first12].reduce((t, d, k) => t + Number(d) * (k % 2 === 0 ? 1 : 3), 0);
+    return first12 + String((10 - (sum % 10)) % 10);
+  });
+  await expect(lookup.lookupMany(isbns)).rejects.toThrow(RangeError);
+  expect(s.calls).toEqual([]);
+  await expect(lookup.lookupMany(isbns.slice(0, 20))).resolves.toBeInstanceOf(Map);
+});
+
+test("the cap counts valid distinct ISBNs, not raw entries", async () => {
+  const lookup = createBookLookup({ db: env.DB, sources: [finds("a")] });
+  await expect(lookup.lookupMany(Array.from({ length: 30 }, () => ISBN))).resolves.toBeInstanceOf(Map);
+});
+
+test("a bad cover from findMany is stored as null", async () => {
+  const body = { [BOOK_KEY]: { title: "T", authors: [{ name: "N" }], cover: { medium: "http://evil.example/x.jpg" } } };
+  const got = await createBookLookup({ db: env.DB, fetch: stubFetch(body) }).lookupMany([ISBN]);
+  expect(got.get(ISBN)?.coverUrl).toBeNull();
+  expect((await rows())[0].cover_url).toBeNull();
+});
+
+test("a bad cover handed up by a source is cleaned before it is cached", async () => {
+  const s = finds("a", { ...A, coverUrl: "http://evil.example/x.jpg" });
+  const got = await createBookLookup({ db: env.DB, sources: [s] }).lookupMany([ISBN]);
+  expect(got.get(ISBN)?.coverUrl).toBeNull();
+  expect((await rows())[0].cover_url).toBeNull();
+});
+
+test("a book a source returns under an ISBN it was not asked for is ignored", async () => {
+  const s = finds("a", DUNE);
+  expect((await createBookLookup({ db: env.DB, sources: [s] }).lookupMany([ISBN])).size).toBe(0);
+});
+
+test("a cache that cannot be read or written still gives the found books", async () => {
+  const broken = {
+    prepare: () => ({ bind: () => ({ all: async () => { throw new Error("db down"); }, first: async () => { throw new Error("db down"); }, run: async () => { throw new Error("db down"); } }) }),
+    batch: async () => { throw new Error("db down"); },
+  } as unknown as D1Database;
+  const got = await createBookLookup({ db: broken, sources: [finds("a", A)] }).lookupMany([ISBN]);
+  expect(got.get(ISBN)).toEqual(A);
+});
+
+test("lookupMany never uses Google Books", async () => {
+  const sources = lookupSources("some-key");
+  const google = sources.find((s) => s.name === "google-books")!;
+  expect(google.findMany).toBeUndefined();
 });
