@@ -15,6 +15,8 @@ const problemText: Record<ScannerProblem, string> = {
 
 type Step = "isbn" | "looking" | "confirm" | "miss" | "type" | "label" | "saving" | "failed";
 type Typed = { title: string; author: string };
+// What gets saved is decided where the person decides it and passed along, never re-read from state.
+type Payload = { isbn: string } | { title: string; authors: string[] };
 
 export function Pair(props: { member: Member | null; returnTo: string }) {
   const { member, returnTo } = props;
@@ -27,6 +29,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   // A code from the address skips the label step until it is refused.
   const [linked, setLinked] = useState<string | null>(() => parseLabelLink(new URLSearchParams(location.search).get("label") ?? ""));
   const [code, setCode] = useState<string | null>(null);
+  const [pending, setPending] = useState<Payload | null>(null);
   const [problem, setProblem] = useState<ScannerProblem | null>(null);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const inFlight = useRef(false);
@@ -47,11 +50,11 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
 
   function startOver() {
     seq.current++;
-    inFlight.current = false;
     setIsbn(null);
     setBook(null);
     setTyped({ title: "", author: "" });
     setCode(null);
+    setPending(null);
     setNotice(undefined);
     go("isbn");
   }
@@ -75,19 +78,21 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     go(found ? "confirm" : "miss");
   }
 
-  async function save(label: string, how: { isbn: string } | { title: string; authors: string[] }) {
+  async function save(label: string, how: Payload) {
     if (inFlight.current) return;
     inFlight.current = true;
+    const mine = seq.current;
     setCode(label);
     setNotice(undefined);
     go("saving");
     try {
       await addCopy({ code: label, ...how });
-      location.assign(`/b/${label}`);
+      // Stay in flight once saved: the page is leaving, and a second tap must not save again.
+      if (mine === seq.current && live.current) location.assign(`/b/${label}`);
       return;
     } catch (e) {
       inFlight.current = false;
-      if (!live.current) return;
+      if (mine !== seq.current || !live.current) return;
       const why = e instanceof ApiError ? e.rejected : null;
       if (e instanceof ApiError && e.status === 401) {
         setLost(true);
@@ -106,25 +111,29 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     }
   }
 
-  // A confirmed book is saved by ISBN so the server supplies its facts; otherwise the typed ones.
-  const how = () => (isbn !== null && book !== null ? { isbn } : { title: typed.title, authors: typed.author ? [typed.author] : [] });
-  const withLabel = (label: string) => void save(label, how());
-  const toLabel = () => {
+  const withLabel = (label: string, how: Payload) => void save(label, how);
+  // Once the payload is chosen: save now if the label is known, otherwise ask for it.
+  function chosen(how: Payload) {
     setNotice(undefined);
-    if (linked !== null) withLabel(linked);
+    setPending(how);
+    if (linked !== null) withLabel(linked, how);
     else go("label");
+  }
+  const rescan = () => {
+    setIsbn(null);
+    setBook(null);
+    go("isbn");
   };
 
   function onTyped(t: Typed, rawIsbn: string) {
     setTyped(t);
-    if (rawIsbn.trim() !== "") {
-      const n = toIsbn13(rawIsbn);
-      if (n !== null) void look(n);
+    // A title means the person chose to type the book; an ISBN alone is looked up.
+    if (t.title !== "") {
+      chosen({ title: t.title, authors: t.author ? [t.author] : [] });
       return;
     }
-    setIsbn(null);
-    setBook(null);
-    toLabel();
+    const n = toIsbn13(rawIsbn);
+    if (n !== null) void look(n);
   }
 
   const heading = <h1>Natalie's Little Library</h1>;
@@ -162,8 +171,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           <Book title={book.title} authors={book.authors} coverUrl={book.coverUrl} />
           <p>Is this the book?</p>
           <p>
-            <button type="button" onClick={toLabel}>Yes</button>
-            <button type="button" onClick={() => { setIsbn(null); setBook(null); go("isbn"); }}>No, scan again</button>
+            <button type="button" onClick={() => isbn !== null && chosen({ isbn })}>Yes</button>
+            <button type="button" onClick={rescan}>No, scan again</button>
           </p>
         </>
       )}
@@ -172,7 +181,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           <p>We couldn't find that book.</p>
           <p>
             <button type="button" onClick={() => go("type")}>Type the title</button>
-            <button type="button" onClick={() => { setIsbn(null); setBook(null); go("isbn"); }}>Scan again</button>
+            <button type="button" onClick={rescan}>Scan again</button>
           </p>
         </>
       )}
@@ -185,17 +194,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
               if (r.kind !== "label") return;
               const c = parseLabelLink(r.code);
               if (c === null) setNotice("That isn't one of our labels.");
-              else withLabel(c);
+              else if (pending !== null) withLabel(c, pending);
             }} />
           )}
-          <CodeForm onCode={withLabel} />
+          <CodeForm onCode={(c) => pending !== null && withLabel(c, pending)} />
         </>
       )}
       {step === "saving" && <p>Saving…</p>}
-      {step === "failed" && code !== null && (
-        <p><button type="button" onClick={() => withLabel(code)}>Try again</button></p>
+      {step === "failed" && code !== null && pending !== null && (
+        <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}
-      {step !== "isbn" && <p><button type="button" className="link" onClick={startOver}>Start over</button></p>}
+      {step !== "isbn" && step !== "saving" && <p><button type="button" className="link" onClick={startOver}>Start over</button></p>}
     </div>
   );
 }
@@ -210,7 +219,7 @@ function TypeForm(props: { typed: Typed; isbn: string | null; onSubmit: (t: Type
     e.preventDefault();
     const next: { title?: string; isbn?: string } = {};
     const hasIsbn = raw.trim() !== "";
-    if (hasIsbn && toIsbn13(raw) === null) next.isbn = "That isn't a book ISBN.";
+    if (hasIsbn && title.trim() === "" && toIsbn13(raw) === null) next.isbn = "That isn't a book ISBN.";
     if (!hasIsbn && title.trim() === "") next.title = "Type the title.";
     setErrors(next);
     if (next.title || next.isbn) return;

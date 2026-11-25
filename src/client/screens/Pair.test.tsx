@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BookInfo, CopyView } from "../../shared/types";
@@ -282,4 +282,162 @@ test("Start over is absent on step 1 and clears everything from step 2 on", asyn
   await click("Start over");
   expect(screen.getByText("Scan the barcode on the back of the book.")).toBeInTheDocument();
   expect(api.addCopy).not.toHaveBeenCalled();
+});
+
+const LINKED = "?label=T7K2Q9XZMB";
+const saved = () => vi.mocked(api.addCopy).mock.calls.map((c) => c[0]);
+
+test("?label=: a first typed save sends the title just typed", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(LINKED);
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await userEvent.type(screen.getByLabelText("Author"), "A. Person");
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Home Made", authors: ["A. Person"] }]);
+});
+
+test("?label=: a title typed with an empty author saves with no authors, which the server accepts", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(LINKED);
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Home Made", authors: [] }]);
+});
+
+test("a miss then a title (ISBN still in the field) saves by title with one lookup", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(LINKED);
+  await click("stub isbn");
+  await click("Type the title");
+  expect(screen.getByLabelText("ISBN (optional)")).toHaveValue("9780000000002");
+  await userEvent.type(screen.getByLabelText("Title"), "Hom Made");
+  await userEvent.type(screen.getByLabelText("Author"), "A. Person");
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Hom Made", authors: ["A. Person"] }]);
+  expect(api.lookupBook).toHaveBeenCalledTimes(1);
+});
+
+test("a miss, a title, and without a linked label the title goes to the label step with no lookup", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await click("stub isbn");
+  await click("Type the title");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  expect(screen.getByText("Now scan a blank label.")).toBeInTheDocument();
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Home Made", authors: [] }]);
+  expect(api.lookupBook).toHaveBeenCalledTimes(1);
+});
+
+test("?label=: a title after book-not-found is saved by title, not the old ISBN", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "book-not-found"));
+  show(LINKED);
+  await toConfirm();
+  await click("Yes");
+  await screen.findByLabelText("ISBN (optional)");
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  await userEvent.type(screen.getByLabelText("Title"), "Dune");
+  await userEvent.clear(screen.getByLabelText("ISBN (optional)"));
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()[1]).toStrictEqual({ code: "t7k2q9xzmb", title: "Dune", authors: [] });
+  expect(api.lookupBook).toHaveBeenCalledTimes(1);
+});
+
+test("?label=: after book-not-found a title with the ISBN left in the field still saves by title", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "book-not-found"));
+  show(LINKED);
+  await toConfirm();
+  await click("Yes");
+  await screen.findByLabelText("ISBN (optional)");
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  await userEvent.type(screen.getByLabelText("Title"), "Dune");
+  await click("Continue");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()[1]).toStrictEqual({ code: "t7k2q9xzmb", title: "Dune", authors: [] });
+});
+
+test("?label=: Try again after a failed typed save resends the typed title", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(500, null));
+  show(LINKED);
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  await screen.findByText("Something went wrong saving that. Try again.");
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  await click("Try again");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()[1]).toStrictEqual({ code: "t7k2q9xzmb", title: "Home Made", authors: [] });
+});
+
+test("an ISBN that was never confirmed is never sent", async () => {
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: null });
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await click("stub isbn");
+  await click("Scan again");
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Home Made");
+  await click("Continue");
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(saved()[0]).toStrictEqual({ code: "t7k2q9xzmb", title: "Home Made", authors: [] });
+});
+
+test("two submits in one tick send one request", async () => {
+  vi.mocked(api.addCopy).mockReturnValue(new Promise(() => {}));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.type(screen.getByLabelText("Or type the code printed under it"), "t7k2q9xzmb");
+  const form = screen.getByRole("button", { name: "Use this code" }).closest("form")!;
+  // One act: React does not re-render between the two, as with two taps before a frame.
+  act(() => {
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+  });
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+});
+
+test("a lookup that comes back after Start over is ignored", async () => {
+  let answer: (v: { book: BookInfo | null }) => void = () => {};
+  vi.mocked(api.lookupBook).mockReturnValue(new Promise((r) => (answer = r)));
+  show();
+  await click("stub isbn");
+  await screen.findByText("Looking that up…");
+  await click("Start over");
+  answer({ book });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.getByText("Scan the barcode on the back of the book.")).toBeInTheDocument();
+  expect(screen.queryByText("Is this the book?")).not.toBeInTheDocument();
+});
+
+test("Start over is not offered while saving", async () => {
+  vi.mocked(api.addCopy).mockReturnValue(new Promise(() => {}));
+  show(LINKED);
+  await toConfirm();
+  await click("Yes");
+  await screen.findByText("Saving…");
+  expect(screen.queryByRole("button", { name: "Start over" })).not.toBeInTheDocument();
+});
+
+test("a save that finishes after the page is gone does not navigate", async () => {
+  let ok: (c: CopyView) => void = () => {};
+  vi.mocked(api.addCopy).mockReturnValue(new Promise((r) => (ok = r)));
+  const view = show(LINKED);
+  await toConfirm();
+  await click("Yes");
+  view.unmount();
+  ok(copy);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(assign).not.toHaveBeenCalled();
 });
