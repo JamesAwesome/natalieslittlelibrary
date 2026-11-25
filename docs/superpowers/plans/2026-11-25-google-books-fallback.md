@@ -112,10 +112,10 @@ In `booklookup.test.ts`:
 
 ```ts
 test("lookupSources with no key, an empty key, or a blank key is Open Library only", () => {
-  for (const k of [undefined, null, "", "   ", 42]) expect(lookupSources(k).map((s) => s.name)).toEqual(["open-library"]);
+  for (const k of [undefined, null, "", "   ", 42]) expect(lookupSources(k).map((s) => s.name)).toEqual(["openlibrary"]);
 });
 test("lookupSources with a key puts Google Books after Open Library", () => {
-  expect(lookupSources("test-key").map((s) => s.name)).toEqual(["open-library", "google-books"]);
+  expect(lookupSources("test-key").map((s) => s.name)).toEqual(["openlibrary", "google-books"]);
 });
 test("Open Library found: Google is never asked", …);         // fetch stub routes by host; assert zero googleapis calls
 test("Open Library miss then Google found: Google's book is returned and cached with source google-books", …);
@@ -124,7 +124,6 @@ test("both miss: null, nothing cached", …);
 test("no cached row and no stored cover contain the key", …); // select * from book_lookups; JSON.stringify(rows) not containing "test-key"
 ```
 
-Use the real `openLibrary` name as `lookupSources` returns it. If it is not `"open-library"`, use its actual name in the expectation and say so.
 
 - [ ] **Step 2: Run** `pnpm exec vitest run --config vitest.worker.config.ts src/worker/booklookup`. Expected: the new tests fail (no `googleBooks`, no `lookupSources`).
 - [ ] **Step 3: Implement `googleBooks(apiKey)`** in `sources.ts`.
