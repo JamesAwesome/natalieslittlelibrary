@@ -1,7 +1,7 @@
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo } from "../../shared/types";
-import { openLibrary, type BookSource } from "./sources";
+import { googleBooks, openLibrary, type BookSource } from "./sources";
 
 export type BookLookupDeps = {
   db: D1Database;
@@ -16,6 +16,12 @@ export interface BookLookup {
 }
 
 const DEFAULT_TIMEOUT_MS = 4000;
+
+// Open Library first; Google Books after it only when a key is set.
+export function lookupSources(apiKey: unknown): BookSource[] {
+  const key = typeof apiKey === "string" ? apiKey.trim() : "";
+  return key === "" ? [openLibrary] : [openLibrary, googleBooks(key)];
+}
 
 export function createBookLookup(deps: BookLookupDeps): BookLookup {
   const { db } = deps;

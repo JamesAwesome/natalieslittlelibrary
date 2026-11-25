@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Member, Rejection, RejectionReason } from "../shared/types";
-import { createBookLookup, type BookLookup } from "./booklookup";
+import { createBookLookup, lookupSources, type BookLookup } from "./booklookup";
 import { createLedger, type Ledger } from "./ledger";
 import { createMembership, googleProvider, type Identified, type Membership } from "./membership";
 
@@ -20,7 +20,10 @@ function servicesFor(env: Env): Services {
     }),
     config: { siteUrl: env.SITE_URL, allowlist: env.ALLOWLIST_EMAILS, admins: env.ADMIN_EMAILS },
   });
-  const { lookup } = createBookLookup({ db: env.DB });
+  const { lookup } = createBookLookup({
+    db: env.DB,
+    sources: lookupSources((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY),
+  });
   const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup });
   return { membership, ledger, lookup };
 }

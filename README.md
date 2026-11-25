@@ -85,3 +85,4 @@ CI pins the pnpm version (`11.17.0`) in the workflow; keep it in step with `pack
 8. Labels are printed from a computer at 100% scale (turn off "fit to page"), with the alignment test first. Printers shift, and the test shows by how much.
 9. An iPhone home-screen web app may be treated as an in-app browser by Google sign-in. If sign-in is refused there, open the site in Safari instead.
 10. 1-inch round labels (Avery 6450) carry no printed code text, so they can only be scanned, not typed.
+11. Lookups ask Open Library, then Google Books if the `GOOGLE_BOOKS_API_KEY` secret is set. The key comes from the natalieslittlelibrary Cloud project with the Books API enabled, restricted to the Books API. Set it with `wrangler secret put GOOGLE_BOOKS_API_KEY`, and in `.dev.vars` for local use. Lookups work without it, from Open Library alone.
