@@ -628,3 +628,202 @@ test("a JSON body over 16 KB is 400 invalid, whether declared or discovered whil
   const ok = await post("/api/labels", cookie, { count: 1 });
   expect(ok.status).toBe(200);
 });
+
+// ---- collections, shelves, holding, labelling, import ----
+
+const sam = { ...natalie, subject: "sam", email: "sam@example.com", name: "Sam" };
+const get = (path: string, cookie: string) => call(path, { headers: { cookie } });
+const send = (method: string, path: string, cookie: string, body?: unknown, headers: Record<string, string> = {}) =>
+  call(path, { method, headers: { cookie, "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+const EVERY_NEW_ROUTE: [string, string][] = [
+  ["GET", "/api/collections/mine"],
+  ["POST", "/api/collections"],
+  ["PATCH", "/api/collections/x"],
+  ["DELETE", "/api/collections/x"],
+  ["POST", "/api/collections/x/default"],
+  ["GET", "/api/collections/x"],
+  ["GET", "/api/members"],
+  ["GET", "/api/members/x/collections"],
+  ["GET", "/api/holding"],
+  ["GET", "/api/copies/candidates?isbn=9780306406157"],
+  ["GET", "/api/copies/x"],
+  ["POST", "/api/copies/x/move"],
+  ["POST", "/api/copies/x/label"],
+  ["POST", "/api/imports"],
+];
+
+test.each(EVERY_NEW_ROUTE)("%s %s signed out is 401", async (method, path) => {
+  const res = await call(path, { method });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ rejected: "signed-out" });
+});
+
+test.each(EVERY_NEW_ROUTE)("%s %s with a removed member's session is 401 and shows no collection names", async (method, path) => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  await send("POST", "/api/collections", cookie, { name: "Beach house" });
+  await env.DB.prepare("update members set removed_at = 1").run();
+  const res = await send(method, path, cookie, method === "GET" ? undefined : {});
+  expect(res.status).toBe(401);
+  const text = await res.text();
+  expect(JSON.parse(text)).toEqual({ rejected: "signed-out" });
+  expect(text).not.toContain("Beach");
+});
+
+test("a name clash is 409 name-taken", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  expect((await send("POST", "/api/collections", cookie, { name: "Beach house" })).status).toBe(200);
+  const clash = await send("POST", "/api/collections", cookie, { name: " beach HOUSE " });
+  expect(clash.status).toBe(409);
+  expect(await clash.json()).toEqual({ rejected: "name-taken" });
+  const other = (await (await send("POST", "/api/collections", cookie, { name: "Attic" })).json()) as { id: string };
+  const rename = await send("PATCH", `/api/collections/${other.id}`, cookie, { name: "Beach house" });
+  expect(rename.status).toBe(409);
+});
+
+test.each(["PATCH /api/collections/x", "DELETE /api/collections/x", "POST /api/imports"])(
+  "%s from another site is 403 and changes nothing", async (route) => {
+    const [method, path] = route.split(" ");
+    const { cookie } = await signInAs(env.DB, natalie);
+    const made = (await (await send("POST", "/api/collections", cookie, { name: "Beach house" })).json()) as { id: string };
+    const target = path.replace("/x", `/${made.id}`);
+    const body = method === "DELETE" ? undefined : method === "PATCH" ? { name: "Renamed" } : { collectionId: made.id, rows: [{ title: "T", authors: [], isbn: null }] };
+    const res = await send(method, target, cookie, body, { origin: "https://evil.example" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ rejected: "not-allowed" });
+    const mine = (await (await get("/api/collections/mine", cookie)).json()) as { collections: { name: string; count: number }[] };
+    expect(mine.collections.map((k) => k.name)).toEqual(["Beach house"]);
+    expect(mine.collections.reduce((n, k) => n + k.count, 0)).toBe(0);
+  });
+
+test("/api/collections/mine is not taken for an id, and both id formats are accepted", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const mine = await get("/api/collections/mine", cookie);
+  expect(mine.status).toBe(200);
+  const body = (await mine.json()) as { owner: { name: string }; collections: { id: string; isDefault: boolean }[] };
+  expect(body.owner.name).toBe("Natalie");
+  const created = (await (await send("POST", "/api/collections", cookie, { name: "Attic" })).json()) as { id: string };
+  expect(created.id).toHaveLength(36);
+  expect((await get(`/api/collections/${created.id}`, cookie)).status).toBe(200);
+  const hex = "a".repeat(32);
+  await env.DB.prepare("update collections set id = ? where id = ?").bind(hex, created.id).run();
+  expect((await get(`/api/collections/${hex}`, cookie)).status).toBe(200);
+  expect((await get("/api/collections/not-an-id", cookie)).status).toBe(404);
+  expect((await get(`/api/collections/${"b".repeat(36)}`, cookie)).status).toBe(404);
+});
+
+test("collections can be renamed, made default, and deleted over HTTP", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const k = (await (await send("POST", "/api/collections", cookie, { name: "Attic" })).json()) as { id: string };
+  const renamed = await send("PATCH", `/api/collections/${k.id}`, cookie, { name: "Cellar" });
+  expect(await renamed.json()).toMatchObject({ id: k.id, name: "Cellar" });
+  const second = (await (await send("POST", "/api/collections", cookie, { name: "Attic" })).json()) as { id: string };
+  const def = (await (await send("POST", `/api/collections/${k.id}/default`, cookie)).json()) as { collections: { id: string; name: string; isDefault: boolean }[] };
+  expect(def.collections.map((c) => [c.name, c.isDefault])).toEqual([["Cellar", true], ["Attic", false]]);
+  const del = await send("DELETE", `/api/collections/${second.id}`, cookie);
+  expect(await del.json()).toEqual({ deleted: true });
+  expect((await send("PATCH", `/api/collections/${k.id}`, cookie, { name: 5 })).status).toBe(400);
+  expect((await send("POST", "/api/collections", cookie, { })).status).toBe(400);
+});
+
+test("GET /api/members lists active members with no email and not removed ones", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  await signInAs(env.DB, sam);
+  await signInAs(env.DB, { ...natalie, subject: "gone", email: "gone@example.com", name: "Gone" });
+  await env.DB.prepare("update members set removed_at = 1 where name = 'Gone'").run();
+  const res = await get("/api/members", cookie);
+  const text = await res.text();
+  expect(res.status).toBe(200);
+  expect((JSON.parse(text) as { members: { name: string }[] }).members.map((m) => m.name)).toEqual(["Natalie", "Sam"]);
+  expect(text).not.toContain("@");
+  expect(text).not.toContain("Gone");
+});
+
+test("a member id that is not a member is 404", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  expect((await get("/api/members/nobody/collections", cookie)).status).toBe(404);
+});
+
+test("an import body over 16 KB is 400; 21 rows is 400; a missing or non-string collectionId is null or 400", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const row = { title: "T", authors: [], isbn: null };
+  const over = await send("POST", "/api/imports", cookie, { collectionId: null, rows: [{ ...row, title: "x".repeat(16 * 1024) }] });
+  expect(over.status).toBe(400);
+  expect(await over.json()).toEqual({ rejected: "invalid" });
+  const twentyOne = await send("POST", "/api/imports", cookie, { collectionId: null, rows: Array.from({ length: 21 }, (_, i) => ({ ...row, title: `T${i}` })) });
+  expect(twentyOne.status).toBe(400);
+  const ok = await send("POST", "/api/imports", cookie, { rows: [row] });
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ added: 1, skipped: 0 });
+  for (const collectionId of [5, true, {}, []]) {
+    expect((await send("POST", "/api/imports", cookie, { collectionId, rows: [row] })).status).toBe(400);
+  }
+  expect((await send("POST", "/api/imports", cookie, { collectionId: "x".repeat(36), rows: [row] })).status).toBe(404);
+});
+
+test("an import chunk of 12000 bytes (20 rows, 32-char id) is accepted, and a body past 16 KB is not", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const k = (await (await send("POST", "/api/collections", cookie, { name: "Big" })).json()) as { id: string };
+  await env.DB.prepare("update collections set id = ? where id = ?").bind("c".repeat(32), k.id).run();
+  const collectionId = "c".repeat(32);
+  const rowOf = (i: number, pad: number, authors: number) =>
+    ({ title: `T${String(i).padStart(2, "0")}`, authors: Array.from({ length: authors }, () => "a".repeat(pad)), isbn: null });
+  const sized = (pad: number, authors = 3) => JSON.stringify({ collectionId, rows: Array.from({ length: 20 }, (_, i) => rowOf(i, pad, authors)) });
+  const bytes = (text: string) => new TextEncoder().encode(text).length;
+  let pad = 1;
+  while (bytes(sized(pad + 1)) <= 12000) pad++;
+  const body = sized(pad);
+  expect(bytes(body)).toBeLessThanOrEqual(12000);
+  expect(bytes(body)).toBeGreaterThan(11900);
+  const fits = await call("/api/imports", { method: "POST", headers: { cookie }, body });
+  expect(fits.status).toBe(200);
+  expect(await fits.json()).toEqual({ added: 20, skipped: 0 });
+  const tooBig = sized(200, 4); // valid rows, so only the body bound can refuse it
+  expect(bytes(tooBig)).toBeGreaterThan(16 * 1024);
+  expect((await call("/api/imports", { method: "POST", headers: { cookie }, body: tooBig })).status).toBe(400);
+});
+
+test("an import whose lookup is unavailable is 503 and writes nothing", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async () => new Response("down", { status: 503 })) as typeof fetch);
+  try {
+    const res = await send("POST", "/api/imports", cookie, { rows: [{ title: "Dune", authors: [], isbn: "9780441172719" }] });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ rejected: "unavailable" });
+    expect((await env.DB.prepare("select count(*) as n from copies").first<{ n: number }>())!.n).toBe(0);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test("no collections, shelf, holding, candidates, or copy-by-id answer contains a label code or an @", async () => {
+  const nat = await signInAs(env.DB, natalie);
+  const s = await signInAs(env.DB, sam);
+  const { labels } = (await (await send("POST", "/api/labels", nat.cookie, { count: 2 })).json()) as { labels: { code: string }[] };
+  const [code, spare] = labels.map((l) => l.code);
+  const added = (await (await send("POST", "/api/copies", nat.cookie, { code, title: "The Hobbit", authors: ["Tolkien"] })).json()) as { copyId: string };
+  await send("POST", "/api/imports", nat.cookie, { rows: [{ title: "Unlabelled", authors: ["U"], isbn: null }] });
+  await send("POST", `/api/labels/${code}/claim`, s.cookie);
+  const mine = (await (await get("/api/collections/mine", nat.cookie)).json()) as { collections: { id: string }[] };
+  const paths = [
+    "/api/collections/mine", `/api/collections/${mine.collections[0].id}`, "/api/holding", "/api/members",
+    `/api/members/${nat.member.id}/collections`, `/api/copies/${added.copyId}`, "/api/copies/candidates?title=Unlabelled",
+  ];
+  for (const cookie of [nat.cookie, s.cookie]) {
+    for (const path of paths) {
+      const res = await get(path, cookie);
+      expect(res.status, path).toBe(200);
+      const text = await res.text();
+      expect(text, path).not.toContain(code);
+      expect(text, path).not.toContain(spare);
+      expect(text, path).not.toContain("@");
+    }
+  }
+});
+
+test("candidates needs an isbn or a title, and a copy id that cannot exist is 404", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  expect((await get("/api/copies/candidates", cookie)).status).toBe(400);
+  expect((await get("/api/copies/nope", cookie)).status).toBe(404);
+  expect((await send("POST", "/api/copies/nope/move", cookie, { collectionId: "a".repeat(32) })).status).toBe(404);
+});

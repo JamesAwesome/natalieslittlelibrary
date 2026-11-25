@@ -456,3 +456,17 @@ test("a bad state sends the refusal to /, even when the login had a returnTo", a
     { headers: { cookie: cookies(begin) } }));
   expect(res.headers.get("location")).toBe("/?refused=failed");
 });
+
+test("members lists active members by name, as people, with no email, and not removed ones", async () => {
+  const m = make();
+  const person = (subject: string, name: string) => ({ ...natalie, subject, email: `${subject}@example.com`, name });
+  await signInAs(env.DB, person("zed", "Zed"));
+  await signInAs(env.DB, person("amy", "amy"));
+  await signInAs(env.DB, person("gone", "Gone"));
+  await signInAs(env.DB, person("bob", "Bob"));
+  await env.DB.prepare("update members set removed_at = 1 where email = 'gone@example.com'").run();
+  const list = await m.members();
+  expect(list.map((p) => p.name)).toEqual(["amy", "Bob", "Zed"]);
+  expect(Object.keys(list[0]).sort()).toEqual(["id", "name", "pictureUrl"]);
+  expect(JSON.stringify(list)).not.toContain("@");
+});
