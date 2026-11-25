@@ -1,9 +1,9 @@
 import type { BookInfo, CollectionRef, CollectionSummary, Member, Person, Rejection, Shelf, ShelfItem } from "../../shared/types";
 
-// The collection a copy is in. An owned copy with no collection_id (old code's rollout state) is in its owner's default.
-// `copy` is the alias of a table (or subquery) with owner_id and collection_id.
-export const effectiveCollection = (copy: string) =>
-  `coalesce(${copy}.collection_id, (select d.id from collections d where d.owner_id = ${copy}.owner_id and d.is_default = 1))`;
+// True when copy `c` is in collection `k`. An owned copy with no collection_id (old code's rollout state) is in its
+// owner's default. Written as an equality on collection_id or'd with the null case, so copies_collection_id_idx serves it.
+export const inCollection = (c: string, k: string) =>
+  `(${c}.collection_id = ${k}.id or (${c}.collection_id is null and ${c}.owner_id = ${k}.owner_id and ${k}.is_default = 1))`;
 
 // The one SELECT behind shelves, holding and candidates; add a `where` and an `order by`. It never selects labels.code:
 // whether a copy is labelled is the only thing a list learns about its label.
@@ -16,7 +16,7 @@ export const SHELF_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors,
   join books b on b.id = c.book_id
   left join members o on o.id = c.owner_id
   left join members h on h.id = c.holder_member_id
-  left join collections k on k.id = ${effectiveCollection("c")}`;
+  left join collections k on ${inCollection("c", "k")}`;
 
 export type ShelfRow = {
   copy_id: string;
@@ -72,8 +72,8 @@ export function createShelfReads(db: D1Database) {
       db
         .prepare(
           `select k.id, k.name, k.is_default,
-             (select count(*) from copies c where ${effectiveCollection("c")} = k.id) as n,
-             (select count(*) from copies c where ${effectiveCollection("c")} = k.id
+             (select count(*) from copies c where ${inCollection("c", "k")}) as n,
+             (select count(*) from copies c where ${inCollection("c", "k")}
                 and not exists (select 1 from labels l where l.copy_id = c.id)) as unlabelled
            from collections k where k.owner_id = ?`,
         )

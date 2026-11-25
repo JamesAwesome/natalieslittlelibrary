@@ -4,7 +4,7 @@ import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo, CollectionSummary, CopyView, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
-import { createShelfReads, effectiveCollection } from "./shelves";
+import { createShelfReads, inCollection } from "./shelves";
 
 export type AddInput = {
   code: string;
@@ -131,11 +131,11 @@ export function createLedger(deps: LedgerDeps): Ledger {
       db
         .prepare(
           `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture,
-             k.id as shown_collection_id, k.name as shown_collection_name
+             ${viewer === null ? "null" : "k.id"} as shown_collection_id, ${viewer === null ? "null" : "k.name"} as shown_collection_name
            from (${COPY_SELECT} where c.id = ?) x
            left join members o on o.id = x.owner_id
            left join members h on h.id = x.holder_member_id
-           left join collections k on k.id = ${effectiveCollection("x")}`,
+           ${viewer === null ? "" : `left join collections k on ${inCollection("x", "k")}`}`,
         )
         .bind(copyId),
     ];

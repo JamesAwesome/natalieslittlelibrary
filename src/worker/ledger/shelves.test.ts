@@ -203,3 +203,71 @@ test.each(["shelf", "collectionsOf", "viewCopy"] as const)("%s of something unkn
   const r = name === "viewCopy" ? await ledger.viewCopy("nope", natalie) : await ledger[name]("nope");
   expect(r).toEqual({ rejected: "not-found" });
 });
+
+test("a shelf is its own collection's: the header is the one asked for, while others exist", async () => {
+  const { ledger, beach } = await fixture();
+  const s = ok(await ledger.shelf(beach.id));
+  expect(s.collection.id).toBe(beach.id);
+  expect(s.collection.name).toBe("Beach house");
+  expect(s.owner.id).toBe(natalie.id);
+  const samHome = ok(await ledger.collectionsOf(sam.id)).collections[0];
+  const sh = ok(await ledger.shelf(samHome.id));
+  expect(sh.owner).toMatchObject({ id: sam.id, name: "Sam" });
+  expect(sh.collection.id).toBe(samHome.id);
+  expect(await ledger.shelf("nope")).toEqual({ rejected: "not-found" });
+});
+
+test("a null-collection copy is in its own owner's default, not another member's", async () => {
+  const { ledger, sams } = await fixture();
+  await rawUnlabelled("c-sam-null", sam.id, null, "Sam old");
+  const natHome = ok(await ledger.collectionsOf(natalie.id)).collections[0];
+  const samHome = ok(await ledger.collectionsOf(sam.id)).collections[0];
+  expect(samHome).toMatchObject({ count: 2, unlabelled: 1 });
+  expect(natHome.count).toBe(3);
+  expect(ok(await ledger.shelf(samHome.id)).items.map((i) => i.copyId).sort()).toEqual([sams.copyId, "c-sam-null"].sort());
+  expect(ok(await ledger.shelf(natHome.id)).items.map((i) => i.copyId)).not.toContain("c-sam-null");
+  await env.DB.prepare("delete from copies where id = 'c-sam-null'").run();
+});
+
+test("a null-collection copy of an owner with no default is on no shelf", async () => {
+  const { ledger } = await fixture();
+  await rawUnlabelled("c-kim-null", kim.id, null, "Kim old");
+  for (const m of [natalie, sam]) {
+    for (const k of ok(await ledger.collectionsOf(m.id)).collections) {
+      expect(ok(await ledger.shelf(k.id)).items.map((i) => i.copyId)).not.toContain("c-kim-null");
+    }
+  }
+  await env.DB.prepare("delete from copies where id = 'c-kim-null'").run();
+});
+
+test("a null-collection copy is in the owner's default, not their first collection", async () => {
+  const { ledger } = make();
+  const zoo = ok(await ledger.createCollection(kim, "Zoo")); // first made: the default
+  const attic = ok(await ledger.createCollection(kim, "Attic"));
+  ok(await ledger.makeDefault(kim, attic.id));
+  await rawUnlabelled("c-k", kim.id, null, "Old");
+  const list = ok(await ledger.collectionsOf(kim.id)).collections;
+  expect(list.map((c) => [c.name, c.count])).toEqual([["Attic", 1], ["Zoo", 0]]);
+  expect(ok(await ledger.viewCopy("c-k", kim)).collection).toEqual({ id: attic.id, name: "Attic" });
+  expect(ok(await ledger.shelf(zoo.id)).items).toEqual([]);
+  await env.DB.prepare("delete from copies where id = 'c-k'").run();
+});
+
+test("viewCopy on an ownerless copy has no collection", async () => {
+  const { ledger } = make();
+  await env.DB.batch([
+    env.DB.prepare("insert into books (id, isbn, title, authors, cover_url, created_at) values ('b-o', null, 'Free', '[]', null, 0)"),
+    env.DB.prepare("insert into copies (id, book_id, owner_id, holder_member_id, created_at, collection_id) values ('c-free', 'b-o', null, null, 0, null)"),
+  ]);
+  const v = ok(await ledger.viewCopy("c-free", natalie));
+  expect(v.collection).toBeNull();
+  expect(v.owner).toBeNull();
+});
+
+test("shelf, collection counts and the by-id join are served from copies_collection_id_idx", async () => {
+  const plan = async (sql: string, ...binds: string[]) =>
+    ((await env.DB.prepare(`explain query plan ${sql}`).bind(...binds).all<{ detail: string }>()).results.map((r) => r.detail)).join("\n");
+  const { SHELF_SELECT, inCollection } = await import("./shelves");
+  expect(await plan(`${SHELF_SELECT} where k.id = ?`, "x")).toMatch(/copies_collection_id_idx/);
+  expect(await plan(`select count(*) from copies c, collections k where k.id = ? and ${inCollection("c", "k")}`, "x")).toMatch(/copies_collection_id_idx/);
+});
