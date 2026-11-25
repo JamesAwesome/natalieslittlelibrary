@@ -49,7 +49,9 @@ export function googleProvider(opts: {
     async exchange(code, codeVerifier): Promise<Identity> {
       const res = await doFetch(TOKEN_URL, {
         method: "POST",
-        redirect: "error", // never replay the secret, code and verifier to another URL
+        // Never follow a redirect: that would replay the secret, code and verifier to another URL.
+        // workerd has no "error" mode; with "manual" a 3xx is not ok and is refused below.
+        redirect: "manual",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           code,
