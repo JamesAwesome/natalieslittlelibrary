@@ -11,8 +11,11 @@ const historyText: Record<HistoryEntry["type"], string> = {
   returned: "marked it returned",
 };
 
+const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
+
 function Cover({ url }: { url: string | null }) {
-  return url ? <img className="cover" src={url} alt="" /> : <div className="cover cover-missing" aria-hidden="true" />;
+  const [broken, setBroken] = useState(false);
+  return url && !broken ? <img className="cover" src={url} alt="" onError={() => setBroken(true)} /> : <div className="cover cover-missing" aria-hidden="true" />;
 }
 
 function Book(props: { title: string; authors: string[]; coverUrl: string | null }) {
@@ -21,17 +24,22 @@ function Book(props: { title: string; authors: string[]; coverUrl: string | null
       <Cover url={props.coverUrl} />
       <div>
         <h2>{props.title}</h2>
-        {props.authors.length > 0 && <p className="authors">{props.authors.join(", ")}</p>}
+        {props.authors.length > 0 && <p className="authors">{props.authors.map((a, i) => (
+          <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>
+        ))}</p>}
       </div>
     </div>
   );
 }
 
+// No query or hash: the address is for sharing, not for carrying this visit's state.
+const address = () => location.origin + location.pathname;
+
 function CopyLink() {
   const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
   async function copy() {
     try {
-      await navigator.clipboard.writeText(location.href);
+      await navigator.clipboard.writeText(address());
       setState("copied");
     } catch {
       setState("manual");
@@ -42,7 +50,7 @@ function CopyLink() {
       <button type="button" onClick={copy}>{state === "copied" ? "Copied" : "Copy link"}</button>
       {state === "manual" && (
         <p>
-          <input type="text" readOnly aria-label="Address of this page" value={location.href}
+          <input type="text" readOnly aria-label="Address of this page" value={address()}
             onFocus={(e) => e.currentTarget.select()} />
         </p>
       )}
@@ -63,14 +71,25 @@ function SignIn({ returnTo }: { returnTo: string }) {
   return <a className="button" href={`/auth/login?returnTo=${encodeURIComponent(returnTo)}`}>Sign in with Google</a>;
 }
 
+// A stable key per entry; a counter breaks ties between identical entries.
+function historyKeys(history: HistoryEntry[]): [string, HistoryEntry][] {
+  const seen = new Map<string, number>();
+  return history.map((h) => {
+    const base = `${h.at}/${h.type}/${h.actor.id}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return [`${base}/${n}`, h];
+  });
+}
+
 function Copy(props: { copy: CopyView; busy: boolean; onAction: (a: ActionType) => void }) {
   const { copy, busy, onAction } = props;
   const holder = copy.holder.kind === "member" ? copy.holder.person.name : copy.holder.name;
   return (
     <>
       <Book {...copy.book} />
-      {copy.owner && <p>Owned by {copy.owner.name}</p>}
-      <p>{copy.home ? "At home with" : "With"} {holder}</p>
+      {copy.owner && <p>Owned by <Name>{copy.owner.name}</Name></p>}
+      <p>{copy.home ? "At home with" : "With"} <Name>{holder}</Name></p>
       {copy.actions.length > 0 && (
         <p>
           {copy.actions.map((a) => (
@@ -79,16 +98,23 @@ function Copy(props: { copy: CopyView; busy: boolean; onAction: (a: ActionType) 
         </p>
       )}
       <ul className="history">
-        {copy.history.map((h, i) => (
-          <li key={i}>{h.actor.name} {historyText[h.type]} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
+        {historyKeys(copy.history).map(([key, h]) => (
+          <li key={key}><Name>{h.actor.name}</Name> {historyText[h.type]} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
         ))}
       </ul>
     </>
   );
 }
 
+// Keyed on the code so moving between labels starts from nothing.
 export function CopyPage(props: { code: string; member: Member | null; returnTo: string }) {
+  return <Page key={props.code} {...props} />;
+}
+
+function Page(props: { code: string; member: Member | null; returnTo: string }) {
   const { code, member, returnTo } = props;
+  // The member prop was read once at load; a 401 or a public view means the session is gone.
+  const [lost, setLost] = useState(false);
   const [view, setView] = useState<LabelView | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -100,7 +126,9 @@ export function CopyPage(props: { code: string; member: Member | null; returnTo:
     setFailed(false);
     try {
       const v = await getLabel(code);
-      if (live.current) setView(v);
+      if (!live.current) return;
+      if (v.kind === "public") setLost(true);
+      setView(v);
     } catch {
       if (live.current) setFailed(true);
     }
@@ -125,13 +153,14 @@ export function CopyPage(props: { code: string; member: Member | null; returnTo:
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) {
-        await load();
+        setLost(true);
       } else if (e instanceof ApiError && e.status === 403 && e.rejected === "not-allowed") {
         setNotice("That's already changed. Here's where the book is now.");
-        await load();
       } else {
+        // The server may have accepted it before the answer was lost; show the truth.
         setNotice("Something went wrong. Try again.");
       }
+      await load();
     } finally {
       inFlight.current = false;
       if (live.current) setBusy(false);
@@ -144,34 +173,34 @@ export function CopyPage(props: { code: string; member: Member | null; returnTo:
       <>
         {heading}
         <p role="alert" className="refusal">The library is having trouble right now. Please try again later.</p>
-        <button type="button" onClick={() => void load()}>Try again</button>
+        <button type="button" onClick={() => { setView(undefined); void load(); }}>Try again</button>
       </>
     );
   }
   if (view === undefined) return heading;
 
-  const signIn = member ? null : <SignIn returnTo={returnTo} />;
+  const signedIn = member !== null && !lost;
   return (
-    <>
+    <div className="copy-page">
       {heading}
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
       {view.kind === "blank" && (
         <>
           <p>This label isn't on a book yet.</p>
-          {member ? (
+          {signedIn ? (
             <a className="button" href={`/pair?label=${encodeURIComponent(view.code)}`}>Pair it with a book</a>
-          ) : signIn}
+          ) : <SignIn returnTo={returnTo} />}
         </>
       )}
       {view.kind === "public" && (
         <>
           <Book {...view.book} />
           <p>Sign in to see who has this book or to take it.</p>
-          {signIn}
+          <SignIn returnTo={returnTo} />
         </>
       )}
       {view.kind === "copy" && <Copy copy={view.copy} busy={busy} onAction={(a) => void act(a, view.copy)} />}
-    </>
+    </div>
   );
 }

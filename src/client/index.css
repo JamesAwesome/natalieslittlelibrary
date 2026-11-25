@@ -5,6 +5,7 @@
   --accent-fg: #ffffff;
   --alert-bg: #fde8e4;
   --alert-fg: #7a1f12;
+  --cover-bg: #e8dccb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -15,6 +16,7 @@
     --accent-fg: #1d1712;
     --alert-bg: #4a211a;
     --alert-fg: #ffd9d1;
+    --cover-bg: #3a3128;
   }
 }
 
@@ -82,7 +84,7 @@ a.button {
   height: 144px;
   border-radius: 4px;
   object-fit: cover;
-  background: var(--alert-bg);
+  background: var(--cover-bg);
 }
 
 .history {
@@ -101,16 +103,16 @@ a.button {
   white-space: nowrap;
 }
 
-button:disabled {
+.copy-page button:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
-button + button {
+.copy-page button + button {
   margin-left: 8px;
 }
 
-input[type="text"] {
+.copy-page input[type="text"] {
   box-sizing: border-box;
   width: 100%;
   padding: 10px;
