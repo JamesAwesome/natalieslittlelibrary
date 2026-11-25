@@ -69,8 +69,22 @@ test("the token call sends the code, verifier, and secret as a form post", async
   expect(Object.fromEntries(body)).toEqual({
     code: "code-1", client_id: "test-client", client_secret: "test-secret",
     redirect_uri: "https://books.test/auth/callback", grant_type: "authorization_code", code_verifier: "verifier-1" });
-  expect(calls[0].init?.redirect).toBe("error");
+  expect(calls[0].init?.redirect).toBe("manual");
   expect(new Headers(calls[0].init?.headers).get("content-type")).toContain("application/x-www-form-urlencoded");
+});
+
+test("the token call's options are ones the Workers runtime accepts", async () => {
+  // workerd refuses redirect: "error" when the request is built, so a stubbed fetch alone cannot catch it.
+  const calls: Call[] = [];
+  await google(recording(respond(200, { id_token: idToken(good) }), calls)).exchange("code-1", "verifier-1");
+  expect(() => new Request(calls[0].url, calls[0].init)).not.toThrow();
+});
+
+test("a redirect from the token endpoint is a failure, not followed", async () => {
+  const calls: Call[] = [];
+  const redirecting = (async () => new Response(null, { status: 302, headers: { location: "https://elsewhere.test/" } })) as typeof fetch;
+  await expect(google(recording(redirecting, calls)).exchange("c", "v")).rejects.toThrow();
+  expect(calls).toHaveLength(1);
 });
 
 test("a missing name falls back to the email's local part", async () => {
