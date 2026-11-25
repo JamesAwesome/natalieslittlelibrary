@@ -61,6 +61,9 @@ this exists to prevent.
 
 - We print our own, on off-the-shelf blank label sheets. Labels are blank and
   interchangeable; binding to a copy happens by scanning.
+- The default label is 1×1 inch (James's decision). The sheet is picked from a
+  list of common pre-cut sheets, or entered as a custom one, and the code is
+  scaled to fit the label. A nudge setting corrects for printer alignment.
 - A label's content is `https://<domain>/b/<code>`. The code is random and
   unguessable, because scanning a label is what lets a person in. **(call: 10
   characters from an alphabet without lookalikes, about 50 bits.)**
@@ -72,14 +75,24 @@ this exists to prevent.
 - The code is also printed in small human-readable text under the QR, so a
   label that will not scan can be typed in **(call)**.
 - Any member can generate a sheet of blank labels **(call)**. The sheet is
-  rendered to PDF in the browser, not on the server (see Constraints).
+  laid out in inches on a web page and printed with the browser's own print,
+  not rendered to a PDF by a library **(call: fewer moving parts, and exact
+  sizes)**. Either way it is done in the browser, not on the server (see
+  Constraints).
 - An owner can replace a damaged label by binding a fresh one to the same
   copy; the old code stops working **(call)**.
 
 ## Flows
 
 **Pairing (getting a book in).** A member scans the book's ISBN barcode with
-the in-page scanner. Title, author, and cover fill in from a lookup. They then
+the in-page scanner. A barcode is accepted only after three matching frames in
+a row, and the looked-up title is shown for the person to confirm before
+anything is saved. This is because a single frame cannot be trusted: on an
+iPhone, one barcode produced four different numbers in a row, all of which
+passed the check digit, one of them starting with 978. Three frames is a
+heuristic chosen from a small sample, not a measured bound; the confirmation is
+what actually stops a wrong book being saved. Title, author, and cover fill in
+from a lookup. They then
 scan a blank label, and the copy exists with them as owner and holder. If the
 member already has an unlabelled copy with that ISBN (from an import), the
 label binds to that copy and no new one is made. If the ISBN does not match
@@ -95,7 +108,8 @@ marked owned and in a physical format are kept, and only title, authors, ISBN,
 and format leave the browser. Each becomes an unlabelled copy she owns, so her
 collection is visible at once and a barcode scan should find its copy. Whether
 it does depends on the edition StoryGraph recorded matching the barcode on the
-physical book, which is unverified; the phone test checks it on ten real books.
+physical book, which is unverified. James dropped the test of this on ten real books, so the
+import must not depend on it.
 Counted from the current export: 290 rows marked owned, of which 240 are
 hardcover or paperback (4 without an ISBN), 42 are digital or audio and are
 skipped, and 8 have no format and no ISBN and are imported as unlabelled
@@ -105,7 +119,7 @@ has a copy of, matched by ISBN, or by title and author where there is no ISBN
 gitignored.
 
 **Claiming.** Someone scans a label with their phone camera. The link opens the
-copy's page. Not logged in: they see title, cover, and a login button, and no
+copy's page. Not logged in: they see title, authors, cover, and a login button, and no
 people's names **(call)**. After Google login they land back on that same
 copy's page. One tap claims it: they are now the holder, immediately, with no
 approval from anyone **(call)**. The next person to do this takes it from them;
@@ -166,7 +180,9 @@ can manage her books from her collection by hand **(call)**.
   still unlabelled.
 - **What I'm holding**: copies I hold that someone else owns.
 - **Another member's shelf**: their collection, viewable by any member.
-- Members see names and history. Non-members see title and cover only.
+- Members see names and history. Non-members see title, authors, and cover
+  only (the first design said title and cover; authors are added
+  deliberately).
 
 ## Membership
 
@@ -201,7 +217,7 @@ Designer's calls, open to the builder to revise with reason:
   Vitest integration (`@cloudflare/vitest-plugin`; the docs describe
   `@cloudflare/vitest-pool-workers` as the older package). The docs confirm D1
   bindings and `applyD1Migrations` are available in tests.
-- Book lookup from Open Library, with Google Books as the second source.
+- Book lookup from Open Library only for now (see Book lookup).
 - pnpm, matching James's other projects.
 
 ## Constraints
@@ -216,15 +232,21 @@ Verified against Cloudflare's docs on 2026-11-16, Workers Free plan:
 
 What follows from that:
 
-- The 10 ms CPU ceiling is the one that bites. PDF rendering, QR drawing, CSV
+- The 10 ms CPU ceiling is the one that bites. Sheet layout, QR drawing, CSV
   parsing, and barcode decoding all happen in the browser. The Worker does
   short database work and little else.
 - Seven days of restore is not a backup. A scheduled export of the database is
   on the roadmap before the app is opened up.
 - iPhone Safari has no usable built-in barcode reader for web pages (the
   `BarcodeDetector` API is off by default), so ISBN scanning needs a bundled
-  WebAssembly decoder. This is the riskiest piece and gets a throwaway test on
-  real phones before anything else is built.
+  WebAssembly decoder. A throwaway test on an iPhone (2026-11-17) showed this
+  works: the bundled decoder reads ISBN barcodes in the browser at about 55 ms
+  a frame. iOS has no built-in decoder.
+- A browser can advertise a built-in decoder that never answers (seen in
+  headless Chrome). So the page proves a decoder on a code it draws itself
+  before trusting it.
+- Single-frame reads are unreliable, so a barcode needs three matching frames
+  (see Pairing). That number is a heuristic from a small sample.
 - Label scanning for claims needs no in-page scanner at all: the phone's
   camera opens the link. The in-page scanner is only for pairing and returns.
 - Google refuses sign-in inside embedded browsers (in-app webviews), so a label
@@ -251,7 +273,7 @@ src/
     db/            Drizzle schema and migrations
   client/
     scanner/       camera to a typed reading
-    labelsheet/    codes to a printable PDF
+    labelsheet/    codes to a printable page
     storygraph/    export file to a list of copies to add
     screens/       copy page, collection, holding, shelf, pair, print, import
     api.ts         typed calls to the Worker
@@ -302,14 +324,20 @@ the interface; tests cross the same interface callers do, against local D1.
 Interface: `lookup(isbn)` returns book facts or not-found. It never throws for
 a provider being down; a failed lookup is a not-found the member can type past.
 
-Hides ISBN-10 and ISBN-13 normalisation, which provider answered, the fallback
-order, response shapes, and caching found books in D1 so each ISBN is fetched
-once. This is a true external dependency with two production adapters (Open
-Library, Google Books) and a fake for tests, so the provider seam is real.
+Hides ISBN-10 and ISBN-13 normalisation, which provider answered, response
+shapes, and caching found books so each ISBN is fetched once. `booklookup` owns
+its own cache table; the ledger does not read it, and instead copies the book
+facts onto the copy when a copy is added. This is a true external dependency
+with a production adapter and a fake for tests, so the provider seam is real.
+
+Open Library is the only source for now. Google Books refuses requests without
+an API key (tested 2026-11-17); adding it later is one more adapter plus a key.
+In the same test Open Library missed two real books out of three, so typing the
+title is a normal path, not an edge case.
 
 ### Membership (worker)
 
-Interface: `currentMember(request)`; `beginLogin(returnTo, viaLabel?)`;
+Interface: `identify(request)`; `beginLogin(returnTo, viaLabel?)`;
 `completeLogin(request)` returns a session or a refusal.
 
 Hides Google's OAuth exchange, session cookies and their storage, the
@@ -324,18 +352,21 @@ Interface: one React component that calls back with a reading: a label code,
 an ISBN, or something unrecognised.
 
 Hides camera permission and its failure states, picking the rear camera, the
-native decoder versus the WebAssembly one (two adapters, a real internal
-seam), and telling a label link from an ISBN barcode. Callers never see a
+bundled WebAssembly decoder (proved on a QR code before it is trusted; see the
+step 2 corrections below for why there is no native adapter), and telling a label link from an ISBN barcode. Callers never see a
 video element or a raw string.
 
 ### Small ones
 
-- `labelsheet`: `renderSheet(codes, layout)` returns a PDF. Hides label
-  dimensions, margins, QR error-correction level, and the printed code text.
+- `labelsheet`: lays out a sheet of codes in inches for the browser's own
+  print. Hides label dimensions, margins, QR error-correction level, and the
+  printed code text.
 - `storygraph`: `parseExport(file)` returns the copies to add. Pure. Owns the
   rule that only owned, physical rows count and only four fields survive.
 - `shared`: the types in `view` and `act`, and the two parsers both sides need
   (label link, ISBN). No rules.
+- The client has a small hand-written route matcher, not a routing library
+  **(call)**.
 
 ### Deliberately thin
 
@@ -351,8 +382,6 @@ and a Google OAuth client. The builder cannot create these.
 ## Left to the builder
 
 - Table and column design, within the model above.
-- Label sheet product and exact label size, after the phone test shows how
-  small a code still scans.
 - Session lifetime, cookie details, rate limiting on lookups.
 - Visual design. James may want mockups before screens are built.
 - Library choices where this document says "a small library".
@@ -360,3 +389,25 @@ and a Google OAuth client. The builder cannot create these.
 ## Open before the big print run
 
 - The final domain.
+
+## Corrections from the step 2 build (2026-11-25)
+
+Where the build departed from the text above. The text is left as written.
+
+- **No native decoder.** The scanner always uses the bundled zxing-wasm
+  decoder; the browser's own `BarcodeDetector` path was dropped. The
+  three-frame rule was validated on a phone only against the bundled decoder,
+  and the native proof covered QR only. The page still proves the decoder
+  before trusting it, on a QR code it draws itself. So the scanner's "two
+  adapters" are one.
+- **Open Library User-Agent.** Open Library asks API clients to give contact
+  details in the User-Agent. The app sends its name and public repository
+  address but no email or phone, to keep them private, so lookups sit in the
+  1 request per second tier rather than 3.
+- **Round labels.** The QR is always centred. Round labels under 1.5 in
+  (Avery 6450) print no code text. Elsewhere there are at least 2 modules
+  between the QR and the code text, and at least 1.5 mm between any QR corner
+  and the cut. A 1 in round label can therefore be scanned but not typed.
+- **A typed title saves by title.** In the typing form a filled title saves
+  the book by title and author with no lookup; the ISBN, if given, is not
+  stored with it. An ISBN with no title goes through lookup.

@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Primary keys are declared at table level on notNull columns: a column-level
 // `text PRIMARY KEY` accepts NULL in SQLite, and Drizzle omits NOT NULL there.
@@ -37,4 +37,82 @@ export const sessions = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.tokenHash] })],
+);
+
+export const books = sqliteTable(
+  "books",
+  {
+    id: text("id").notNull(),
+    isbn: text("isbn"),
+    title: text("title").notNull(),
+    // JSON array of strings.
+    authors: text("authors").notNull(),
+    coverUrl: text("cover_url"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("books_isbn_unique").on(t.isbn)],
+);
+
+// owner_id and holder_member_id are nullable for good: D1 cannot rebuild a table that has rows.
+export const copies = sqliteTable(
+  "copies",
+  {
+    id: text("id").notNull(),
+    bookId: text("book_id")
+      .notNull()
+      .references(() => books.id),
+    ownerId: text("owner_id").references(() => members.id),
+    holderMemberId: text("holder_member_id").references(() => members.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("copies_owner_id_idx").on(t.ownerId),
+    index("copies_holder_member_id_idx").on(t.holderMemberId),
+  ],
+);
+
+export const labels = sqliteTable(
+  "labels",
+  {
+    code: text("code").notNull(),
+    mintedBy: text("minted_by")
+      .notNull()
+      .references(() => members.id),
+    mintedAt: integer("minted_at").notNull(),
+    copyId: text("copy_id").references(() => copies.id),
+    boundAt: integer("bound_at"),
+  },
+  (t) => [primaryKey({ columns: [t.code] }), index("labels_copy_id_idx").on(t.copyId)],
+);
+
+// The one key not declared at table level: AUTOINCREMENT needs a column-level INTEGER PRIMARY KEY.
+// History is ordered by id.
+export const events = sqliteTable(
+  "events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    copyId: text("copy_id")
+      .notNull()
+      .references(() => copies.id),
+    at: integer("at").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => members.id),
+    type: text("type").notNull(),
+  },
+  (t) => [index("events_copy_id_id_idx").on(t.copyId, t.id)],
+);
+
+export const bookLookups = sqliteTable(
+  "book_lookups",
+  {
+    isbn: text("isbn").notNull(),
+    title: text("title").notNull(),
+    authors: text("authors").notNull(),
+    coverUrl: text("cover_url"),
+    source: text("source").notNull(),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.isbn] })],
 );

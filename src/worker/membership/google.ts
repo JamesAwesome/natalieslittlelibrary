@@ -20,6 +20,10 @@ function nonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v !== "";
 }
 
+function nonBlankString(v: unknown): v is string {
+  return typeof v === "string" && v.trim() !== "";
+}
+
 export function googleProvider(opts: {
   clientId: string;
   clientSecret: string;
@@ -88,7 +92,8 @@ export function googleProvider(opts: {
         subject: c.sub,
         email: c.email,
         emailVerified: c.email_verified === true || c.email_verified === "true",
-        name: nonEmptyString(c.name) ? c.name : c.email.split("@")[0],
+        // Members see each other's names, never addresses: no part of the email is a fallback.
+        name: nonBlankString(c.name) ? c.name : nonBlankString(c.given_name) ? c.given_name : "A reader",
         pictureUrl: nonEmptyString(c.picture) ? c.picture : null,
       };
     },

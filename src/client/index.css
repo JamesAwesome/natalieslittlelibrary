@@ -5,6 +5,7 @@
   --accent-fg: #ffffff;
   --alert-bg: #fde8e4;
   --alert-fg: #7a1f12;
+  --cover-bg: #e8dccb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -15,6 +16,7 @@
     --accent-fg: #1d1712;
     --alert-bg: #4a211a;
     --alert-fg: #ffd9d1;
+    --cover-bg: #3a3128;
   }
 }
 
@@ -57,4 +59,248 @@ a.button {
   border-radius: 6px;
   background: var(--alert-bg);
   color: var(--alert-fg);
+}
+
+.book {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+}
+
+.book h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.authors {
+  margin: 4px 0 0;
+}
+
+.cover {
+  flex: none;
+  width: 96px;
+  height: 144px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--cover-bg);
+}
+
+.history {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history li {
+  padding: 8px 0;
+  border-top: 1px solid var(--alert-bg);
+}
+
+.when {
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.copy-page button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.copy-page button + button {
+  margin-left: 8px;
+}
+
+.copy-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+}
+
+.pair-page button {
+  min-height: 44px;
+}
+
+.pair-page button + button {
+  margin-left: 8px;
+}
+
+.pair-page button.link {
+  padding: 10px 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.pair-page label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.pair-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  font: inherit;
+}
+
+.pair-page .field-error {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--alert-fg);
+}
+
+.pair-page .refusal {
+  overflow-wrap: anywhere;
+}
+
+.labels-page button {
+  min-height: 44px;
+}
+
+.labels-page button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.labels-page label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.labels-page select,
+.labels-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  font: inherit;
+}
+
+.labels-page fieldset {
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--alert-bg);
+  border-radius: 6px;
+}
+
+.labels-page ul.refusal {
+  list-style: none;
+}
+
+.labels-page .refusal {
+  overflow-wrap: anywhere;
+}
+
+/* The preview scrolls inside its own box; the page itself never scrolls sideways. */
+.labels-page .sheet-area {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.sheets {
+  width: max-content;
+}
+
+.sheet-page {
+  position: relative;
+  box-sizing: border-box;
+  margin: 0 0 16px;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 0 0 1px #0003;
+  overflow: hidden;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.sheet-label {
+  position: absolute;
+  box-sizing: border-box;
+  outline: 1px solid #00000026;
+  outline-offset: -1px;
+}
+
+.sheet-label--round {
+  border-radius: 50%;
+}
+
+.sheet-label svg {
+  display: block;
+}
+
+.sheet-code {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  font: 6pt/1 ui-monospace, Menlo, Consolas, monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Drawn with borders (set inline), which print even when background graphics are off. */
+.sheet-cut {
+  position: absolute;
+  box-sizing: content-box;
+  width: 0;
+  height: 0;
+}
+
+/* Printing: the label sheets alone, on Letter, edge to edge. Only the sheets use this named page,
+   and the resets below apply only while the labels page is showing, so other screens print normally. */
+@page label-sheet {
+  size: 8.5in 11in;
+  margin: 0;
+}
+
+.sheets {
+  page: label-sheet;
+}
+
+@media print {
+  body:has(.labels-page) {
+    background: #fff;
+  }
+
+  body:has(.labels-page) #root {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  body:has(.labels-page) .app-chrome,
+  .labels-page > :not(.sheet-area) {
+    display: none;
+  }
+
+  .labels-page .sheet-area {
+    overflow: visible;
+  }
+
+  .sheets {
+    width: auto;
+  }
+
+  .sheet-page {
+    margin: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+
+  .sheets > .sheet-page:last-child {
+    break-after: auto;
+  }
+
+  .sheet-label {
+    outline-color: transparent;
+  }
+
+  .sheets--align .sheet-label {
+    outline: 0.5pt solid #000;
+    outline-offset: -0.5pt;
+  }
 }

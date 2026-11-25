@@ -87,9 +87,29 @@ test("a redirect from the token endpoint is a failure, not followed", async () =
   expect(calls).toHaveLength(1);
 });
 
-test("a missing name falls back to the email's local part", async () => {
-  const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined }) })).exchange("c", "v");
-  expect(id.name).toBe("natalie");
+test("a present name is used", async () => {
+  const id = await google(respond(200, { id_token: idToken({ ...good, name: "Natalie Q", given_name: "Nat" }) })).exchange("c", "v");
+  expect(id.name).toBe("Natalie Q");
+});
+
+test("no name falls back to given_name", async () => {
+  const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined, given_name: "Nat" }) })).exchange("c", "v");
+  expect(id.name).toBe("Nat");
+});
+
+test("neither name nor given_name gives 'A reader', never part of the email", async () => {
+  for (const given_name of [undefined, ""]) {
+    const id = await google(respond(200, { id_token: idToken({ ...good, name: undefined, given_name }) })).exchange("c", "v");
+    expect(id.name).toBe("A reader");
+    expect(id.name).not.toContain("natalie");
+  }
+});
+
+test("a blank name or given_name falls through to the next fallback", async () => {
+  const a = await google(respond(200, { id_token: idToken({ ...good, name: "   ", given_name: "Nat" }) })).exchange("c", "v");
+  expect(a.name).toBe("Nat");
+  const b = await google(respond(200, { id_token: idToken({ ...good, name: "  ", given_name: " \t " }) })).exchange("c", "v");
+  expect(b.name).toBe("A reader");
 });
 
 test("a missing picture becomes null", async () => {

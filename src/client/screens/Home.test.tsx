@@ -1,11 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
-import type { RefusalReason } from "../../shared/types";
 import { Home } from "./Home";
 
 test("signed out shows the sign-in link back to this page", () => {
-  render(<Home member={null} refused={null} onLogout={() => {}} returnTo="/b/abc" />);
+  render(<Home member={null} onLogout={() => {}} returnTo="/b/abc" />);
   expect(screen.getByRole("link", { name: "Sign in with Google" }))
     .toHaveAttribute("href", "/auth/login?returnTo=%2Fb%2Fabc");
 });
@@ -13,34 +12,37 @@ test("signed out shows the sign-in link back to this page", () => {
 test("signed in greets the member by name and can sign out", async () => {
   const onLogout = vi.fn();
   render(<Home member={{ id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true }}
-    refused={null} onLogout={onLogout} returnTo="/" />);
+    onLogout={onLogout} returnTo="/" />);
   expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
   expect(onLogout).toHaveBeenCalledOnce();
 });
 
-test("signed out has no alert when not refused", () => {
-  render(<Home member={null} refused={null} onLogout={() => {}} returnTo="/" />);
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+test("signed in links to pairing and label printing", () => {
+  render(<Home member={{ id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true }}
+    onLogout={() => {}} returnTo="/" />);
+  expect(screen.getByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
+  expect(screen.getByRole("link", { name: "Print labels" })).toHaveAttribute("href", "/labels");
 });
 
-test.each([
-  ["not-invited", "This library is invite-only right now. Ask Natalie to add you."],
-  ["removed", "This account no longer has access."],
-  ["unverified", "Google hasn't verified that email address yet."],
-  ["failed", "Sign-in didn't finish. Please try again."],
-  ["unavailable", "The library is having trouble right now. Please try again later."],
-  ["something-else", "Sign-in didn't finish. Please try again."],
-])("refusal %s is explained", (reason, text) => {
-  render(<Home member={null} refused={reason as RefusalReason} onLogout={() => {}} returnTo="/" />);
-  expect(screen.getByRole("alert")).toHaveTextContent(text);
-  expect(screen.getByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+test("signed out has no pairing or label links", () => {
+  render(<Home member={null} onLogout={() => {}} returnTo="/" />);
+  expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Print labels" })).not.toBeInTheDocument();
 });
 
 test("a notice is shown as an alert while signed in", () => {
   render(<Home member={{ id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true }}
-    refused={null} onLogout={() => {}} returnTo="/" notice="Couldn't sign out." />);
+    onLogout={() => {}} returnTo="/" notice="Couldn't sign out." />);
   expect(screen.getByRole("alert")).toHaveTextContent("Couldn't sign out.");
   expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
+});
+
+test("signed out in an in-app browser explains instead of linking to Google", () => {
+  const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone) AppleWebKit/605 Mobile/15E148 Instagram 300.0");
+  render(<Home member={null} onLogout={() => {}} returnTo="/" />);
+  expect(screen.getByText("Google won't let you sign in inside Instagram. Open this page in Safari or Chrome.")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
+  ua.mockRestore();
 });

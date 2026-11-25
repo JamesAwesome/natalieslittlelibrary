@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { getMe, logout } from "./api";
+import { ApiError, addCopy, claim, getLabel, getMe, logout, lookupBook, mintLabels, returnCopy } from "./api";
 
 const member = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -54,4 +54,64 @@ test("logout POSTs to /auth/logout and resolves on 204", async () => {
 test("logout rejects on a 500", async () => {
   stubFetch(async () => new Response(null, { status: 500 }));
   await expect(logout()).rejects.toThrow();
+});
+
+const sent = (f: ReturnType<typeof stubFetch>) => {
+  const [url, init] = f.mock.calls[0];
+  return { url, method: init?.method ?? "GET", body: init?.body === undefined ? undefined : JSON.parse(init.body as string) };
+};
+
+test("getLabel GETs the encoded code", async () => {
+  const f = stubFetch(async () => json({ kind: "unknown" }));
+  expect(await getLabel("a b/c")).toEqual({ kind: "unknown" });
+  expect(sent(f)).toEqual({ url: "/api/labels/a%20b%2Fc", method: "GET", body: undefined });
+});
+
+test("mintLabels POSTs the count", async () => {
+  const f = stubFetch(async () => json({ labels: [{ code: "abc", url: "https://x/b/abc" }] }));
+  expect(await mintLabels(3)).toEqual({ labels: [{ code: "abc", url: "https://x/b/abc" }] });
+  expect(sent(f)).toEqual({ url: "/api/labels", method: "POST", body: { count: 3 } });
+});
+
+test("lookupBook GETs with the ISBN encoded", async () => {
+  const f = stubFetch(async () => json({ book: null }));
+  expect(await lookupBook("978 &x")).toEqual({ book: null });
+  expect(sent(f)).toEqual({ url: "/api/books/lookup?isbn=978%20%26x", method: "GET", body: undefined });
+});
+
+test("addCopy POSTs either shape as given", async () => {
+  const f = stubFetch(async () => json({ copyId: "c1" }));
+  await addCopy({ code: "abc", isbn: "9780000000002" });
+  expect(sent(f)).toEqual({ url: "/api/copies", method: "POST", body: { code: "abc", isbn: "9780000000002" } });
+  f.mockClear();
+  await addCopy({ code: "abc", title: "T", authors: ["A"] });
+  expect(sent(f).body).toEqual({ code: "abc", title: "T", authors: ["A"] });
+});
+
+test("claim and returnCopy POST with the id encoded and no body", async () => {
+  const f = stubFetch(async () => json({ copyId: "c1" }));
+  await claim("a/b");
+  expect(sent(f)).toEqual({ url: "/api/labels/a%2Fb/claim", method: "POST", body: undefined });
+  f.mockClear();
+  await returnCopy("c 1");
+  expect(sent(f)).toEqual({ url: "/api/copies/c%201/return", method: "POST", body: undefined });
+});
+
+test("a refusal throws ApiError with status and reason", async () => {
+  stubFetch(async () => json({ rejected: "not-allowed" }, 403));
+  const err = await claim("abc").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect(err).toMatchObject({ status: 403, rejected: "not-allowed" });
+});
+
+test("a non-JSON error body still throws ApiError with rejected null", async () => {
+  stubFetch(async () => new Response("<html>", { status: 502 }));
+  const err = await getLabel("abc").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect(err).toMatchObject({ status: 502, rejected: null });
+});
+
+test("getMe throws ApiError carrying 503", async () => {
+  stubFetch(async () => json({ rejected: "unavailable" }, 503));
+  await expect(getMe()).rejects.toMatchObject({ status: 503, rejected: "unavailable" });
 });

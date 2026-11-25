@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Dev-only: proves bundledDecoder() reads a QR code and an EAN-13 in a real browser engine.
+     Not linked from the app and not an input of the production build. -->
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Scanner check</title></head>
+  <body>
+    <canvas id="qr"></canvas>
+    <canvas id="ean"></canvas>
+    <pre id="result">running</pre>
+    <script type="module" src="./check.ts"></script>
+  </body>
+</html>
