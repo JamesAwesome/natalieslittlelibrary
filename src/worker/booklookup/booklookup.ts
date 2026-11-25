@@ -9,7 +9,7 @@ export type BookLookupDeps = {
   now?: () => number;
   timeoutMs?: number;
   // Time limit for one many-ISBN request; a whole chunk in one request needs longer than a single lookup.
-  batchTimeoutMs?: number;
+  batchTimeoutMs?: number; // default 20000: a live 20-key request took 8.4 s
   sources?: BookSource[];
 };
 
@@ -22,7 +22,7 @@ export interface BookLookup {
 export const MAX_BATCH = 20;
 
 const DEFAULT_TIMEOUT_MS = 4000;
-const DEFAULT_BATCH_TIMEOUT_MS = 8000;
+const DEFAULT_BATCH_TIMEOUT_MS = 20000;
 
 // Open Library first; Google Books after it only when a key is set.
 export function lookupSources(apiKey: unknown): BookSource[] {
@@ -168,7 +168,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
   return {
     async lookupMany(raw) {
       const wanted = new Set<string>();
-      for (const r of raw) {
+      for (const r of Array.isArray(raw) ? raw : []) {
         const isbn = typeof r === "string" ? toIsbn13(r) : null;
         if (isbn) wanted.add(isbn);
       }

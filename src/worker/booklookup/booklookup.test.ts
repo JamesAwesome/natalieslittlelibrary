@@ -5,7 +5,7 @@ import { resetDatabase } from "../../../test/reset";
 import many from "./fixtures/many.json";
 import found from "./fixtures/found.json";
 import googleFound from "./fixtures/google-found.json";
-import { createBookLookup, lookupSources, type BookSource } from "./index";
+import { createBookLookup, lookupSources, MAX_BATCH, type BookSource } from "./index";
 
 const ISBN = "9798855427974";
 const BOOK_KEY = `ISBN:${ISBN}`;
@@ -559,4 +559,47 @@ test("lookupMany never uses Google Books", async () => {
   const sources = lookupSources("some-key");
   const google = sources.find((s) => s.name === "google-books")!;
   expect(google.findMany).toBeUndefined();
+});
+
+test("the default batch time limit is 20 seconds; a single lookup keeps 4", async () => {
+  vi.useFakeTimers();
+  try {
+    const slow = manySource("slow", () => new Promise<never>(() => {}));
+    const pending = createBookLookup({ db: env.DB, sources: [slow] }).lookupMany([ISBN]);
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(slow.signals[0].aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(slow.signals[0].aborted).toBe(true);
+    expect((await pending).size).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("lookupMany exports its cap", () => expect(MAX_BATCH).toBe(20));
+
+test("lookupMany of something that is not a list is empty, not a throw", async () => {
+  const got = await createBookLookup({ db: env.DB, sources: [finds("a")] }).lookupMany(undefined as unknown as string[]);
+  expect(got.size).toBe(0);
+});
+
+test("the real Open Library source: a real 500 and a non-JSON body give an empty map", async () => {
+  const f500 = (async () => new Response("oops", { status: 500 })) as typeof fetch;
+  const text = (async () => new Response("<html>not json</html>", { status: 200 })) as typeof fetch;
+  for (const fetch of [f500, text]) {
+    expect((await createBookLookup({ db: env.DB, fetch }).lookupMany([ISBN])).size).toBe(0);
+  }
+  expect(await rows()).toEqual([]);
+});
+
+test("the map never holds a null key or value, even when the cache holds a bad row", async () => {
+  await env.DB.prepare("insert into book_lookups (isbn, title, authors, cover_url, source, fetched_at) values (?, '', '[]', null, 'x', 1)")
+    .bind(ISBN)
+    .run();
+  const got = await createBookLookup({ db: env.DB, sources: [finds("a")] }).lookupMany([ISBN]);
+  for (const [k, v] of got) {
+    expect(k).not.toBeNull();
+    expect(v).not.toBeNull();
+  }
+  expect(got.size).toBe(0);
 });

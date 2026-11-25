@@ -5,7 +5,7 @@ export function toIsbn13(raw: string): string | null {
     .replace(/^\s*isbn(?:[-\u2013\u2014 ]?(?:10|13)(?=[\s:]))?\s*:?/i, "")
     .replace(/[\s\-\u2013\u2014]/g, "")
     .toUpperCase();
-  if (/^(?:978\d|9797|9798|9799)\d{9}$/.test(s)) return checkDigit13(s.slice(0, 12)) === s[12] ? s : null;
+  if (/^97(?:8\d|9[1-9])\d{9}$/.test(s)) return checkDigit13(s.slice(0, 12)) === s[12] ? s : null;
   if (/^\d{9}[\dX]$/.test(s)) {
     let sum = 0;
     for (let i = 0; i < 10; i++) sum += (10 - i) * (s[i] === "X" ? 10 : Number(s[i]));
