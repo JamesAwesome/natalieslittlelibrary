@@ -14,6 +14,6 @@
   "vars": { "SITE_URL": "https://books.waffle.haus" },
   "secrets": { "required": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ALLOWLIST_EMAILS", "ADMIN_EMAILS"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "little-library", "database_id": "PLACEHOLDER", "migrations_dir": "drizzle", "migrations_pattern": "drizzle/*/migration.sql" }
+    { "binding": "DB", "database_name": "little-library", "database_id": "9488eb22-6688-4859-9f13-07e9b04a39cb", "migrations_dir": "drizzle", "migrations_pattern": "drizzle/*/migration.sql" }
   ]
 }
