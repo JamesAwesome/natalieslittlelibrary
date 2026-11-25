@@ -213,6 +213,7 @@ Behaviour:
 - Claim and return never change `collection_id`, except that the update sets `collection_id = coalesce(collection_id, (select id from collections k where k.owner_id = copies.owner_id and k.is_default = 1))`, the copy's owner's default, so a copy added by the old Worker during the rollout gets its column on its next write.
 - `moveCopy`: one update guarded on the copy being the actor's and the destination being the actor's (and `ACTIVE`). A copy that exists but is not the actor's is `not-allowed`; a missing copy, or a destination that is missing or not theirs, is `not-found`. Holder and history are untouched.
 - A `CopyView` carries the code only when the request carried it: `return` and `moveCopy` answer with `code: null`. Update the existing assertion in "the owner marks it returned" to `expect(copy.code).toBeNull()`.
+- Three existing tests rewrite an owner by raw SQL ("a copy with no owner cannot be claimed", and the two stale-owner races that `update copies set owner_id = ?`). Make them keep the invariant, as a step 4 owner change will: setting the owner to null also nulls `collection_id`; setting it to Kim first inserts Kim's default and sets `collection_id` to it in the same statement batch. Do not exempt them from the check.
 
 - [ ] **Step 1: Write the failing tests.** `rules.test.ts` adds rows for `move` and `label` (owner, holder, third member, ownerless; labelled and not) and checks the claim-only-in-hand rule; "an action is available exactly when decide allows it" covers both `labelInHand` values. In `ledger.test.ts`, add `afterEach` asserting `invariantViolations` is `[]`, and:
 
@@ -222,6 +223,7 @@ test("an add with a collection puts the copy there", …);
 test("an add into someone else's collection is not-found and writes nothing", …);   // counts of books, copies, events unchanged; label still blank
 test("an add into a collection deleted after the read is not-found and the label stays blank", …); // racing()
 test("two first adds at once by one member: one default, both copies in it", …);   // gated(2), two labels
+test("a first add racing the member's first createCollection: one default, and the copy is in it", …); // gated(2)
 test("a removed member's add is not-allowed and writes nothing", …);
 test("claim then return leave the copy in its collection", …);
 test("a claim on a copy with no collection_id fills in its owner's default", …);    // raw update to null first; afterwards collection_id = Natalie's default
@@ -360,7 +362,8 @@ Behaviour:
   - Every copy insert is guarded on the importer not already owning that book: for a row with an ISBN, no copy of theirs whose book has that ISBN or whose `import_isbn` is it; for a row without, no copy of theirs whose book has exactly this title and this authors JSON. A no-ISBN book insert carries the same guard, so a skipped row leaves no orphan book. The event is guarded on the copy existing. Statements earlier in the batch are visible to later ones, so a repeated row in one chunk is skipped too.
   - `added` is the number of copy inserts that changed a row; `skipped` is the rest. If nothing was added and the named collection no longer exists, the answer is `not-found`.
 - **`labelCopy`.** The code is parsed with `parseLabelLink`. A label that is not minted is `label-unknown`; a bound one is `label-in-use`; a copy that is missing is `not-found`; `decide(…, "label")` refusing is `not-allowed`. One batch: a `labelled` event, then the label update, each guarded on the label still blank, the copy being the actor's, `ACTIVE`, and `not exists (select 1 from labels where copy_id = ?)`, so two labels racing for one copy cannot both bind. The answer carries the code (the request did).
-- **`add` binds before it creates.** With an ISBN, `add` first looks for the adder's oldest unlabelled copy whose book has that ISBN or whose `import_isbn` is it (oldest by `created_at`, then `id`). If there is one, it binds the label to it as `labelCopy` does, with no lookup and no new copy; the picked collection is ignored for an existing copy. If that guarded bind changes nothing, the answer is `not-allowed`.
+- **`add` binds before it creates.** With an ISBN, `add` first looks for the adder's oldest unlabelled copy whose book has that ISBN or whose `import_isbn` is it (oldest by `created_at`, then `id`). If there is one, it binds the label to it as `labelCopy` does, with no lookup and no new copy; the picked collection is ignored for an existing copy.
+- **A bind that changed nothing** (in `labelCopy` or `add`'s bind) is resolved by one rule: re-read the label; bound now → `label-in-use`; otherwise `not-allowed`.
 - **`candidates`.** `isbn` (normalised; else `invalid`) gives `sameIsbn`, the same copy `add` would bind. `title` (1 to 300 code points; else `invalid`) gives `similar`: the owner's unlabelled copies whose `titleKey` equals the title's, excluding `sameIsbn`, oldest first, at most 10. An empty key matches nothing. Neither given is `invalid`.
 
 - [ ] **Step 1: Write the failing tests.** All with `afterEach` asserting `invariantViolations` is `[]`.
@@ -556,7 +559,7 @@ export type ParseResult =
   | { ok: true; rows: ImportRow[]; skipped: { notOwned: number; notPhysical: number; noTitle: number } }
   | { ok: false; missing: string[] };          // column headers not found
 export function parseExport(text: string): ParseResult;
-export function chunkRows(rows: ImportRow[], maxRows?: number, maxBytes?: number): ImportRow[][]; // defaults 20 and 12000
+export function chunkRows(rows: ImportRow[], maxRows?: number, maxBytes?: number): ImportRow[][]; // defaults 20 and 12000 UTF-8 bytes (TextEncoder) of the request body
 ```
 
 - Private: `parseCsv(text: string): string[][]` in `csv.ts`; `COLUMNS = { title: "Title", authors: "Authors", isbn: "ISBN/UID", format: "Format", owned: "Owned?" }` and `OWNED_VALUE = "yes"` in `parse.ts`.
@@ -596,7 +599,7 @@ test("nothing from a review, rating, or date survives", …);              // JS
 test("an ISBN-10 becomes ISBN-13; a UID that isn't an ISBN becomes null", …);
 test("columns are found by name in any order and case", …);
 test("a file without the StoryGraph columns names what is missing", …);
-test("chunks hold at most 20 rows and 12000 bytes of JSON each, in order, with nothing lost", …); // 250 rows, some with 300-character titles
+test("chunks hold at most 20 rows and 12000 UTF-8 bytes of JSON each, in order, with nothing lost", …); // 250 rows, some with 300-character titles in Japanese (3 bytes each)
 
 // isbn.test.ts additions
 test.each(["ISBN 978-0-306-40615-7", "isbn: 9780306406157", "ISBN-10: 0-306-40615-2", "978–0–306–40615–7"])("%s is 9780306406157", …);
