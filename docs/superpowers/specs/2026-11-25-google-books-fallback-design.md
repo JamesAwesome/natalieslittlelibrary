@@ -1,84 +1,99 @@
-# Google Books as a lookup fallback
+# Google Books suggestions when Open Library misses
 
-Approved by James, 2026-11-25. A small change to the book lookup module.
+Approved by James, 2026-11-25. Revised the same day, after the antagonist pass,
+from "Google Books fills in the book" to "Google Books pre-fills the typing
+form" (see Approaches).
 
 ## Why
 
 Open Library missed two of three real books in the step 0 test, so typing the
 title is common. Natalie's StoryGraph import in step 3 (about 240 books) and
-everyday pairing both get better when a second catalogue fills Open Library's
-gaps. Google Books was ruled out only because it refuses requests without an API
-key (spec, "Lookup sources").
+everyday pairing both get easier if a second catalogue can suggest the title
+and author for the person to check. Google Books was ruled out only because
+it refuses requests without an API key (spec, "Lookup sources").
 
 ## Goals
 
-- When Open Library has no answer for an ISBN, or fails or times out, ask Google
-  Books before telling the person "We couldn't find that book."
-- Keep Open Library first: its covers and data are what the app was built and
-  checked against.
-- Work unchanged without a key: if `GOOGLE_BOOKS_API_KEY` is not set, lookups
-  are Open Library only, exactly as today.
+- When Open Library has no answer for a scanned or typed ISBN, ask Google
+  Books for a suggestion. The "type the title" form then opens with Google's
+  title and author already filled in, under a "Suggested by Google Books"
+  line that links to the book's Google Books page.
+- The person checks or edits the form and saves it. The book is saved the way
+  a typed title is saved today.
+- Without a key nothing changes: if `GOOGLE_BOOKS_API_KEY` is not set, no
+  suggestion is made.
 
 ## Non-goals
 
-- Asking both catalogues at once, or choosing between their answers.
-- Searching Google Books by title (the typed-title path stays as it is).
-- Re-checking books already cached from Open Library.
+- Covers from Google, and any Google result saved without the person's
+  confirmation.
+- Caching Google answers.
+- Searching Google Books by title.
 
 ## Anti-goals
 
-- Sending anything about a member to Google: the request carries the ISBN and
-  the key only.
-- A lookup that hangs: each source keeps its own time limit.
+- Keeping a store of Google's content. Google's API terms (§5(e)(1)) forbid
+  permanent copies or databases beyond what its cache headers allow, and its
+  branding rules require attribution and a link wherever results are shown.
+- Members' browsers contacting Google. They only reach Google if someone taps
+  the attribution link. Google cover images would load from books.google.com
+  on every page view, including the public label page.
+- Sending anything about a member to Google: the server's request carries the
+  ISBN and the key only.
 
 ## Approaches
 
-1. **Open Library first, Google Books on a miss or failure (chosen).** Uses the
-   existing ordered `sources` list in `createBookLookup`. Worst case for a miss
-   rises from about 4 s to about 8 s, and only on a miss.
-2. Ask both in parallel and prefer Open Library's answer. Faster on a miss but
-   spends Google quota on every uncached lookup, including the hits Open Library
-   already answers.
-3. Google Books first. Fewer misses up front, but gives up Open Library's covers
-   and changes the answers the app has been tested against.
+1. **Google fills the book in automatically** (built first, then rejected).
+   This stores Google's data permanently, which the terms forbid, and has
+   members' browsers load Google covers.
+2. **Pre-fill only (chosen).** Google's title and author become a suggestion
+   in the typing form, with attribution and a link. There is no Google cover
+   and no Google cache. This lowers the terms problem without fully removing
+   it: what is saved is the person's confirmed entry, not a copy kept
+   automatically. Books found this way have no cover.
+3. **Drop Google Books.** Open Library and typing only, as today.
 
 ## Design
 
-- **Adapter.** A new `BookSource` named `google-books`, built by a function that
-  takes the key: `googleBooks(apiKey: string): BookSource`. It requests
-  `https://www.googleapis.com/books/v1/volumes?q=isbn:<isbn13>&key=<key>` and
-  reads the first item's `volumeInfo`: `title` (without `subtitle`, matching
-  what Open Library gives), `authors`, and `imageLinks.thumbnail`. `totalItems: 0`
-  or no items is a miss; anything unexpected is a miss; a non-2xx is a failure.
-  The answer goes through `cleanBookFacts` like every source.
-- **Wiring.** `src/worker/index.ts` passes `sources: [openLibrary,
-  googleBooks(env.GOOGLE_BOOKS_API_KEY)]` when the key is a non-empty string,
-  and the default `[openLibrary]` otherwise. The secret is optional, so it is
-  not added to `secrets.required` in `wrangler.jsonc`; `pnpm types` is re-run.
-- **Covers.** `safeCoverUrl` in `src/shared/bookFacts.ts` also accepts
-  `books.google.com`, https only, with the same no-credentials, no-port rules.
-  Google returns its thumbnail as `http://books.google.com/books/content?...`;
-  the adapter upgrades it to https before cleaning, and drops `&edge=curl`.
-  The ledger shares this cleaner, so a Google cover is accepted on save too.
-- **Cache.** Unchanged: a found book is written to `book_lookups` with
-  `source = "google-books"`; misses are not cached.
-- **Key and quota.** The key is made in the existing natalieslittlelibrary
-  Google Cloud project: enable the Books API, restrict the key to the Books API.
-  It is stored with `wrangler secret put GOOGLE_BOOKS_API_KEY` and in
-  `.dev.vars`. The free quota (about 1,000 requests a day) covers the step 3
-  import and everyday pairing.
-- **Tests.** The adapter against recorded fixtures (found, `totalItems: 0`,
-  malformed, non-2xx, http thumbnail upgraded); lookup order (Open Library hit
-  never calls Google; Open Library miss, failure, or timeout then Google; no key
-  means no Google call); `safeCoverUrl` accepts the Google host and refuses
-  look-alikes (`books.google.com.evil.test`, http, credentials, port). Fixtures
-  are recorded once by hand with a generic client name; the key is never
-  committed or written into a fixture.
-- **Docs.** README "Things to know" and setup gain the optional key; the spec's
-  "Lookup sources" note is updated.
+- **Lookup is unchanged.** It asks Open Library only and caches as today. The
+  ledger's add-by-ISBN still uses it. The earlier change that let
+  `safeCoverUrl` accept `books.google.com` is reverted.
+- **Suggestion.**
+  - The booklookup module gains `suggest(isbn): Promise<Suggestion | null>`,
+    where `Suggestion = { title: string; authors: string[]; link: string }`.
+  - It asks Google Books (`volumes?q=isbn:…&key=…`, the adapter already
+    built). The volume must list the scanned ISBN (as an ISBN-13, or the
+    ISBN-10 it maps to).
+  - Title and authors are cleaned with the same rules as book facts.
+  - `link` is the volume's `canonicalVolumeLink` or `infoLink`, kept only if
+    it is https on `books.google.com`; with no usable link there is no
+    suggestion.
+  - Nothing is cached or written.
+  - It has its own time limit, and any failure means no suggestion.
+- **Route.** `GET /api/books/lookup` returns `{ book, suggestion }`. The
+  suggestion is fetched only when `book` is null and a key is set; otherwise
+  it is null. The route's existing member and same-site rules apply.
+- **Client.**
+  - On a miss, the "We couldn't find that book." screen stays as it is.
+  - **Type the title** opens the form with the suggestion's title and first
+    author filled in. Above the fields is a line, "Suggested by Google
+    Books", linking to `link` (new tab, `rel="noopener noreferrer"`).
+  - Saving goes through the existing typed-title path.
+  - With no suggestion the form is empty, as today.
+- **Key and tests.**
+  - The key is made in the natalieslittlelibrary Google Cloud project, with
+    the Books API enabled and the key restricted to it. It is stored with
+    `wrangler secret put GOOGLE_BOOKS_API_KEY` and in `.dev.vars`.
+  - `vitest.worker.config.ts` pins `GOOGLE_BOOKS_API_KEY: ""` in
+    `miniflare.bindings`, so a real key in `.dev.vars` never changes test
+    behaviour. One route test overrides it with a key.
+- **Docs.**
+  - README: item 7 says Open Library supplies books, and Google Books, when
+    keyed, suggests a title to confirm.
+  - The setup notes list the optional key.
+  - The spec's "Lookup sources" note records the change and the terms.
 
 ## Left to the builder
 
-The exact fixture ISBNs (one Google has and Open Library lacks is ideal), the
-User-Agent string for Google requests (the app name and repo URL, as for Open
-Library), and how the http-to-https upgrade is written.
+How the route test sets a key, and the exact wording around the attribution
+line, which must contain "Google Books" and link to the book's page.

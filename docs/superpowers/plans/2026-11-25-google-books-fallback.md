@@ -139,3 +139,44 @@ test("no cached row and no stored cover contain the key", …); // select * from
 - [ ] **Step 7: Commit.** `feat: Google Books answers when Open Library has no book`
 
 After the merge, James creates the key and runs `wrangler secret put GOOGLE_BOOKS_API_KEY`. Agents don't.
+
+---
+
+### Task 3: Google Books becomes a suggestion that pre-fills the typing form (revision, 2026-11-25)
+
+The design was revised after the antagonist pass found Google's API terms forbid keeping its content (see the design's Approaches). Tasks 1–2 are reworked here.
+
+**Files:**
+- Modify: `src/shared/bookFacts.ts` and its test (revert to `covers.openlibrary.org` only); `src/shared/types.ts` (add `Suggestion`); `src/worker/booklookup/booklookup.ts`, `index.ts`, `sources.ts` (the adapter becomes a suggestion source); `src/worker/index.ts` (wiring and route); `vitest.worker.config.ts` (`GOOGLE_BOOKS_API_KEY: ""`); `src/client/api.ts` (`lookupBook` return type); `src/client/screens/Pair.tsx` and its test; `README.md`; the main spec's "Lookup sources" note.
+
+**Interfaces:**
+- `Suggestion = { title: string; authors: string[]; link: string }` in `src/shared/types.ts`.
+- booklookup: `createBookLookup(deps)` returns `{ lookup, suggest }`, where `suggest(isbn: string): Promise<Suggestion | null>`. `deps.suggestSource?: SuggestSource | null` comes from `suggestSourceFor(apiKey: unknown)`, which is `null` when the key is not a non-empty trimmed string. `lookupSources` is removed, and lookup's default sources are `[openLibrary]` again.
+- Route: `GET /api/books/lookup` answers `{ book: BookInfo | null; suggestion: Suggestion | null }`.
+- Client: `lookupBook(isbn)` resolves to `{ book, suggestion }`.
+
+- [ ] **Step 1: Failing tests.**
+  - bookFacts: the Google cover tests now expect null for `https://books.google.com/...`; the look-alike refusals stay.
+  - booklookup:
+    - `suggest` returns title, authors and an https `books.google.com` link from `google-found.json`.
+    - It returns null for a miss, a different ISBN, a non-2xx, a timeout, a link on another host or http, and when there's no `suggestSource`.
+    - `suggest` writes nothing (`book_lookups` stays empty), and `lookup` never calls Google even with a key.
+    - No `suggest` result or table row contains `test-key`.
+  - Routes:
+    - With no key (the pinned `""`), a miss answers `{ book: null, suggestion: null }`.
+    - With a key and a stubbed Google, a miss answers the suggestion.
+    - A hit answers `suggestion: null` without calling Google.
+  - Pair:
+    - After a miss with a suggestion, **Type the title** shows the fields pre-filled (title, first author).
+    - It shows a link whose text contains "Google Books", with `href` equal to `link`, `target="_blank"` and `rel` containing `noopener` and `noreferrer`.
+    - Saving sends `{ code, title, authors: [author] }`.
+    - With no suggestion, the form is empty as before.
+    - An edited suggestion is sent as edited.
+- [ ] **Step 2: Run** the focused suites (worker booklookup, shared, index; client Pair). Expected: the new tests fail.
+- [ ] **Step 3: Implement.**
+  - The Google adapter reads `canonicalVolumeLink`, else `infoLink`.
+  - The link is kept only if it is https, has the hostname `books.google.com`, and has no credentials or port. A key must never appear in it.
+  - The ISBN match and the `URLSearchParams` URL stay. The suggestion goes through the same title and author cleaning as book facts, with no cover.
+- [ ] **Step 4: Run** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm wrangler types --check`. Expected: all pass. This is a full pass, so check the machine-coordination note first.
+- [ ] **Step 5: Docs.** As in the design's Docs bullet. `.dev.vars.example`, if present, gains `GOOGLE_BOOKS_API_KEY=` with an "optional" comment.
+- [ ] **Step 6: Commit.** `feat: Google Books suggests a title when Open Library has none`
