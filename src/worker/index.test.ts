@@ -714,7 +714,7 @@ test.each(WRITES)("%s from another site is 403 and changes nothing, where the sa
   const f = await writeFixture();
   const req = build(f);
   const before = await snapshot();
-  for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }]) {
+  for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
     const res = await send(req.method, req.path, f.cookie, req.body, headers);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ rejected: "not-allowed" });
