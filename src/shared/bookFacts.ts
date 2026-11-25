@@ -1,7 +1,7 @@
 const MAX_TITLE = 300;
 const MAX_AUTHORS = 10;
 const MAX_AUTHOR = 200;
-const COVER_HOST = "covers.openlibrary.org";
+const COVER_HOSTS = new Set(["covers.openlibrary.org", "books.google.com"]);
 
 // Cuts by code point so a cut never splits a surrogate pair.
 function cut(s: string, max: number): string {
@@ -9,12 +9,12 @@ function cut(s: string, max: number): string {
   return points.length <= max ? s : points.slice(0, max).join("");
 }
 
-// A cover address is kept only if it is https on covers.openlibrary.org.
+// A cover address is kept only if it is https on covers.openlibrary.org or books.google.com.
 export function safeCoverUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   try {
     const u = new URL(raw);
-    const ok = u.protocol === "https:" && u.hostname === COVER_HOST && !u.username && !u.password && !u.port;
+    const ok = u.protocol === "https:" && COVER_HOSTS.has(u.hostname) && !u.username && !u.password && !u.port;
     // The parsed form, so `https:host/x` (no slashes) is stored as the absolute address a browser would not misread.
     return ok ? u.href : null;
   } catch {
