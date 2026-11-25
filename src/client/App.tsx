@@ -98,6 +98,8 @@ export function App() {
       />
     ) : route.name === "copy" ? (
       <CopyPage code={route.code} member={member} returnTo={returnTo} />
+    ) : route.name === "copy-by-id" ? (
+      <CopyPage copyId={route.id} member={member} returnTo={returnTo} />
     ) : route.name === "pair" ? (
       <Pair member={member} returnTo={returnTo} />
     ) : route.name === "labels" ? (

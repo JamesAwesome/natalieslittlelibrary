@@ -246,3 +246,33 @@ test.each(["constructor", "toString"])("refused=%s falls back to the generic ref
   render(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in didn't finish. Please try again.");
 });
+
+test("a refusal on a label page keeps returnTo at that page", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue({
+    kind: "public", code: "abc", book: { title: "Dune", authors: [], coverUrl: null },
+  });
+  at("/b/abc?refused=removed");
+  render(<App />);
+  const link = await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fb%2Fabc");
+});
+
+test("a copy reached by id loads with getCopy and never asks for a label", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getCopy).mockResolvedValue({
+    copyId: "c1", code: null, book: { isbn: null, title: "Dune", authors: [], coverUrl: null }, owner: { id: "1", name: "Natalie", pictureUrl: null },
+    holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } }, home: true, collection: null, history: [], actions: [],
+  });
+  at("/copies/c1");
+  render(<App />);
+  expect(await screen.findByText("Dune")).toBeInTheDocument();
+  expect(api.getCopy).toHaveBeenCalledWith("c1");
+  expect(api.getLabel).not.toHaveBeenCalled();
+});
+
+test("the screens that come later render the not-found page for now", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  at("/mine");
+  render(<App />);
+  expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
+});

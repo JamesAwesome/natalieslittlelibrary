@@ -46,3 +46,16 @@ test("signed out in an in-app browser explains instead of linking to Google", ()
   expect(screen.queryByRole("link", { name: "Sign in with Google" })).not.toBeInTheDocument();
   ua.mockRestore();
 });
+
+test("signed in links to the shelves, holding, friends and import; signed out has none", () => {
+  const { unmount } = render(<Home member={{ id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true }}
+    onLogout={() => {}} returnTo="/" />);
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "What I'm holding" })).toHaveAttribute("href", "/holding");
+  expect(screen.getByRole("link", { name: "Friends' shelves" })).toHaveAttribute("href", "/members");
+  expect(screen.getByRole("link", { name: "Import from StoryGraph" })).toHaveAttribute("href", "/import");
+  unmount();
+  render(<Home member={null} onLogout={() => {}} returnTo="/" />);
+  expect(screen.queryByRole("link", { name: "My books" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Import from StoryGraph" })).not.toBeInTheDocument();
+});

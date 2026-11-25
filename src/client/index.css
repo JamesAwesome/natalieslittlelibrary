@@ -108,6 +108,26 @@ a.button {
   cursor: default;
 }
 
+.copy-page button,
+.copy-page a.button {
+  min-height: 44px;
+}
+
+.copy-page .move label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.copy-page select {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 4px 0 8px;
+  padding: 10px;
+  font: inherit;
+}
+
 .copy-page button + button {
   margin-left: 8px;
 }
