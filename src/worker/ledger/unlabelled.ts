@@ -51,10 +51,12 @@ type Enrich = { isbn: string; facts: NonNullable<ReturnType<typeof cleanBookFact
 
 type CleanRow = { title: string; authors: string[]; isbn: string | null };
 
-// Copy `c` is one the importer has, or had and gave up: gave away, let someone keep, or released. Bind the importer's id
-// twice. A re-import skips both, so a book given away does not come back.
-const HAS_OR_HAD = (c: string) =>
-  `(${c}.owner_id = ? or exists (select 1 from events e where e.copy_id = ${c}.id and e.actor_id = ? and e.type in ('given', 'approved', 'released')))`;
+// A re-import skips copies the importer has, and those they had and gave up (gave away, let someone keep, or released),
+// so a book given away does not come back. Each is its own `from … where` (copy `c`, book `b`; bind the importer's id
+// once) so each keeps its index: copies by owner, events by actor and type. An `or` of the two would scan every copy.
+const OWNS = "copies c join books b on b.id = c.book_id where c.owner_id = ?";
+const GAVE_UP = `events e join copies c on c.id = e.copy_id join books b on b.id = c.book_id
+  where e.actor_id = ? and e.type in ('given', 'approved', 'released')`;
 
 function cleanRows(rows: unknown): CleanRow[] | null {
   if (!Array.isArray(rows) || rows.length < 1 || rows.length > MAX_BATCH) return null;
@@ -114,13 +116,16 @@ export function createUnlabelled(
     // are not asked about.
     const held = new Set<string>();
     if (isbns.length > 0) {
-      const marks = isbns.map(() => "?").join(", ");
+      const wanted = "(select isbn from wanted)";
+      const match = `(b.isbn in ${wanted} or c.import_isbn in ${wanted})`;
       const { results } = await db
         .prepare(
-          `select b.isbn as book_isbn, c.import_isbn from copies c join books b on b.id = c.book_id
-           where ${HAS_OR_HAD("c")} and (b.isbn in (${marks}) or c.import_isbn in (${marks}))`,
+          `with wanted(isbn) as (values ${isbns.map(() => "(?)").join(", ")})
+           select b.isbn as book_isbn, c.import_isbn from ${OWNS} and ${match}
+           union all
+           select b.isbn as book_isbn, c.import_isbn from ${GAVE_UP} and ${match}`,
         )
-        .bind(owner.id, owner.id, ...isbns, ...isbns)
+        .bind(...isbns, owner.id, owner.id)
         .all<{ book_isbn: string | null; import_isbn: string | null }>();
       for (const r of results) {
         if (r.book_isbn !== null) held.add(r.book_isbn);
@@ -146,8 +151,8 @@ export function createUnlabelled(
 
     // Statements for a chunk of n rows: n * 3 (book, copy, event), plus the two of ensureDefault when there is no chosen
     // collection; at most 3 * 20 + 2 = 62, and a D1 batch is one query toward the 50 per invocation. Bound parameters:
-    // a book insert takes at most 6 + 1 + 2 + 6 = 15, a copy insert 7 + 1 + 2 + 6 + 1 = 17 (a named destination adds one
-    // more to each), an event 4; the widest is 18, well under 100.
+    // a book insert takes at most 6 + 1 + 2 + 10 = 19, a copy insert 7 + 1 + 2 + 10 + 1 = 21 (a named destination adds one
+    // more to each), an event 4; the widest is 22, well under 100.
     const statements: D1PreparedStatement[] = [];
     if (collectionId === null) statements.push(...ensureDefault(db, owner.id, at));
     const copyAt: number[] = [];
@@ -155,17 +160,14 @@ export function createUnlabelled(
       const authorsJson = JSON.stringify(row.authors);
       // Skip a row the importer already has or gave up: by ISBN where the row has one, and by exact title and authors on a
       // book with no ISBN (one paired earlier by typing); by exact title and authors alone where the row has no ISBN.
-      const owned =
+      const match =
         row.isbn !== null
-          ? {
-              sql: `not exists (select 1 from copies c join books b on b.id = c.book_id where ${HAS_OR_HAD("c")}
-                      and (b.isbn = ? or c.import_isbn = ? or (b.isbn is null and b.title = ? and b.authors = ?)))`,
-              binds: [owner.id, owner.id, row.isbn, row.isbn, row.title, authorsJson],
-            }
-          : {
-              sql: `not exists (select 1 from copies c join books b on b.id = c.book_id where ${HAS_OR_HAD("c")} and b.title = ? and b.authors = ?)`,
-              binds: [owner.id, owner.id, row.title, authorsJson],
-            };
+          ? { sql: "(b.isbn = ? or c.import_isbn = ? or (b.isbn is null and b.title = ? and b.authors = ?))", binds: [row.isbn, row.isbn, row.title, authorsJson] }
+          : { sql: "b.title = ? and b.authors = ?", binds: [row.title, authorsJson] };
+      const owned = {
+        sql: `not exists (select 1 from ${OWNS} and ${match.sql}) and not exists (select 1 from ${GAVE_UP} and ${match.sql})`,
+        binds: [owner.id, ...match.binds, owner.id, ...match.binds],
+      };
       const guard = `${ACTIVE} and ${dest.sql} and ${owned.sql}`;
       const guardBinds = [owner.id, ...dest.binds, ...owned.binds];
 

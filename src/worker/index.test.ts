@@ -154,7 +154,10 @@ const expectedShape: Record<
       ["subject_member_id", "members", "id", "NO ACTION", "NO ACTION"],
       ["subject_person_id", "people", "id", "NO ACTION", "NO ACTION"],
     ],
-    indexes: [["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]]],
+    indexes: [
+      ["events_actor_id_type_idx", 0, "c", 0, ["actor_id", "type"]],
+      ["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]],
+    ],
   },
   people: {
     columns: [
@@ -236,6 +239,7 @@ const expectedIndexSql: Record<string, string> = {
   copies_holder_member_id_idx: "CREATE INDEX `copies_holder_member_id_idx` ON `copies` (`holder_member_id`)",
   copies_holder_person_id_idx: "CREATE INDEX `copies_holder_person_id_idx` ON `copies` (`holder_person_id`)",
   copies_owner_id_idx: "CREATE INDEX `copies_owner_id_idx` ON `copies` (`owner_id`)",
+  events_actor_id_type_idx: "CREATE INDEX `events_actor_id_type_idx` ON `events` (`actor_id`,`type`)",
   events_copy_id_id_idx: "CREATE INDEX `events_copy_id_id_idx` ON `events` (`copy_id`,`id`)",
   people_creator_name_key_unique:
     "CREATE UNIQUE INDEX `people_creator_name_key_unique` ON `people` (`created_by`,`name_key`)",

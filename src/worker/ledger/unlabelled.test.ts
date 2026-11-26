@@ -311,6 +311,22 @@ test("re-importing skips a book the importer gave away, had approved away, or re
   expect(ok(await ledger.importCopies(sam, { collectionId: null, rows }))).toEqual({ added: 1, skipped: 2 });
 });
 
+test("re-importing skips an ISBN row the importer gave away or had approved away", async () => {
+  const { ledger, lookupMany } = make();
+  lookupMany.mockImplementation(found(DUNE, EMMA));
+  const rows = [row("Dune", DUNE.isbn), row("Emma", EMMA.isbn)];
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows }));
+  const idOf = async (isbn: string) =>
+    (await env.DB.prepare("select c.id from copies c join books b on b.id = c.book_id where b.isbn = ?").bind(isbn).first<{ id: string }>())!.id;
+  const [dune, emma] = [await idOf(DUNE.isbn!), await idOf(EMMA.isbn!)];
+  ok(await ledger.act(natalie, { type: "give", copyId: dune, to: sam.id }));
+  ok(await ledger.act(natalie, { type: "lend", copyId: emma, to: { member: sam.id } }));
+  ok(await ledger.act(sam, { type: "request", copyId: emma }));
+  ok(await ledger.act(natalie, { type: "approve", copyId: emma }));
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows }))).toEqual({ added: 0, skipped: 2 });
+  expect(await count("copies")).toBe(2);
+});
+
 test("an import that lands between add's read and its write: the label goes on the imported copy, not a second one", async () => {
   const setup = make();
   const [code] = await mint(setup.ledger);

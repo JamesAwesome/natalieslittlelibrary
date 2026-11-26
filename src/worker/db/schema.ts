@@ -165,7 +165,8 @@ export const events = sqliteTable(
     subjectMemberId: text("subject_member_id").references(() => members.id),
     subjectPersonId: text("subject_person_id").references(() => people.id),
   },
-  (t) => [index("events_copy_id_id_idx").on(t.copyId, t.id)],
+  // events_actor_id_type_idx: what a member gave up (given, approved, released), for the import's "had it" check.
+  (t) => [index("events_copy_id_id_idx").on(t.copyId, t.id), index("events_actor_id_type_idx").on(t.actorId, t.type)],
 );
 
 export const bookLookups = sqliteTable(
