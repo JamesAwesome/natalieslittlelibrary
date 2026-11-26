@@ -26,6 +26,10 @@ type Payload = { isbn: string } | { title: string; authors: string[] } | { copyI
 // `stays` is null for a new copy; otherwise the collection an existing copy stays in (name null when it has none).
 type Pending = { how: Payload; stays: { name: string | null } | null };
 
+// Not a refusal this screen understands: the request may have done its work before the answer went missing.
+const KNOWN: readonly (string | null)[] = ["label-in-use", "label-unknown", "not-allowed", "not-found", "book-not-found"];
+const unknownFailure = (e: unknown) => !(e instanceof ApiError) || (e.status !== 401 && !KNOWN.includes(e.rejected));
+
 // One collator for every sort: a new one per comparison is slow.
 const COLLATOR = new Intl.Collator();
 const LOST = Symbol("lost");
@@ -140,8 +144,9 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     else void loadCopy(copyId);
   }, []);
 
-  // `then` is a notice to show once the copy is loaded again; loading clears any earlier one.
-  async function loadCopy(id: string, then?: string) {
+  // `again` is a replace refused because the copy's label changed: once re-read, the same label is asked about
+  // again with the fresh code, and the scanner stays closed so a camera still on the sticker reads nothing.
+  async function loadCopy(id: string, again?: { label: string; notice: string }) {
     const mine = ++seq.current;
     setNotice(undefined);
     go("copyloading");
@@ -156,9 +161,16 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         return;
       }
       setForCopy(view.book);
-      // With stays set, chosen decides before its first await, so the notice lands after it clears its own.
-      void chosen(how, { name: view.collection?.name ?? null });
-      if (then !== undefined) setNotice(then);
+      const stays = { name: view.collection?.name ?? null };
+      if (again !== undefined) {
+        const p: Pending = { how, stays };
+        setPending(p);
+        setToReplace({ label: again.label, p });
+        setNotice(again.notice);
+        go("replaceconfirm");
+        return;
+      }
+      void chosen(how, stays);
     } catch (e) {
       if (mine !== seq.current || !live.current) return;
       if (e instanceof ApiError && e.status === 401) setLost(true);
@@ -260,6 +272,21 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       if (mine !== seq.current || !live.current) return;
       const why = e instanceof ApiError ? e.rejected : null;
       const existing = "copyId" in p.how;
+      // A replace whose answer was lost may have landed, and a retry of it is then refused as label-in-use.
+      // Re-read the copy first: if it already carries the label sent, the replace is done.
+      if ("replacing" in p.how && (unknownFailure(e) || (why === "label-in-use" && label !== p.how.replacing))) {
+        const now = await soft(getCopy(p.how.copyId));
+        if (mine !== seq.current || !live.current) return;
+        if (now === LOST) {
+          setLost(true);
+          return;
+        }
+        if (now !== null && now.ownerCode === label) {
+          inFlight.current = true;
+          location.assign(`/b/${label}`);
+          return;
+        }
+      }
       if (e instanceof ApiError && e.status === 401) {
         setLost(true);
       } else if (why === "label-in-use" || why === "label-unknown") {
@@ -270,7 +297,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         go("label");
       } else if ("replacing" in p.how && why === "not-allowed") {
         // The copy's label changed since it was read (or it is no longer ours): read it again before another try.
-        void loadCopy(p.how.copyId, "This book's label just changed. Try again.");
+        void loadCopy(p.how.copyId, { label, notice: "This book's label just changed. Try again." });
       } else if (existing && why === "not-allowed") {
         startOver();
         setNotice("That book already has a label.");
@@ -569,6 +596,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         <>
           <Book title={forCopy.title} authors={forCopy.authors} coverUrl={forCopy.coverUrl} />
           <p>Replace the label on <Name>{forCopy.title}</Name>?</p>
+          <p className="label-code">Label {toReplace.label}</p>
           <p>
             <button type="button" onClick={() => void save(toReplace.label, toReplace.p, undefined)}>Replace</button>
             <button type="button" onClick={cancelReplace}>Cancel</button>
@@ -585,7 +613,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       {step === "failed" && code !== null && pending !== null && (
         <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}
-      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && <p><button type="button" className="link" onClick={startOver}>Start over</button></p>}
+      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && (replace && copyId !== null ? (
+        // Replace mode never opens the add flow: it cannot find a labelled copy, so it would make a second one.
+        <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
+      ) : <p><button type="button" className="link" onClick={startOver}>Start over</button></p>)}
     </div>
   );
 }

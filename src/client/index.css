@@ -272,7 +272,8 @@ a.button {
   display: block;
 }
 
-.copy-page .label-code {
+.copy-page .label-code,
+.pair-page .label-code {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.875rem;
   color: var(--fg);
