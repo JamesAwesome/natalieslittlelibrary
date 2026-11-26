@@ -11,6 +11,7 @@ import type {
   RejectionReason,
   Shelf,
   ShelfItem,
+  SheetSummary,
 } from "../shared/types";
 
 export class ApiError extends Error {
@@ -67,6 +68,11 @@ export const getLabel = (code: string) => call<LabelView>(`/api/labels/${encodeU
 
 export const mintLabels = (count: number) =>
   call<{ labels: { code: string; url: string }[] }>("/api/labels", "POST", { count });
+
+export const listSheets = () => call<{ sheets: SheetSummary[] }>("/api/labels/sheets");
+
+export const sheetLabels = (sheetId: string, includeMine: boolean) =>
+  call<{ labels: { code: string; url: string }[] }>(`/api/labels/sheets/${id(sheetId)}${includeMine ? "?include=mine" : ""}`);
 
 export const lookupBook = (isbn: string) =>
   call<{ book: BookInfo | null }>(`/api/books/lookup?isbn=${encodeURIComponent(isbn)}`);
