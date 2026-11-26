@@ -4,7 +4,7 @@ import { parseLabelLink } from "../../shared/labelCode";
 import type { BookInfo, Candidates, CopyView, ImportResult, ImportRow, Member, Rejection, ShelfItem } from "../../shared/types";
 import { MAX_BATCH } from "../booklookup";
 import { ACTIVE, DEFAULT_OF, ensureDefault } from "./collections";
-import { stateColumns, stateOf, type StateColumns } from "./copyState";
+import { CLEAR_REMOVED_ASKER, stateColumns, stateOf, type StateColumns } from "./copyState";
 import { decide } from "./rules";
 import { SHELF_SELECT, shelfItem, type ShelfRow } from "./shelves";
 
@@ -243,6 +243,12 @@ export function createUnlabelled(
         .bind(copyId, at, code, ...guardBinds),
     ];
     let labelAt = 1; // the label update's place in the batch; its change count says whether everything bound
+    // A removed asker's request goes with the label, once the label is bound to the copy.
+    statements.push(
+      db
+        .prepare(`update copies set ${CLEAR_REMOVED_ASKER} where id = ? and exists (select 1 from labels where code = ? and copy_id = ?)`)
+        .bind(copyId, code, copyId),
+    );
     if (enrich) {
       // The copy's title-only book is swapped for the ISBN's book in the same batch, only once the label is bound to it.
       const old = await db.prepare("select book_id from copies where id = ?").bind(copyId).first<{ book_id: string }>();

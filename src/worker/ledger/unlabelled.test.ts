@@ -561,3 +561,13 @@ test("candidates contain no label code", async () => {
   const after = JSON.stringify(ok(await ledger.candidates(natalie, { title: "dune" })));
   for (const code of codes) expect(after).not.toContain(code);
 });
+
+test("labelling a copy clears a removed asker's request", async () => {
+  const { ledger } = make();
+  const id = await importedUnlabelled(ledger);
+  const [code] = await mint(ledger);
+  await env.DB.prepare("update copies set holder_member_id = ?, requested_by = ?, requested_at = 7 where id = ?").bind(sam.id, sam.id, id).run();
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  ok(await ledger.labelCopy(natalie, id, code));
+  expect(await env.DB.prepare("select requested_by, requested_at from copies where id = ?").bind(id).first()).toEqual({ requested_by: null, requested_at: null });
+});

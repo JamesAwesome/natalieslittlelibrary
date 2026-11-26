@@ -4,7 +4,7 @@ import { toIsbn13 } from "../../shared/isbn";
 import { cleanPersonName } from "../../shared/name";
 import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, LendTo, Member, Person, Rejection, PersonSummary, RequestItem, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
-import { stateColumns, stateGuard, stateOf, type StateColumns } from "./copyState";
+import { CLEAR_REMOVED_ASKER, stateColumns, stateGuard, stateOf, type StateColumns } from "./copyState";
 import { availableActions, decide, type Change, type Target } from "./rules";
 import { createPeople } from "./people";
 import { createRelabel } from "./relabel";
@@ -600,7 +600,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const [r] = await db.batch([
       db
         .prepare(
-          `update copies set collection_id = ?
+          `update copies set collection_id = ?, ${CLEAR_REMOVED_ASKER}
            where id = ? and owner_id = ? and ${ACTIVE}
              and exists (select 1 from collections where id = ? and owner_id = ?)`,
         )

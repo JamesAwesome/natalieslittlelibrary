@@ -1,7 +1,7 @@
 import { parseLabelLink } from "../../shared/labelCode";
 import type { CopyView, Member, Rejection } from "../../shared/types";
 import { ACTIVE } from "./collections";
-import { stateColumns, stateOf, type StateColumns } from "./copyState";
+import { CLEAR_REMOVED_ASKER, stateColumns, stateOf, type StateColumns } from "./copyState";
 import { decide } from "./rules";
 import { BLANK } from "./unlabelled";
 
@@ -61,6 +61,14 @@ export function createRelabel(
              and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is not null)`,
         )
         .bind(copyId, at, code, copyId, replacing, copyId),
+      // A removed asker's request goes with the swap, once the new label is the copy's live one.
+      db
+        .prepare(
+          `update copies set ${CLEAR_REMOVED_ASKER}
+             where id = ? and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is null)
+               and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is not null)`,
+        )
+        .bind(copyId, code, copyId, replacing, copyId),
     ]);
     // The bind is last; its change count says whether the batch applied.
     if (results[2].meta.changes === 0) {

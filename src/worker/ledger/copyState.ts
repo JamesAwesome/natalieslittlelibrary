@@ -40,3 +40,8 @@ export function stateGuard(copy: string, row: StateColumns): { sql: string; bind
     binds: [row.owner_id, row.holder_member_id, row.holder_person_id, row.requested_by, row.owner_removed, row.requester_removed],
   };
 }
+
+// A set-clause for an `update copies` whose decision keeps the request: a removed asker's request counts as none, so the
+// write clears it. Both columns read the row as it was, so the order does not matter.
+export const CLEAR_REMOVED_ASKER = `requested_by = case when ${removed("copies.requested_by")} = 1 then null else requested_by end,
+    requested_at = case when ${removed("copies.requested_by")} = 1 then null else requested_at end`;

@@ -1620,3 +1620,18 @@ test("two takes of a released copy at once: one wins", async () => {
   expect(results.filter((r) => "rejected" in r)).toEqual([{ rejected: "not-allowed" }]);
   expect((await eventsOf(copyId)).filter((e) => e.type === "adopted")).toHaveLength(1);
 });
+
+const requestOf = async (copyId: string) =>
+  (await env.DB.prepare("select requested_by, requested_at from copies where id = ?").bind(copyId).first())!;
+
+test("a move clears a removed asker's request and keeps a live one", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const shed = ok(await ledger.createCollection(natalie, "Shed"));
+  await env.DB.prepare("update copies set holder_member_id = ?, requested_by = ?, requested_at = 7 where id = ?").bind(sam.id, sam.id, copyId).run();
+  ok(await ledger.moveCopy(natalie, copyId, shed.id));
+  expect(await requestOf(copyId)).toEqual({ requested_by: sam.id, requested_at: 7 });
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  ok(await ledger.moveCopy(natalie, copyId, shed.id));
+  expect(await requestOf(copyId)).toEqual({ requested_by: null, requested_at: null });
+});
