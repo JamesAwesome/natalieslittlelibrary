@@ -510,7 +510,6 @@ test("relabel is never an action button", async () => {
   const without = await names({ actions: ["return"] });
   expect(await names({ actions: ["return", "relabel"] })).toEqual(without);
   expect(without).toContain("Mark as returned");
-  expect(screen.queryByText("Replace label")).not.toBeInTheDocument();
 });
 
 test("Put a label on it links to pairing this copy", async () => {

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import type { CopyView, Rejection } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
 import { invariantViolations } from "../../../test/invariant";
-import { asCopy, homeCopy, insertMembers, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
+import { asCopy, count, homeCopy, insertMembers, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 import { gated, racing } from "../../../test/racing";
 
 beforeEach(async () => {
@@ -181,4 +181,62 @@ test("ownerCode is the live code for the owner on any view, and null for anyone 
   ok(await ledger.importCopies(natalie, { collectionId: null, rows: [{ title: "Loose", authors: [], isbn: null }] }));
   const loose = (await env.DB.prepare("select id from copies where id <> ?").bind(copyId).first<{ id: string }>())!.id;
   expect(ok(await ledger.viewCopy(loose, natalie)).ownerCode).toBeNull();
+});
+
+test("a copy can be replaced again: old to a, then a to b", async () => {
+  const { ledger } = make();
+  const { code: old, copyId } = await homeCopy(ledger);
+  const [a, b] = await mint(ledger, 2);
+  ok(await ledger.replaceLabel(natalie, copyId, { code: a, replacing: old }));
+  const copy = ok(await ledger.replaceLabel(natalie, copyId, { code: b, replacing: a }));
+  expect(copy.ownerCode).toBe(b);
+  expect(await relabelledEvents(copyId)).toBe(2);
+  expect(await ledger.view(old, natalie)).toEqual({ kind: "retired" });
+  expect(await ledger.view(a, natalie)).toEqual({ kind: "retired" });
+  expect(await labelsOf(copyId)).toEqual([{ code: old, retired_at: 1000 }, { code: a, retired_at: 1000 }, { code: b, retired_at: null }]);
+});
+
+test("a new label bound elsewhere between the read and the batch is label-in-use, and the copy keeps its label", async () => {
+  const ledger2 = make().ledger;
+  const { code: old, copyId } = await homeCopy(ledger2);
+  const [fresh] = await mint(ledger2);
+  let other = null as CopyView | Rejection | null;
+  const { ledger } = make({
+    db: racing(async () => {
+      other = await ledger2.add(sam, { code: fresh, book: { title: "Sam's own", authors: [] } });
+    }),
+  });
+  expect(await ledger.replaceLabel(natalie, copyId, { code: fresh, replacing: old })).toEqual({ rejected: "label-in-use" });
+  const samsCopy = ok(other!); // the add really landed, between the replace's read and its batch
+  expect(await labelsOf(copyId)).toEqual([{ code: old, retired_at: null }]);
+  expect(await labelsOf(samsCopy.copyId)).toEqual([{ code: fresh, retired_at: null }]);
+  expect(ok(await ledger2.viewCopy(copyId, natalie)).ownerCode).toBe(old);
+  expect(await relabelledEvents(copyId)).toBe(0);
+  expect(await liveLabels(copyId)).toBe(1);
+});
+
+test("an owner change between the read and the batch is not-allowed and changes nothing", async () => {
+  const ledger2 = make().ledger;
+  const { code: old, copyId } = await homeCopy(ledger2);
+  const [fresh] = await mint(ledger2);
+  ok(await ledger2.createCollection(sam, "Sam's shelf")); // Sam's first collection, so his default
+  const snapshot = async () =>
+    JSON.stringify(await Promise.all(["labels", "events"].map(async (t) => (await env.DB.prepare(`select * from ${t} order by 1`).all()).results)));
+  let before = "";
+  const { ledger } = make({
+    db: racing(async () => {
+      await env.DB.prepare(
+        `update copies set owner_id = ?, holder_member_id = ?,
+           collection_id = (select id from collections where owner_id = ? and is_default = 1) where id = ?`,
+      ).bind(sam.id, sam.id, sam.id, copyId).run();
+      before = await snapshot();
+    }),
+  });
+  const events = await count("events");
+  expect(await ledger.replaceLabel(natalie, copyId, { code: fresh, replacing: old })).toEqual({ rejected: "not-allowed" });
+  expect(before).not.toBe(""); // the owner really changed, between the replace's read and its batch
+  expect(await snapshot()).toBe(before);
+  expect(await count("events")).toBe(events);
+  expect(await isBlank(fresh)).toBe(true);
+  expect(await labelsOf(copyId)).toEqual([{ code: old, retired_at: null }]);
 });
