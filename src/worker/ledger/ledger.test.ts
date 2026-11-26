@@ -1321,6 +1321,59 @@ test("a decline racing the asker's removal records nothing", async () => {
   expect(await copyRow(copyId)).toMatchObject({ requested_by: sam.id });
 });
 
+test("a lend made stale by a lend to another placeholder after the read records nothing", async () => {
+  const setup = make().ledger;
+  const { copyId } = await homeCopy(setup);
+  ok(await setup.act(natalie, { type: "lend", copyId, to: { name: "Ann" } }));
+  // Only holder_person_id moves (Ann to Bea): no member holds it before or after, and no request is open.
+  const db = racing(async () => ok(await make().ledger.act(natalie, { type: "lend", copyId, to: { name: "Bea" } })));
+  expect(await make({ db }).ledger.act(natalie, { type: "lend", copyId, to: { member: kim.id } })).toEqual({ rejected: "not-allowed" });
+  const bea = (await env.DB.prepare("select id from people where name_key = 'bea'").first<{ id: string }>())!.id;
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: null, holder_person_id: bea });
+  expect(await count("events")).toBe(4); // added, labelled, lent to Ann, lent to Bea
+});
+
+test("a decline made stale by the asker withdrawing after the read records nothing", async () => {
+  const { copyId } = await samAsks(make().ledger);
+  // Only the request moves: Sam still holds it.
+  const db = racing(async () => ok(await make().ledger.act(sam, { type: "withdraw", copyId })));
+  expect(await make({ db }).ledger.act(natalie, { type: "decline", copyId })).toEqual({ rejected: "not-allowed" });
+  expect((await eventsOf(copyId)).map((e) => e.type)).toEqual(["added", "labelled", "claimed", "requested", "withdrawn"]);
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: sam.id, requested_by: null, requested_at: null });
+});
+
+test("a second tap on ask to keep, landing after the first, records nothing", async () => {
+  const setup = make().ledger;
+  const { code, copyId } = await homeCopy(setup);
+  ok(await setup.act(sam, { type: "claim", code }));
+  const db = racing(async () => ok(await make().ledger.act(sam, { type: "request", copyId })));
+  expect(await make({ db }).ledger.act(sam, { type: "request", copyId })).toEqual({ rejected: "not-allowed" });
+  expect((await eventsOf(copyId)).map((e) => e.type)).toEqual(["added", "labelled", "claimed", "requested"]);
+});
+
+const insertLinkedSarah = () =>
+  env.DB.prepare("insert into people (id, created_by, name, name_key, created_at, linked_member_id, linked_at) values ('p-sarah', ?, 'Sarah', 'sarah', 1, ?, 1)")
+    .bind(natalie.id, kim.id).run();
+
+test("lend by id to one's own placeholder that is linked is not-allowed and changes nothing", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await insertLinkedSarah();
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "lend", copyId, to: { person: "p-sarah" } })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("lend by id to one's own placeholder, linked after the read, records nothing", async () => {
+  const { copyId } = await homeCopy(make().ledger);
+  await insertSarah();
+  // Only the placeholder's link moves; the copy is untouched.
+  const db = racing(run("update people set linked_member_id = ?, linked_at = 2 where id = 'p-sarah'", kim.id));
+  expect(await make({ db }).ledger.act(natalie, { type: "lend", copyId, to: { person: "p-sarah" } })).toEqual({ rejected: "not-allowed" });
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: natalie.id, holder_person_id: null });
+  expect(await count("events")).toBe(2);
+});
+
 test.each([
   ["a lend with no target", { type: "lend", copyId: "c" }],
   ["a lend to a number", { type: "lend", copyId: "c", to: 5 }],
