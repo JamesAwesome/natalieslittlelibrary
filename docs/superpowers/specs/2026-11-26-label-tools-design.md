@@ -89,9 +89,11 @@ label that is damaged or lost for good.
 - `labels.sheet_id`, text, nullable: the sheet a label was made in. Every
   `mintLabels` call is one sheet and gets one id.
 - `labels.retired_at`, integer, nullable: set when the label is replaced.
-- Existing labels are backfilled in the migration: one sheet per member and
-  minted second **(call: a quick three-sheet run can land in one second and
-  so be listed as one sheet of up to three pages; it prints the same)**.
+- Existing labels form one sheet per member and minted second, computed when
+  read (a label with no `sheet_id` is grouped by its minter and
+  `minted_at / 1000`), so labels old code mints during the deploy also land in
+  a sheet **(call: a quick three-sheet run can land in one second and so be
+  listed as one sheet of up to three pages; it prints the same)**.
 - A copy can now have several labels, at most one not retired. A partial
   unique index on `labels(copy_id) where retired_at is null and copy_id is
   not null` enforces it.
@@ -121,7 +123,8 @@ label that is damaged or lost for good.
 ### Routes
 
 - `GET /api/labels/sheets` and `GET /api/labels/sheets/:id?include=mine`,
-  member-only, the second answering `{ codes: [...] }`.
+  member-only, the second answering `{ labels: [{ code, url }] }`, as minting
+  does.
 - `POST /api/copies/:id/relabel` with `{ code, replacing }` to replace,
   where `replacing` is the code the owner is replacing (the "label read"
   guard) **(call: a route of its own, because the existing
