@@ -82,14 +82,17 @@ const signal = () => new AbortController().signal;
 const UA = "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)";
 const volume = (volumeInfo: unknown) => ({ totalItems: 1, items: [{ id: "vol1", volumeInfo }] });
 
-test("asks Google Books by ISBN with the key, naming the app", async () => {
+test("asks Google Books by ISBN with the key in a header, never the URL, naming the app", async () => {
   const calls: Call[] = [];
   await googleBooks("test-key").find(FOUND_ISBN, serve(googleFound, calls), signal());
   const url = new URL(calls[0].url);
   expect(url.origin + url.pathname).toBe("https://www.googleapis.com/books/v1/volumes");
+  expect([...url.searchParams.keys()]).toEqual(["q"]);
   expect(url.searchParams.get("q")).toBe(`isbn:${FOUND_ISBN}`);
-  expect(url.searchParams.get("key")).toBe("test-key");
-  expect(new Headers(calls[0].init?.headers).get("user-agent")).toBe(UA);
+  expect(calls[0].url).not.toContain("test-key");
+  const headers = new Headers(calls[0].init?.headers);
+  expect(headers.get("x-goog-api-key")).toBe("test-key");
+  expect(headers.get("user-agent")).toBe(UA);
 });
 
 test("a key with & or = cannot add parameters", async () => {
@@ -98,7 +101,8 @@ test("a key with & or = cannot add parameters", async () => {
   const url = new URL(calls[0].url);
   expect(url.searchParams.get("q")).toBe(`isbn:${FOUND_ISBN}`);
   expect(url.searchParams.get("x")).toBeNull();
-  expect(url.searchParams.get("key")).toBe("a&q=isbn:1&x=y");
+  expect(url.searchParams.get("key")).toBeNull();
+  expect(new Headers(calls[0].init?.headers).get("x-goog-api-key")).toBe("a&q=isbn:1&x=y");
 });
 
 test("passes the abort signal to the request", async () => {

@@ -9,6 +9,11 @@ export type BookSource = {
   findMany?(isbns: string[], fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<Map<string, BookInfo>>;
 };
 
+// A source's own failure, worded by this file: its message is safe to log (no URL, no body, no key).
+export class SourceError extends Error {
+  override name = "SourceError";
+}
+
 // Open Library asks API clients to name themselves and say where to reach them.
 const USER_AGENT = "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)";
 
@@ -25,7 +30,7 @@ export const openLibrary: BookSource = {
     const url = `https://openlibrary.org/api/books?bibkeys=${isbns.map((i) => `ISBN:${i}`).join(",")}&format=json&jscmd=data`;
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal });
     // Anything but 200 (429, 503, ...) is the source failing, not a book it lacks; the caller must be able to tell.
-    if (res.status !== 200) throw new Error(`open library answered ${res.status}`);
+    if (res.status !== 200) throw new SourceError(`open library answered ${res.status}`);
     const body: unknown = await res.json();
     if (typeof body !== "object" || body === null) return found;
     for (const isbn of isbns) {
@@ -47,12 +52,13 @@ export function googleBooks(apiKey: string): BookSource {
   return {
     name: "google-books",
     async find(isbn, fetch, signal) {
-      const params = new URLSearchParams({ q: `isbn:${isbn}`, key: apiKey });
+      // The key goes in a header, never the URL: request URLs end up in logs and traces.
+      const params = new URLSearchParams({ q: `isbn:${isbn}` });
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?${params}`, {
-        headers: { "User-Agent": USER_AGENT },
+        headers: { "User-Agent": USER_AGENT, "x-goog-api-key": apiKey },
         signal,
       });
-      if (!res.ok) throw new Error(`google books answered ${res.status}`);
+      if (!res.ok) throw new SourceError(`google books answered ${res.status}`);
       const body: unknown = await res.json();
       const items = typeof body === "object" && body !== null ? (body as { items?: unknown }).items : null;
       if (!Array.isArray(items)) return null;
@@ -73,6 +79,14 @@ export function googleBooks(apiKey: string): BookSource {
     },
   };
 }
+
+// Stands in for Google Books when no key is set, so a miss says why in the logs instead of passing silently.
+export const googleBooksWithoutKey: BookSource = {
+  name: "google-books",
+  async find() {
+    throw new SourceError("google books has no key: GOOGLE_BOOKS_API_KEY is not set");
+  },
+};
 
 // Google sends http thumbnails with a page-curl effect; store https without the curl.
 function googleCover(links: unknown): string | null {

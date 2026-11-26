@@ -6,6 +6,7 @@ import many from "./fixtures/many.json";
 import found from "./fixtures/found.json";
 import googleFound from "./fixtures/google-found.json";
 import { createBookLookup, LookupUnavailable, lookupSources, MAX_BATCH, type BookSource } from "./index";
+import { SourceError } from "./sources";
 
 const ISBN = "9798855427974";
 const BOOK_KEY = `ISBN:${ISBN}`;
@@ -287,8 +288,15 @@ function byHost(open: () => Response, google: () => Response, calls: string[] = 
 const json = (body: unknown, status = 200) => () => new Response(JSON.stringify(body), { status });
 const googleCalls = (calls: string[]) => calls.filter((u) => u.includes("googleapis.com"));
 
-test("lookupSources with no key, an empty key, or a blank key is Open Library only", () => {
-  for (const k of [undefined, null, "", "   ", 42]) expect(lookupSources(k).map((s) => s.name)).toEqual(["openlibrary"]);
+test("lookupSources with no key, an empty key, or a blank key asks Open Library only, and a miss reports the missing key", async () => {
+  for (const k of [undefined, null, "", "   ", 42]) {
+    const calls: string[] = [];
+    const warnings: string[] = [];
+    const lookup = createBookLookup({ db: env.DB, sources: lookupSources(k), fetch: byHost(json({}), json(googleFound), calls), warn: (m) => warnings.push(m) });
+    expect(await lookup.lookup(ISBN)).toBeNull();
+    expect(googleCalls(calls)).toEqual([]);
+    expect(warnings).toEqual(["book lookup: google-books failed: SourceError: google books has no key: GOOGLE_BOOKS_API_KEY is not set"]);
+  }
 });
 
 test("lookupSources with a key puts Google Books after Open Library", () => {
@@ -622,16 +630,42 @@ test("a Google Books refusal is reported with the source and status, never the k
     warn: (m) => warnings.push(m),
   });
   expect(await lookup.lookup(ISBN)).toBeNull();
-  expect(warnings).toEqual(["book lookup: google-books failed: Error: google books answered 400"]);
+  expect(warnings).toEqual(["book lookup: google-books failed: SourceError: google books answered 400"]);
 });
 
-test("an error message carrying a key parameter has the key blanked", async () => {
+test("any other error message is left out: only its type is reported", async () => {
   const warnings: string[] = [];
-  const leaky: BookSource = { name: "leaky", async find() { throw new TypeError("fetch failed for https://x.example/?q=1&key=secret-test-key&a=b"); } };
-  await createBookLookup({ db: env.DB, sources: [leaky], warn: (m) => warnings.push(m) }).lookup(ISBN);
+  const thrown = [
+    new TypeError("fetch failed for https://x.example/?q=1&key=secret-test-key&a=b"),
+    new SyntaxError('Unexpected token "secret-test-key" is not valid JSON'),
+    new Error("secret-test-key"),
+    Object.assign(new Error("x"), { name: "secret-test-key and more" }),
+    "secret-test-key",
+  ];
+  for (const err of thrown) {
+    const leaky: BookSource = { name: "leaky", async find() { throw err; } };
+    await createBookLookup({ db: env.DB, sources: [leaky], warn: (m) => warnings.push(m) }).lookup(ISBN);
+  }
+  expect(warnings).toEqual([
+    "book lookup: leaky failed: TypeError",
+    "book lookup: leaky failed: SyntaxError",
+    "book lookup: leaky failed: Error",
+    "book lookup: leaky failed: Error",
+    "book lookup: leaky failed: a non-error value",
+  ]);
+});
+
+test("the real Google source: a malformed body quoting the key is not logged", async () => {
+  const warnings: string[] = [];
+  const lookup = createBookLookup({
+    db: env.DB,
+    sources: lookupSources("secret-test-key"),
+    fetch: byHost(json({}), () => new Response("secret-test-key", { status: 200 })),
+    warn: (m) => warnings.push(m),
+  });
+  expect(await lookup.lookup(ISBN)).toBeNull();
   expect(warnings).toHaveLength(1);
-  expect(warnings[0]).toContain("leaky failed: TypeError");
-  expect(warnings[0]).not.toContain("secret-test-key");
+  expect(warnings.join()).not.toContain("secret-test-key");
 });
 
 test("a timeout is reported once, as a timeout; a genuine miss reports nothing", async () => {
@@ -646,7 +680,29 @@ test("a timeout is reported once, as a timeout; a genuine miss reports nothing",
 
 test("a failed batch is reported as a batch", async () => {
   const warnings: string[] = [];
-  const bad = manySource("bad", async () => { throw new Error("open library answered 503"); });
+  const bad = manySource("bad", async () => { throw new SourceError("open library answered 503"); });
   await createBookLookup({ db: env.DB, sources: [bad], warn: (m) => warnings.push(m) }).lookupMany([ISBN]).catch(() => undefined);
-  expect(warnings).toEqual(["book lookup: bad (batch) failed: Error: open library answered 503"]);
+  expect(warnings).toEqual(["book lookup: bad (batch) failed: SourceError: open library answered 503"]);
+});
+
+test("without a warn given, failures go to console.warn (what Workers Logs keeps)", async () => {
+  const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const bad: BookSource = { name: "bad", async find() { throw new SourceError("bad answered 500"); } };
+    await createBookLookup({ db: env.DB, sources: [bad] }).lookup(ISBN);
+    expect(spy.mock.calls).toEqual([["book lookup: bad failed: SourceError: bad answered 500"]]);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test("a source that rejects when its signal aborts is reported once, as a timeout", async () => {
+  const warnings: string[] = [];
+  const abortRejects: BookSource = {
+    name: "abort-rejects",
+    find: (_isbn, _fetch, signal) =>
+      new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
+  };
+  await createBookLookup({ db: env.DB, sources: [abortRejects], timeoutMs: 20, warn: (m) => warnings.push(m) }).lookup(ISBN);
+  expect(warnings).toEqual(["book lookup: abort-rejects timed out after 20 ms"]);
 });

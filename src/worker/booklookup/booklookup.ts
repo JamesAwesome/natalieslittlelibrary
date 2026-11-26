@@ -1,7 +1,7 @@
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo } from "../../shared/types";
-import { googleBooks, openLibrary, type BookSource } from "./sources";
+import { googleBooks, googleBooksWithoutKey, openLibrary, SourceError, type BookSource } from "./sources";
 
 export type BookLookupDeps = {
   db: D1Database;
@@ -34,16 +34,19 @@ export class LookupUnavailable extends Error {
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_BATCH_TIMEOUT_MS = 20000;
 
-// Open Library first; Google Books after it only when a key is set.
+// Open Library first, then Google Books. Without a key, Google Books is a stand-in that asks nothing and reports
+// the missing key, so a lookup that misses for that reason shows it in the logs.
 export function lookupSources(apiKey: unknown): BookSource[] {
   const key = typeof apiKey === "string" ? apiKey.trim() : "";
-  return key === "" ? [openLibrary] : [openLibrary, googleBooks(key)];
+  return [openLibrary, key === "" ? googleBooksWithoutKey : googleBooks(key)];
 }
 
-// An error's name and message, cut to 200 characters, with anything shaped like a `key=` parameter blanked.
+// Only an error's type, plus the message when a source worded it (SourceError). Any other message can quote a
+// response body or a URL, and either could carry the API key.
 function describe(err: unknown): string {
-  const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  return text.replace(/key=[^&\s]*/gi, "key=…").slice(0, 200);
+  if (err instanceof SourceError) return `${err.name}: ${err.message}`;
+  if (!(err instanceof Error)) return "a non-error value";
+  return /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";
 }
 
 type CacheRow = { title: string; authors: string; cover_url: string | null };
