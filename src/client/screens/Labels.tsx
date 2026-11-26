@@ -96,11 +96,6 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     };
   }, []);
   useEffect(() => writeSettings({ sheetId, nudge, custom }), [sheetId, nudge, custom]);
-  useEffect(() => {
-    if (!printSoon) return;
-    setPrintSoon(false);
-    window.print();
-  }, [labels, printSoon]);
 
   async function refreshSheets() {
     try {
@@ -124,13 +119,19 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     [sheetId, custom],
   );
   const problems = useMemo(() => validate(layout), [layout]);
+  // Runs after commit, so the labels are in the DOM. A layout that went invalid while the request was out
+  // drops the pending print; the Print button stays.
+  useEffect(() => {
+    if (!printSoon) return;
+    setPrintSoon(false);
+    if (problems.length === 0) window.print();
+  }, [printSoon, problems]);
 
   async function make() {
     if (inFlight.current || problems.length > 0) return;
     inFlight.current = true;
     setBusy(true);
     setFailed(false);
-    setReprint(false);
     setReprintNote(null);
     // After a failure part way, go on from where it stopped; otherwise start a fresh run.
     const resume = partial !== null && partial.total === sheetCount ? partial : null;
@@ -140,7 +141,10 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     try {
       for (; made < total; made++) {
         kept = [...kept, ...(await mintLabels(perSheet(layout))).labels];
-        if (live.current) setLabels(kept);
+        if (live.current) {
+          setLabels(kept);
+          setReprint(false);
+        }
       }
       if (live.current) {
         setPartial(null);

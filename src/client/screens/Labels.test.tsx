@@ -292,18 +292,23 @@ const stored = [
 const rows = async () => (await screen.findAllByRole("listitem")).map((li) => li.textContent);
 
 test("Make labels opens the print dialog once, after the labels are on the page", async () => {
-  print.mockImplementation(() => expect(codes()).toHaveLength(48));
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
   show();
   await make();
   await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+  expect(seen).toEqual([48]);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 test("a run of two sheets prints once, after both", async () => {
-  print.mockImplementation(() => expect(codes()).toHaveLength(96));
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
   show();
   await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
   await make();
   await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+  expect(seen).toEqual([96]);
   expect(codes()).toHaveLength(96);
 });
 
@@ -329,15 +334,17 @@ test("previous sheets are listed newest first with their counts", async () => {
   ]);
 });
 
-test("Print again prints that sheet's blank labels, laid out on the chosen sheet, and makes none", async () => {
+test("Print again prints that sheet's blank labels and makes none", async () => {
   vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
   vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
-  print.mockImplementation(() => expect(codes()).toEqual(["r000000001", "r000000002"]));
+  const seen: (string | undefined)[][] = [];
+  print.mockImplementation(() => void seen.push(codes()));
   show();
   const [first] = await screen.findAllByRole("button", { name: "Print again" });
   await userEvent.click(first!);
   await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
   expect(api.sheetLabels).toHaveBeenCalledWith("s2", false);
+  expect(seen).toEqual([["r000000001", "r000000002"]]);
   expect(codes()).toEqual(["r000000001", "r000000002"]);
   expect(api.mintLabels).not.toHaveBeenCalled();
   expect(screen.queryByText(/These labels now exist/)).not.toBeInTheDocument();
@@ -400,4 +407,83 @@ test("a lost session while loading the list shows the sign-in link", async () =>
   vi.mocked(api.listSheets).mockRejectedValue(new api.ApiError(401, null));
   show();
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a reprint is laid out on the chosen sheet type and paginates", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  const many = Array.from({ length: 30 }, (_, i) => ({ code: `r${String(i).padStart(9, "0")}`, url: `https://lib.test/b/${i}` }));
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: many });
+  show();
+  await userEvent.selectOptions(picker(), "avery-22806"); // 12 to a sheet
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(codes()).toHaveLength(30));
+  expect(document.querySelectorAll(".sheet-page")).toHaveLength(3);
+});
+
+test("a sheet that fails to load says so and does not print", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  expect(await screen.findByText("Couldn't load that sheet. Try again.")).toBeInTheDocument();
+  expect(print).not.toHaveBeenCalled();
+});
+
+test("a lost session while printing again shows the sign-in link", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("after Print again, a Make labels that fails at once keeps the reprinted codes without the 'now exist' line", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
+  vi.mocked(api.mintLabels).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(codes()).toEqual(["r000000001", "r000000002"]));
+  await make();
+  await screen.findByText("Couldn't make labels. Try again.");
+  expect(codes()).toEqual(["r000000001", "r000000002"]);
+  expect(screen.queryByText(/These labels now exist/)).not.toBeInTheDocument();
+});
+
+test("each run prints exactly once, with all of that run's codes on the page", async () => {
+  const slow = (n: number) => new Promise<Awaited<ReturnType<typeof fakeMint>>>((r) => setTimeout(() => r(fakeMint(n)), 20));
+  vi.mocked(api.mintLabels).mockImplementation(slow);
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(96));
+  await new Promise((r) => setTimeout(r, 60));
+  expect(seen).toEqual([96]);
+  await make();
+  await waitFor(() => expect(seen).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 60));
+  expect(seen).toEqual([96, 96]);
+});
+
+test("a layout that goes invalid while a reprint is loading drops the print, and it never fires later", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  let release!: () => void;
+  vi.mocked(api.sheetLabels).mockImplementation(async () => {
+    await new Promise<void>((r) => (release = r));
+    return { labels: stored };
+  });
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await userEvent.selectOptions(picker(), "custom");
+  fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "0" } });
+  await act(async () => release());
+  await new Promise((r) => setTimeout(r, 30));
+  expect(print).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "2" } });
+  await new Promise((r) => setTimeout(r, 30));
+  expect(print).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Print" }));
+  expect(print).toHaveBeenCalledTimes(1);
 });

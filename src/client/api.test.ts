@@ -1,8 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   ApiError, addCopy, claim, createCollection, deleteCollection, getCandidates, getCopy, getHolding, getLabel, getMe, getShelf,
-  importRows, labelCopy, listMembers, logout, lookupBook, makeDefault, memberCollections, mintLabels, moveCopy, myCollections,
-  renameCollection, returnCopy,
+  importRows, labelCopy, listMembers, listSheets, logout, lookupBook, makeDefault, memberCollections, mintLabels, moveCopy, myCollections,
+  renameCollection, returnCopy, sheetLabels,
 } from "./api";
 
 const member = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
@@ -75,6 +75,21 @@ test("mintLabels POSTs the count", async () => {
   const f = stubFetch(async () => json({ labels: [{ code: "abc", url: "https://x/b/abc" }] }));
   expect(await mintLabels(3)).toEqual({ labels: [{ code: "abc", url: "https://x/b/abc" }] });
   expect(sent(f)).toEqual({ url: "/api/labels", method: "POST", body: { count: 3 } });
+});
+
+test("listSheets GETs the sheet list", async () => {
+  const f = stubFetch(async () => json({ sheets: [] }));
+  expect(await listSheets()).toEqual({ sheets: [] });
+  expect(sent(f)).toEqual({ url: "/api/labels/sheets", method: "GET", body: undefined });
+});
+
+test("sheetLabels GETs the encoded sheet id, with ?include=mine only when asked", async () => {
+  const f = stubFetch(async () => json({ labels: [] }));
+  await sheetLabels("a b/c", false);
+  expect(sent(f)).toEqual({ url: "/api/labels/sheets/a%20b%2Fc", method: "GET", body: undefined });
+  const g = stubFetch(async () => json({ labels: [] }));
+  await sheetLabels("a b/c", true);
+  expect(sent(g)).toEqual({ url: "/api/labels/sheets/a%20b%2Fc?include=mine", method: "GET", body: undefined });
 });
 
 test("lookupBook GETs with the ISBN encoded", async () => {
