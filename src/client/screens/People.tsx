@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Member, Person, PersonSummary } from "../../shared/types";
+import { cleanPersonName } from "../../shared/name";
 import { ApiError, linkPerson, listMembers, listPeople, renamePerson } from "../api";
 import { Name, personLabel } from "./BookCard";
 import { ShelfList } from "./ShelfList";
@@ -19,7 +20,7 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
   const [error, setError] = useState<string | undefined>(undefined);
   const { busy, guard, live } = useGuard();
 
-  function run(send: () => Promise<unknown>, taken?: string) {
+  function run(send: () => Promise<unknown>, taken?: string, notAllowed?: string) {
     void guard(async () => {
       setError(undefined);
       try {
@@ -28,7 +29,11 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
       } catch (e) {
         if (!live.current) return;
         if (e instanceof ApiError && e.status === 401) return lose();
-        setError(taken !== undefined && e instanceof ApiError && e.rejected === "name-taken" ? taken : "Something went wrong. Try again.");
+        const why = e instanceof ApiError ? e.rejected : null;
+        setError(taken !== undefined && why === "name-taken" ? taken
+          : notAllowed !== undefined && why === "not-allowed" ? notAllowed
+          : "Something went wrong. Try again.");
+        if (notAllowed !== undefined && why === "not-allowed") setStep(null);
       }
       await reload();
     });
@@ -55,7 +60,11 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
         <h3><Name>{p.name}</Name></h3>
         {p.linked && <p>Linked to <Name>{personLabel(p.linked)}</Name></p>}
         {mine?.kind === "rename" ? (
-          <form onSubmit={(e) => { e.preventDefault(); run(() => renamePerson(p.id, mine.name), "You already have someone called that."); }}>
+          <form onSubmit={(e) => { e.preventDefault(); {
+            const clean = cleanPersonName(mine.name);
+            if (clean === null) return setError("A name is 1 to 60 characters, with no control characters.");
+            run(() => renamePerson(p.id, clean.name), "You already have someone called that.");
+          } }}>
             <label>
               Name
               <input type="text" value={mine.name} onChange={(e) => setStep({ ...mine, name: e.target.value })} />
@@ -74,7 +83,7 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
         ) : mine?.kind === "confirm" ? (
           <>
             <p>Link {p.name} to {mine.to.name}? The books {p.name} has will show as theirs.</p>
-            <button type="button" disabled={busy} onClick={() => run(() => linkPerson(p.id, mine.to.id))}>Link</button>{" "}
+            <button type="button" disabled={busy} onClick={() => run(() => linkPerson(p.id, mine.to.id), undefined, "That link can't be made now.")}>Link</button>{" "}
             <button type="button" onClick={() => setStep(null)}>Cancel</button>
           </>
         ) : (

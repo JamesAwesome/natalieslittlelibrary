@@ -243,3 +243,69 @@ test("a failed requests load hides the section and leaves the shelves", async ()
   expect(screen.queryByRole("heading", { name: "Requests" })).not.toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+test("approving re-reads the shelves too", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
+  vi.mocked(api.approveRequest).mockResolvedValue({} as never);
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(2));
+});
+
+test("declining does not re-read the shelves", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
+  vi.mocked(api.declineRequest).mockResolvedValue({} as never);
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  await waitFor(() => expect(api.listRequests).toHaveBeenCalledTimes(2));
+  expect(api.myCollections).toHaveBeenCalledTimes(1);
+});
+
+test("a 401 on approve goes to sign-in", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
+  vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a 401 on the requests re-read goes to sign-in", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockRejectedValue(new api.ApiError(401, null));
+  vi.mocked(api.declineRequest).mockResolvedValue({} as never);
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a failed answer says so and keeps the request listed", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
+  vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  expect(await screen.findByText("Something went wrong. Try again.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Wanted" })).toBeInTheDocument();
+});
+
+test("a failed re-read after an answer shows the alert", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockRejectedValue(new api.ApiError(500, null));
+  vi.mocked(api.declineRequest).mockResolvedValue({} as never);
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  expect(await screen.findByText("Something went wrong. Try again.")).toBeInTheDocument();
+});
+
+test("not-allowed says it was already answered and the row goes after the reload", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
+  vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  expect(await screen.findByText("That request was already answered or withdrawn.")).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole("link", { name: "Wanted" })).not.toBeInTheDocument());
+});

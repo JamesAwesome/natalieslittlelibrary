@@ -76,3 +76,26 @@ test("a 401 on load shows sign-in", async () => {
   show();
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
 });
+
+test("an invalid rename is refused before sending", async () => {
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [sarah] });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Rename" }));
+  await userEvent.clear(screen.getByLabelText("Name"));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(screen.getByText("A name is 1 to 60 characters, with no control characters.")).toBeInTheDocument();
+  expect(api.renamePerson).not.toHaveBeenCalled();
+});
+
+test("a refused link says so, closes the confirm and reloads", async () => {
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [sarah] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [sam] });
+  vi.mocked(api.linkPerson).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Link" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Sam" }));
+  await userEvent.click(screen.getByRole("button", { name: "Link" }));
+  expect(await screen.findByText("That link can't be made now.")).toBeInTheDocument();
+  expect(screen.queryByText(/^Link Sarah to Sam/)).not.toBeInTheDocument();
+  expect(api.listPeople).toHaveBeenCalledTimes(2);
+});
