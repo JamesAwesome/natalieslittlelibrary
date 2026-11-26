@@ -186,7 +186,9 @@ and adds `/more`.
   - A book page shows a back link at the top. It is a plain link, not
     `history.back()`, because the app can't reliably tell whether the last
     page was its own.
-  - Its target and label come from `document.referrer`. If the referrer is
+  - Its target and label come from `document.referrer`. Nothing in the Worker
+    or `index.html` sets a `Referrer-Policy`, so the browser's default sends
+    the full same-origin URL. Don't add a stricter policy. If the referrer is
     same-origin and `matchRoute` says it was a wall (`/`, `/holding`,
     `/members/:id`, `/collections/:id`), the link goes there and is labelled
     with that wall ("‹ My books", "‹ Holding", "‹ Sam's books").
@@ -265,7 +267,9 @@ friend's shelf. It takes `ShelfItem[]` and a description of whose wall it is.
   - It shows only when the wall has more than 24 books and at least two
     letters **(call)**.
   - It is one vertical strip down the right edge, holding all 27 marks
-    (A–Z, then #). Marks for letters with no books are drawn muted.
+    (A–Z, then #). Marks for letters with no books are drawn smaller and
+    lighter, not just in another colour, because rust and the muted grey
+    are the same lightness.
   - The strip's touch area is at least 44px wide. Individual letters are not
     separate targets.
   - It is fixed in the viewport, between the sticky chips row and the tab bar,
@@ -330,14 +334,19 @@ A cover sits in a fixed 2:3 box.
     (`CopyPage.test.tsx:90,576-578`). The new tests check by visible text
     that the two states differ.
   - The whole cover, tile text included, stays `aria-hidden`, so "Cover
-    didn't load" and the tile's title never join the link's name or
-    duplicate text that other tests query.
+    didn't load" and the tile's title never join the link's name.
+  - That doesn't stop `getByText` from finding the tile's title as well as
+    the real one. Tests on any screen showing a no-cover tile use role
+    queries instead. On the wall, a no-cover book carries its title twice
+    inside one link.
   - Covers and member pictures keep `referrerPolicy="no-referrer"`
     (`BookCard.tsx:13`).
-- **How many tiles to expect.** Of the 290 books marked owned in Natalie's
-  export, 18 have no ISBN, so they will be no-cover tiles (counted locally;
-  no titles read). Books with an ISBN that neither source has a cover for
-  will add to that, and that number isn't known yet.
+- **How many tiles to expect.** The import's own parser takes 248 books from
+  Natalie's export. 13 of them have no usable ISBN, so they import with no
+  cover. The rest go through the cover lookup (`unlabelled.ts:105`). Counted
+  locally with `parseExport`; only counts were printed.
+  - Books whose ISBN neither source has a cover for will add to the 13.
+    That number isn't known yet.
 - **Sharpness.** Google Books thumbnails (`googleCover` in
   `src/worker/booklookup/sources.ts`) are about 128px wide, and Open Library
   "medium" covers are about 180px. A 160px cover on a 3× screen may look soft.
@@ -524,12 +533,20 @@ apply are written here.
   literal black, white and greys, because a label must print black on white
   in either setting.
   - Before opening each pull request, the builder runs Hallmark's slop test
-    (`~/.claude/skills/hallmark/references/slop-test.md`, the page-scope gates
-    that apply to an app) and its six-axis self-critique. The result goes in
-    the PR body.
-- **Doesn't apply:** macrostructures, nav and footer archetypes, hero
-  enrichment, and the diversification log. They are for marketing pages, not
-  an app's screens.
+    (`~/.claude/skills/hallmark/references/slop-test.md`) and its six-axis
+    self-critique. The result goes in the PR body.
+  - **Gates that apply:** 1–5, 7, 10–17, 19, 22–27, 30, 33, 34, 36–41,
+    46–51, 53 (only if a radio-based toggle is used), 55 and 56.
+    - 37: Fraunces, Geist, and Geist Mono if label codes use it, is three
+      families, the limit.
+    - 56: the sticky chips row and the fixed rail must sit below anything
+      else pinned at the top.
+- **Doesn't apply:**
+  - Gates 6, 8, 9, 20, 21, 28, 29, 31, 32, 35, 42–45, 52, 54 and 57.
+  - Macrostructures, nav and footer archetypes, hero enrichment, and the
+    diversification log.
+
+  They are for marketing pages, not an app's screens.
 - **Files.** `tokens.css` lives in `src/client/styles/`, not at the project
   root, because Vite bundles from `src/client`. `.hallmark/preflight.json` is
   committed with this spec **(call)**, so later runs see what was found.
