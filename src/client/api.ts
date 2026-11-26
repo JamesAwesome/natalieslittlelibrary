@@ -112,5 +112,7 @@ export const moveCopy = (copyId: string, collectionId: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/move`, "POST", { collectionId });
 export const labelCopy = (copyId: string, code: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/label`, "POST", { code });
+export const relabelCopy = (copyId: string, code: string, replacing: string) =>
+  call<CopyView>(`/api/copies/${id(copyId)}/relabel`, "POST", { code, replacing });
 export const importRows = (collectionId: string | null, rows: ImportRow[], signal?: AbortSignal) =>
   call<ImportResult>("/api/imports", "POST", { collectionId, rows }, signal);

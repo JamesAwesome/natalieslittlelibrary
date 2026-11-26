@@ -8,7 +8,7 @@ import { Pair } from "./Pair";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, lookupBook: vi.fn(), addCopy: vi.fn(), getCandidates: vi.fn(), getCopy: vi.fn(), labelCopy: vi.fn(), myCollections: vi.fn(), createCollection: vi.fn() };
+  return { ...actual, lookupBook: vi.fn(), addCopy: vi.fn(), getCandidates: vi.fn(), getCopy: vi.fn(), labelCopy: vi.fn(), relabelCopy: vi.fn(), myCollections: vi.fn(), createCollection: vi.fn() };
 });
 
 // A camera still pointed at a label reads it again on every fresh scanner: set this to model that.
@@ -687,6 +687,162 @@ test("a lost session while labelling shows sign-in", async () => {
   await screen.findByText("Now scan a blank label.");
   await click("stub label");
   await screen.findByRole("link", { name: "Sign in with Google" });
+});
+
+const labelled = (over: Partial<CopyView> = {}) =>
+  vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, ownerCode: "t7k2q9xzmb", book, actions: ["move", "relabel"], ...over } as CopyView);
+// The title sits in a <bdi>, so the question is matched on its paragraph.
+const ASK = (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === "Replace the label on Dune?";
+async function typeCode(code: string) {
+  await userEvent.type(screen.getByLabelText("Or type the code printed under it"), code);
+  await click("Use this code");
+}
+
+test("replace mode asks for a label, confirms, then replaces and goes to the new label's page", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockResolvedValue({ ...copy, code: "h4k7m2p9qr", ownerCode: "h4k7m2p9qr" } as CopyView);
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  expect(api.getCopy).toHaveBeenCalledWith("c1");
+  expect(wantOf()).toBe("label");
+  await typeCode("h4k7m2p9qr");
+  expect(para("Replace the label on Dune?")).toBeInTheDocument();
+  expect(screen.getByText("Frank Herbert")).toBeInTheDocument();
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+  await click("Replace");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/h4k7m2p9qr"));
+  expect(api.relabelCopy).toHaveBeenCalledTimes(1);
+  expect(api.relabelCopy).toHaveBeenCalledWith("c1", "h4k7m2p9qr", "t7k2q9xzmb");
+  expect(api.labelCopy).not.toHaveBeenCalled();
+  expect(api.addCopy).not.toHaveBeenCalled();
+});
+
+test("replace mode with a code in the address still asks before replacing", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockResolvedValue({ ...copy, code: "h4k7m2p9qr", ownerCode: "h4k7m2p9qr" } as CopyView);
+  show("?copy=c1&replace=1&label=H4K7M2P9QR");
+  expect(await screen.findByText(ASK)).toBeInTheDocument();
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+  await click("Replace");
+  await waitFor(() => expect(api.relabelCopy).toHaveBeenCalledWith("c1", "h4k7m2p9qr", "t7k2q9xzmb"));
+});
+
+test("Cancel at the confirm goes back to scanning and saves nothing", async () => {
+  labelled();
+  // The camera is still on the label: a fresh scanner reads it again.
+  mockOnMount = { want: "label", reading: { kind: "label", code: "mmmmmmmmmm" } };
+  show("?copy=c1&replace=1");
+  await screen.findByText(ASK);
+  await click("Cancel");
+  expect(screen.getByText("Now scan a blank label.")).toBeInTheDocument();
+  expect(wantOf()).toBe("label");
+  expect(screen.queryByText(ASK)).not.toBeInTheDocument();
+  await sleep(0);
+  expect(screen.queryByText(ASK)).not.toBeInTheDocument();
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+  expect(api.labelCopy).not.toHaveBeenCalled();
+  expect(api.addCopy).not.toHaveBeenCalled();
+  await typeCode("mmmmmmmmmm");
+  expect(para("Replace the label on Dune?")).toBeInTheDocument();
+});
+
+test("a double tap on Replace sends one relabelCopy", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockReturnValue(new Promise(() => {}));
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await typeCode("h4k7m2p9qr");
+  const b = screen.getByRole("button", { name: "Replace" });
+  await act(async () => { b.click(); b.click(); });
+  expect(api.relabelCopy).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ["actions without relabel", { actions: ["move"] }],
+  ["no owner code", { ownerCode: null }],
+] as const)("a copy that can't be relabelled shows the cannot step (%s)", async (_n, over) => {
+  labelled(over as Partial<CopyView>);
+  show("?copy=c1&replace=1");
+  await screen.findByText("That book can't take a label here.");
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+});
+
+test("a label already on a book is refused with the blank-label notice and scanning resumes", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockRejectedValue(refuse(409, "label-in-use"));
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await click("stub label");
+  await click("Replace");
+  await screen.findByText("That label is already on a book. Use a blank one.");
+  expect(api.relabelCopy).toHaveBeenCalledWith("c1", "t7k2q9xzmb", "t7k2q9xzmb");
+  expect(wantOf()).toBe("label");
+  await click("stub label");
+  expect(screen.queryByText(ASK)).not.toBeInTheDocument();
+  expect(api.relabelCopy).toHaveBeenCalledTimes(1);
+  expect(api.labelCopy).not.toHaveBeenCalled();
+});
+
+test("a replace refused label-unknown says so and scanning resumes", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockRejectedValue(refuse(404, "label-unknown"));
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await typeCode("h4k7m2p9qr");
+  await click("Replace");
+  await screen.findByText("That isn't one of our labels.");
+  expect(wantOf()).toBe("label");
+  await typeCode("mmmmmmmmmm");
+  expect(para("Replace the label on Dune?")).toBeInTheDocument();
+  expect(screen.queryByText("That isn't one of our labels.")).not.toBeInTheDocument();
+});
+
+test("a replace refused not-allowed says the label just changed and reloads the copy", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockRejectedValueOnce(refuse(403, "not-allowed")).mockReturnValue(new Promise(() => {}));
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await typeCode("h4k7m2p9qr");
+  labelled({ ownerCode: "w3n8c5v2tb" });
+  await click("Replace");
+  await waitFor(() => expect(api.getCopy).toHaveBeenCalledTimes(2));
+  await screen.findByText("Now scan a blank label.");
+  expect(screen.getByText("This book's label just changed. Try again.")).toBeInTheDocument();
+  expect(wantOf()).toBe("label");
+  await typeCode("h4k7m2p9qr");
+  await click("Replace");
+  await waitFor(() => expect(api.relabelCopy).toHaveBeenCalledTimes(2));
+  expect(api.relabelCopy).toHaveBeenLastCalledWith("c1", "h4k7m2p9qr", "w3n8c5v2tb");
+});
+
+test("a replace refused not-found shows that the book can't take a label", async () => {
+  labelled();
+  vi.mocked(api.relabelCopy).mockRejectedValue(refuse(404, "not-found"));
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await typeCode("h4k7m2p9qr");
+  await click("Replace");
+  await screen.findByText("That book can't take a label here.");
+});
+
+test("without replace=1, ?copy= still labels an unlabelled copy as before", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, ownerCode: null, book, actions: ["label"] } as CopyView);
+  vi.mocked(api.labelCopy).mockResolvedValue(copy);
+  show("?copy=c1");
+  await screen.findByText("Now scan a blank label.");
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  expect(screen.queryByText(ASK)).not.toBeInTheDocument();
+  expect(api.labelCopy).toHaveBeenCalledWith("c1", "t7k2q9xzmb");
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+});
+
+test("without replace=1, a labelled copy offering relabel can't take a label", async () => {
+  labelled();
+  show("?copy=c1");
+  await screen.findByText("That book can't take a label here.");
+  expect(api.labelCopy).not.toHaveBeenCalled();
 });
 
 test("the picker is absent with one collection and present with two", async () => {
