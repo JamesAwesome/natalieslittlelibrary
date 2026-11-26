@@ -7,7 +7,9 @@ export type BookInfo = { isbn: string | null; title: string; authors: string[]; 
 export type Holder = { kind: "member"; person: Person } | { kind: "person"; id: string; name: string };
 export type CollectionRef = { id: string; name: string };
 export type CollectionSummary = { id: string; name: string; isDefault: boolean; count: number; unlabelled: number };
-export type ActionType = "claim" | "return" | "move" | "label" | "relabel";
+export type ActionType =
+  | "claim" | "return" | "move" | "label" | "relabel"
+  | "lend" | "give" | "request" | "withdraw" | "approve" | "decline" | "release" | "adopt";
 export type HistoryEntry = {
   at: number;
   type: "added" | "labelled" | "relabelled" | "claimed" | "returned" | "lent" | "given" | "requested" | "withdrawn" | "approved" | "declined" | "released" | "adopted";

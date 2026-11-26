@@ -81,7 +81,7 @@ test("adding by ISBN makes a copy owned and held by the adder", async () => {
     owner: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
     holder: { kind: "member", person: { id: natalie.id, name: "Natalie" } },
     home: true,
-    actions: ["move", "relabel"],
+    actions: ["move", "relabel", "lend", "give", "release"],
   });
   expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(copy.history[0]).toEqual({
@@ -256,7 +256,7 @@ test("a member sees owner, holder, history newest first, and their actions", asy
   expect(view.home).toBe(true);
   expect(view.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(view.actions).toEqual(["claim"]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move", "relabel"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move", "relabel", "lend", "give", "release"]);
 });
 
 test("a blank label is blank; an unknown or malformed code is unknown", async () => {
@@ -369,7 +369,7 @@ test("a friend claims by label and becomes the holder", async () => {
   expect(copy.home).toBe(false);
   expect(copy.history[0]).toEqual({ at: 1000, type: "claimed", actor: { id: sam.id, name: "Sam", pictureUrl: null } });
   expect(copy.history.map((h) => h.type)).toEqual(["claimed", "labelled", "added"]);
-  expect(copy.actions).toEqual([]);
+  expect(copy.actions).toEqual(["request"]);
 });
 
 test("the label can be given as a link when claiming", async () => {
@@ -523,10 +523,10 @@ test("no code path updates or deletes an events row", async () => {
 test("the acting viewer's actions reflect the new state", async () => {
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
-  expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual([]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move", "relabel"]);
+  expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual(["request"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move", "relabel", "lend", "give", "release"]);
   expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
-  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move", "relabel"]);
+  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move", "relabel", "lend", "give", "release"]);
 });
 
 // A raw owner change that keeps the invariant, as a step 4 owner change will: Kim's default first, then both columns at once.
@@ -797,7 +797,7 @@ test("the owner moves a copy between their collections; holder and history are u
   expect(moved.ownerCode).toBe(code); // the owner's view; the code is nowhere else in it
   expect(JSON.stringify({ ...moved, ownerCode: null })).not.toContain(code);
   expect(moved.home).toBe(true);
-  expect(moved.actions).toEqual(["move", "relabel"]);
+  expect(moved.actions).toEqual(["move", "relabel", "lend", "give", "release"]);
   expect(await collectionOf(copyId)).toBe(shed.id);
   expect(await eventRows()).toEqual(events);
   expect((await holders())[0]).toMatchObject({ owner_id: natalie.id, holder_member_id: natalie.id });
@@ -927,14 +927,15 @@ test("a removed member who already has a default adding with no collection is no
   expect(await count("collections")).toBe(1);
 });
 
-test("a claim fills in a null collection_id from the owner's default even when the owner is removed", async () => {
-  // A removed owner's ensureDefault writes nothing, so only the update's own coalesce can fill the column.
+test("a claim on a removed owner's copy is not-allowed and writes nothing", async () => {
+  // Such a copy is taken, not claimed; the claim's collection fill-in can no longer run for a removed owner.
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
-  await env.DB.prepare("update copies set collection_id = null").run();
+  const events = await count("events");
   await removed(natalie.id);
-  ok(await ledger.act(sam, { type: "claim", code }));
-  expect(await collectionOf(copyId)).toBe(await defaultOf(natalie.id));
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(events);
+  expect((await env.DB.prepare("select holder_member_id as h from copies where id = ?").bind(copyId).first<{ h: string }>())?.h).toBe(natalie.id);
 });
 
 test("an add of an existing book into someone else's collection is not-found and makes no copy", async () => {

@@ -10,7 +10,17 @@ const actionText: Record<ActionType, string> = {
   move: "Move",
   label: "Put a label on it",
   relabel: "Replace label",
+  lend: "Lend",
+  give: "Give",
+  request: "Ask to keep this",
+  withdraw: "Withdraw",
+  approve: "Approve",
+  decline: "Decline",
+  release: "Release",
+  adopt: "Take this book",
 };
+// Until the page has controls for these, as buttons they would fall through act() to a return.
+const unwired: ActionType[] = ["lend", "give", "request", "withdraw", "approve", "decline", "release", "adopt"];
 // What an entry says after the actor's name; `who` is its subject (Task 6 gives the subject a real place on the page).
 const historyText: Record<HistoryEntry["type"], (who: ReactNode) => ReactNode> = {
   added: () => "added this book",
@@ -56,7 +66,7 @@ function Copy(props: {
   // A copy with no label code was reached by id; claiming goes through the code, so it is not offered. Move, label and
   // relabel have controls of their own; as buttons they would fall through act() to a return.
   // An action this page has no text for (a newer server's) is ignored, never a blank button.
-  const buttons = copy.actions.filter((a) => a in actionText && a !== "move" && a !== "label" && a !== "relabel" && !(a === "claim" && copy.code === null));
+  const buttons = copy.actions.filter((a) => a in actionText && a !== "move" && a !== "label" && a !== "relabel" && !unwired.includes(a) && !(a === "claim" && copy.code === null));
   return (
     <>
       <Book {...copy.book} />

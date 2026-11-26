@@ -167,7 +167,7 @@ test("viewCopy has the collection, no code, and offers return and move to the ow
   const v = ok(await ledger.viewCopy(dune.copyId, natalie));
   expect(v.code).toBeNull();
   expect(v.collection).toMatchObject({ name: "Home library" });
-  expect(v.actions).toEqual(["return", "move", "relabel"]);
+  expect(v.actions).toEqual(["return", "move", "relabel", "lend", "give", "release"]);
   expect(v.actions).not.toContain("claim");
   expect(v.history.length).toBeGreaterThan(0);
 });
@@ -175,7 +175,7 @@ test("viewCopy has the collection, no code, and offers return and move to the ow
 test("viewCopy offers label to the owner of an unlabelled copy", async () => {
   const { ledger } = await fixture();
   const v = ok(await ledger.viewCopy("c-raw", natalie));
-  expect(v.actions).toEqual(["move", "label"]);
+  expect(v.actions).toEqual(["move", "label", "lend", "give"]);
   expect(v.code).toBeNull();
 });
 

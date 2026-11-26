@@ -203,6 +203,15 @@ test("only the listed action gets a button", async () => {
   expect(screen.queryByRole("button", { name: "I have this book" })).not.toBeInTheDocument();
 });
 
+test("actions the page has no controls for yet get no button, and nothing returns the copy", async () => {
+  const actions = ["lend", "give", "request", "withdraw", "approve", "decline", "release", "adopt"] as const;
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: [...actions] })));
+  show();
+  await screen.findByText(line("Owned by Ann"));
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  expect(api.returnCopy).not.toHaveBeenCalled();
+});
+
 test("claim calls claim once and shows the returned state", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView()));
   vi.mocked(api.claim).mockResolvedValue(copyView({ holder: { kind: "member", person: ann }, actions: ["return"] }));

@@ -26,13 +26,36 @@ export function createRelabel(
 
     const copy = await db
       .prepare(
-        `select owner_id, holder_member_id, (select code from labels where copy_id = copies.id and retired_at is null) as code
+        `select owner_id, holder_member_id, holder_person_id, requested_by,
+           coalesce((select removed_at is not null from members where id = copies.owner_id), 0) as owner_removed,
+           coalesce((select removed_at is not null from members where id = copies.requested_by), 0) as requester_removed,
+           (select code from labels where copy_id = copies.id and retired_at is null) as code
          from copies where id = ?`,
       )
       .bind(copyId)
-      .first<{ owner_id: string | null; holder_member_id: string | null; code: string | null }>();
+      .first<{
+        owner_id: string | null;
+        holder_member_id: string | null;
+        holder_person_id: string | null;
+        requested_by: string | null;
+        owner_removed: number;
+        requester_removed: number;
+        code: string | null;
+      }>();
     if (!copy) return { rejected: "not-found" };
-    const decision = decide({ ownerId: copy.owner_id, holderMemberId: copy.holder_member_id, labelled: copy.code !== null }, owner, "relabel");
+    const decision = decide(
+      {
+        ownerId: copy.owner_id,
+        ownerRemoved: copy.owner_removed === 1,
+        holderMemberId: copy.holder_member_id,
+        holderPersonId: copy.holder_person_id,
+        requestedBy: copy.requested_by,
+        requesterRemoved: copy.requester_removed === 1,
+        labelled: copy.code !== null,
+      },
+      owner,
+      { type: "relabel" },
+    );
     if ("rejected" in decision) return decision;
     const replacing = parseLabelLink(rawReplacing);
     if (replacing === null || replacing !== copy.code) return { rejected: "not-allowed" };
