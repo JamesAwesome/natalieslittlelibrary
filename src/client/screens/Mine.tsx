@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { CollectionSummary, Member, Shelf } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
-import { ApiError, createCollection, getShelf, myCollections } from "../api";
-import { Name } from "./BookCard";
+import { ApiError, approveRequest, createCollection, declineRequest, getShelf, listRequests, myCollections } from "../api";
+import { Name, personLabel } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
@@ -31,6 +31,8 @@ async function loadGroups(): Promise<Group[]> {
 
 export function Mine({ member, returnTo }: { member: Member | null; returnTo: string }) {
   const { state, reload, lose, retry } = useLoaded(loadGroups, member !== null);
+  // Requests are their own read: if it fails the section is simply absent and the shelves stay.
+  const requests = useLoaded(async () => (await listRequests()).requests, member !== null);
   const [onlyUnlabelled, setOnlyUnlabelled] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
@@ -62,6 +64,17 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
     });
   }
 
+  function answer(copyId: string, send: (id: string) => Promise<unknown>) {
+    void guard(async () => {
+      try {
+        await send(copyId);
+      } catch {
+        // Whatever happened, the list below is re-read and shows what is true now.
+      }
+      await requests.reload();
+    });
+  }
+
   return (
     <div className="shelf-page">
       <h1>Natalie's Little Library</h1>
@@ -71,6 +84,21 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
         <Trouble onRetry={retry} />
       ) : state.status === "ok" ? (
         <>
+          {requests.state.status === "ok" && requests.state.data.length > 0 && (
+            <section className="requests">
+              <h2>Requests</h2>
+              <ul className="plain-list">
+                {requests.state.data.map((r) => (
+                  <li key={r.copyId}>
+                    <a href={`/copies/${encodeURIComponent(r.copyId)}`}><Name>{r.book.title}</Name></a>
+                    <p><Name>{personLabel(r.by)}</Name> asked to keep this</p>
+                    <button type="button" disabled={busy} onClick={() => answer(r.copyId, approveRequest)}>Approve</button>{" "}
+                    <button type="button" disabled={busy} onClick={() => answer(r.copyId, declineRequest)}>Decline</button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <h2>My books</h2>
           {state.data.length === 0 ? (
             <p>

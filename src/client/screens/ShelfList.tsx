@@ -18,7 +18,7 @@ export function ShelfList(props: { items: ShelfItem[]; viewerId?: string; showOw
                   {item.book.authors.map((a, i) => <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>)}
                 </p>
               )}
-              {showOwner && item.owner && <p>Owned by <Name>{personLabel(item.owner)}</Name></p>}
+              {showOwner && (item.owner ? <p>Owned by <Name>{personLabel(item.owner)}</Name></p> : <p>No owner</p>)}
               {item.home ? <p>At home</p> : item.holder && <p>With <Name>{holderLabel(item.holder)}</Name></p>}
               {!item.labelled && <p>No label yet</p>}
               {!item.labelled && mine && (

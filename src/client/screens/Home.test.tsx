@@ -53,6 +53,7 @@ test("signed in links to the shelves, holding, friends and import; signed out ha
   expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
   expect(screen.getByRole("link", { name: "What I'm holding" })).toHaveAttribute("href", "/holding");
   expect(screen.getByRole("link", { name: "Friends' shelves" })).toHaveAttribute("href", "/members");
+  expect(screen.getByRole("link", { name: "People" })).toHaveAttribute("href", "/people");
   expect(screen.getByRole("link", { name: "Import from StoryGraph" })).toHaveAttribute("href", "/import");
   unmount();
   render(<Home member={null} onLogout={() => {}} returnTo="/" />);

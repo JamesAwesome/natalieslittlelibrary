@@ -7,7 +7,7 @@ import { item, me, shelfOf, summary } from "./shelfFixtures";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, myCollections: vi.fn(), getShelf: vi.fn(), createCollection: vi.fn() };
+  return { ...actual, listRequests: vi.fn(), approveRequest: vi.fn(), declineRequest: vi.fn(), myCollections: vi.fn(), getShelf: vi.fn(), createCollection: vi.fn() };
 });
 beforeEach(() => vi.resetAllMocks());
 
@@ -17,6 +17,7 @@ const homeItems = [item({ copyId: "a" }), item({ copyId: "b", labelled: false })
 const beachItems = [item({ copyId: "c" })];
 
 function setup(collections = [home, beach]) {
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
   vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections });
   vi.mocked(api.getShelf).mockImplementation(async (id) =>
     id === "k1" ? shelfOf(home, homeItems) : shelfOf(beach, beachItems));
@@ -206,4 +207,39 @@ test("a 404 from myCollections is trouble, not 'No books yet'", async () => {
   show();
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.queryByText(/No books yet/)).not.toBeInTheDocument();
+});
+
+const ask = { copyId: "r1", book: { isbn: null, title: "Wanted", authors: [], coverUrl: null }, by: { id: "2", name: "Ann", pictureUrl: null }, at: 1 };
+
+test("open requests sit above My books and are answered in place", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
+  vi.mocked(api.approveRequest).mockResolvedValue({} as never);
+  show();
+  expect(await screen.findByRole("link", { name: "Wanted" })).toHaveAttribute("href", "/copies/r1");
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).toBeInTheDocument();
+  const order = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+  expect(order.indexOf("Requests")).toBeLessThan(order.indexOf("My books"));
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+  expect(api.approveRequest).toHaveBeenCalledExactlyOnceWith("r1");
+  await waitFor(() => expect(screen.queryByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).not.toBeInTheDocument());
+  expect(api.listRequests).toHaveBeenCalledTimes(2);
+});
+
+test("declining sends decline", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
+  vi.mocked(api.declineRequest).mockResolvedValue({} as never);
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  expect(api.declineRequest).toHaveBeenCalledExactlyOnceWith("r1");
+});
+
+test("a failed requests load hides the section and leaves the shelves", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  expect(await screen.findByText("Beach house")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Requests" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
