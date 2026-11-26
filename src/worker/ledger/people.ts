@@ -54,11 +54,15 @@ export function createPeople(db: D1Database, now: () => number) {
       db
         .prepare(
           `update people set name = ?, name_key = ? where id = ? and created_by = ?
-             and not exists (select 1 from people where created_by = ? and name_key = ? and id <> ?)`,
+             and not exists (select 1 from people where created_by = ? and name_key = ? and id <> ?) and ${ACTIVE}`,
         )
-        .bind(cleaned.name, cleaned.key, personId, member.id, member.id, cleaned.key, personId),
+        .bind(cleaned.name, cleaned.key, personId, member.id, member.id, cleaned.key, personId, member.id),
     ]);
-    if (result.meta.changes === 0) return { rejected: "name-taken" };
+    if (result.meta.changes === 0) {
+      // Nothing written: the actor was removed since the read, or the name is taken.
+      const active = await db.prepare("select 1 as ok from members where id = ? and removed_at is null").bind(member.id).first();
+      return active === null ? { rejected: "not-allowed" } : { rejected: "name-taken" };
+    }
     return summary(member, personId);
   }
 
@@ -70,8 +74,9 @@ export function createPeople(db: D1Database, now: () => number) {
     if (!exists) return { rejected: "not-found" };
     if (memberId === member.id) return { rejected: "not-allowed" };
     const guard = `exists (select 1 from people where id = ? and created_by = ? and linked_member_id is null)
-      and ${ACTIVE} and ? <> ?`;
-    const guardBinds = [personId, member.id, memberId, memberId, member.id];
+      and ${ACTIVE} and ${ACTIVE} and ? <> ?`;
+    // The target member must be active, and so must the actor.
+    const guardBinds = [personId, member.id, memberId, member.id, memberId, member.id];
     const [, linked] = await db.batch([
       db
         .prepare(

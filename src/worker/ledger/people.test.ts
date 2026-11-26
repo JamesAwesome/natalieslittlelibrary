@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { resetDatabase } from "../../../test/reset";
 import { invariantViolations } from "../../../test/invariant";
+import { racing, run } from "../../../test/racing";
 import { asCopy, count, homeCopy, insertMembers, kim, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 
 beforeEach(async () => {
@@ -151,4 +152,25 @@ test("requests lists open requests on my copies, newest first, and nothing once 
 
   ok(await ledger.act(natalie, { type: "decline", copyId: a.copyId }));
   expect(await ledger.requests(natalie)).toEqual([]);
+});
+
+async function racedSetup() {
+  const setup = make();
+  const { copyId } = await homeCopy(setup.ledger);
+  await lendTo(setup.ledger, "Sarah", copyId);
+  const [sarah] = await setup.ledger.people(natalie);
+  const racer = make({ db: racing(run("update members set removed_at = 5 where id = ?", natalie.id)) }).ledger;
+  return { sarah, racer, before: await snapshot() };
+}
+
+test("a rename racing the actor's removal is refused and changes nothing", async () => {
+  const { sarah, racer, before } = await racedSetup();
+  expect(await racer.renamePerson(natalie, sarah.id, "Sally")).toEqual({ rejected: "not-allowed" });
+  expect(await snapshot()).toBe(before);
+});
+
+test("a link racing the actor's removal is refused and changes nothing", async () => {
+  const { sarah, racer, before } = await racedSetup();
+  expect(await racer.linkPerson(natalie, sarah.id, sam.id)).toEqual({ rejected: "not-allowed" });
+  expect(await snapshot()).toBe(before);
 });
