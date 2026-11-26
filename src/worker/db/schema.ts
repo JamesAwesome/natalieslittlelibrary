@@ -108,8 +108,16 @@ export const labels = sqliteTable(
     mintedAt: integer("minted_at").notNull(),
     copyId: text("copy_id").references(() => copies.id),
     boundAt: integer("bound_at"),
+    sheetId: text("sheet_id"),
+    retiredAt: integer("retired_at"),
   },
-  (t) => [primaryKey({ columns: [t.code] }), index("labels_copy_id_idx").on(t.copyId)],
+  (t) => [
+    primaryKey({ columns: [t.code] }),
+    index("labels_copy_id_idx").on(t.copyId),
+    uniqueIndex("labels_one_live_per_copy")
+      .on(t.copyId)
+      .where(sql`${t.retiredAt} is null and ${t.copyId} is not null`),
+  ],
 );
 
 // The one key not declared at table level: AUTOINCREMENT needs a column-level INTEGER PRIMARY KEY.

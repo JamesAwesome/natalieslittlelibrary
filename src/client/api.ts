@@ -11,6 +11,7 @@ import type {
   RejectionReason,
   Shelf,
   ShelfItem,
+  SheetSummary,
 } from "../shared/types";
 
 export class ApiError extends Error {
@@ -68,6 +69,11 @@ export const getLabel = (code: string) => call<LabelView>(`/api/labels/${encodeU
 export const mintLabels = (count: number) =>
   call<{ labels: { code: string; url: string }[] }>("/api/labels", "POST", { count });
 
+export const listSheets = () => call<{ sheets: SheetSummary[] }>("/api/labels/sheets");
+
+export const sheetLabels = (sheetId: string, includeMine: boolean) =>
+  call<{ labels: { code: string; url: string }[] }>(`/api/labels/sheets/${id(sheetId)}${includeMine ? "?include=mine" : ""}`);
+
 export const lookupBook = (isbn: string) =>
   call<{ book: BookInfo | null }>(`/api/books/lookup?isbn=${encodeURIComponent(isbn)}`);
 
@@ -106,5 +112,7 @@ export const moveCopy = (copyId: string, collectionId: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/move`, "POST", { collectionId });
 export const labelCopy = (copyId: string, code: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/label`, "POST", { code });
+export const relabelCopy = (copyId: string, code: string, replacing: string) =>
+  call<CopyView>(`/api/copies/${id(copyId)}/relabel`, "POST", { code, replacing });
 export const importRows = (collectionId: string | null, rows: ImportRow[], signal?: AbortSignal) =>
   call<ImportResult>("/api/imports", "POST", { collectionId, rows }, signal);

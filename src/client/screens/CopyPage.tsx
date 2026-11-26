@@ -9,10 +9,12 @@ const actionText: Record<ActionType, string> = {
   return: "Mark as returned",
   move: "Move",
   label: "Put a label on it",
+  relabel: "Replace label",
 };
 const historyText: Record<HistoryEntry["type"], string> = {
   added: "added this book",
   labelled: "put a label on it",
+  relabelled: "replaced its label",
   claimed: "took it",
   returned: "marked it returned",
 };
@@ -43,11 +45,14 @@ function Copy(props: {
   const current = copy.collection?.id;
   const options = (choices ?? []).filter((c) => c.id !== current);
   const chosen = picked !== undefined && options.some((c) => c.id === picked) ? picked : options[0]?.id;
-  // A copy with no label code was reached by id; claiming goes through the code, so it is not offered.
-  const buttons = copy.actions.filter((a) => a !== "move" && a !== "label" && !(a === "claim" && copy.code === null));
+  // A copy with no label code was reached by id; claiming goes through the code, so it is not offered. Move, label and
+  // relabel have controls of their own; as buttons they would fall through act() to a return.
+  // An action this page has no text for (a newer server's) is ignored, never a blank button.
+  const buttons = copy.actions.filter((a) => a in actionText && a !== "move" && a !== "label" && a !== "relabel" && !(a === "claim" && copy.code === null));
   return (
     <>
       <Book {...copy.book} />
+      {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
       {copy.owner && (
         <p>Owned by <Name>{copy.owner.name}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
       )}
@@ -73,6 +78,9 @@ function Copy(props: {
       {copy.actions.includes("move") && choicesFailed && <p>Couldn't load your collections, so moving isn't available right now.</p>}
       {copy.actions.includes("label") && (
         <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}`}>{actionText.label}</a></p>
+      )}
+      {copy.actions.includes("relabel") && (
+        <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}&replace=1`}>{actionText.relabel}</a></p>
       )}
       <ul className="history">
         {historyKeys(copy.history).map(([key, h]) => (
@@ -197,6 +205,8 @@ function Page(props: Props) {
         setLost(true);
       } else if (e instanceof ApiError && e.status === 403 && e.rejected === "not-allowed") {
         setNotice("That's already changed. Here's where the book is now.");
+      } else if (type === "claim" && e instanceof ApiError && e.rejected === "not-found") {
+        // The label was replaced meanwhile; the reload below shows that, and "try again" cannot work.
       } else {
         // The server may have accepted it before the answer was lost; show the truth.
         setNotice("Something went wrong. Try again.");
@@ -234,6 +244,7 @@ function Page(props: Props) {
       {heading}
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
+      {view.kind === "retired" && <p>This label has been replaced.</p>}
       {view.kind === "blank" && (
         <>
           <p>This label isn't on a book yet.</p>

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { CollectionSummary, Member, Rejection } from "../../shared/types";
 import { invariantViolations } from "../../../test/invariant";
-import { homeCopy, insertMembers, kim, make, natalie, ok, sam } from "../../../test/ledger-fixtures";
+import { homeCopy, insertMembers, kim, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 import { gated, racing, run } from "../../../test/racing";
 import { resetDatabase } from "../../../test/reset";
 import { ensureDefault } from "./collections";
@@ -234,6 +234,22 @@ test("a member with a copy but no collection row (old code) gets a default, and 
   expect(beach.isDefault).toBe(true);
   // The next ledger write to the copy sets the column; here the test does it.
   await env.DB.prepare("update copies set collection_id = ? where id = ?").bind(beach.id, copyId).run();
+});
+
+test("the invariant flags a retired label with no copy, and a copy whose only label is retired", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  const [spare] = await mint(ledger);
+  await env.DB.prepare("update labels set retired_at = 9 where code = ?").bind(spare).run();
+  expect(await invariantViolations(env.DB)).toEqual([`label ${spare}: retired but not bound to a copy`]);
+  await env.DB.prepare("update labels set retired_at = null where code = ?").bind(spare).run();
+  // A retired label beside a live one is what a replace leaves, and is fine.
+  await env.DB.prepare("update labels set copy_id = ?, retired_at = 9 where code = ?").bind(copyId, spare).run();
+  expect(await invariantViolations(env.DB)).toEqual([]);
+  await env.DB.prepare("update labels set retired_at = 9 where code = ?").bind(code).run();
+  expect(await invariantViolations(env.DB)).toEqual([`copy ${copyId}: has a retired label and no live label`]);
+  await env.DB.prepare("delete from labels where code = ?").bind(spare).run();
+  await env.DB.prepare("update labels set retired_at = null where code = ?").bind(code).run();
 });
 
 test("deleting someone else's empty, non-default collection is not-found, and it still exists", async () => {

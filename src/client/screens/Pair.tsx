@@ -3,7 +3,7 @@ import type { BookInfo, CollectionSummary, Member, ShelfItem } from "../../share
 import { cleanCollectionName } from "../../shared/collectionName";
 import { toIsbn13 } from "../../shared/isbn";
 import { parseLabelLink } from "../../shared/labelCode";
-import { addCopy, ApiError, createCollection, getCandidates, getCopy, labelCopy, lookupBook, myCollections } from "../api";
+import { addCopy, ApiError, createCollection, getCandidates, getCopy, labelCopy, lookupBook, myCollections, relabelCopy } from "../api";
 import { Scanner, type ScannerProblem } from "../scanner";
 import { Book, Name } from "./BookCard";
 import { SignIn } from "./SignIn";
@@ -14,16 +14,21 @@ const problemText: Record<ScannerProblem, string> = {
   "decoder-failed": "The scanner couldn't start. Type instead.",
 };
 
-type Step = "isbn" | "looking" | "confirm" | "similar" | "miss" | "type" | "label" | "saving" | "failed" | "copyloading" | "copyfailed" | "cannot";
+type Step = "isbn" | "looking" | "confirm" | "similar" | "miss" | "type" | "label" | "saving" | "failed" | "copyloading" | "copyfailed" | "cannot" | "replaceconfirm";
 // The server's limits (bookFacts.ts), counted in code points; maxLength counts UTF-16 units, so it can only be stricter.
 const MAX_TITLE = 300;
 const MAX_AUTHOR = 200;
 
 type Typed = { title: string; author: string };
 // What gets saved is decided where the person decides it and passed along, never re-read from state.
-type Payload = { isbn: string } | { title: string; authors: string[] } | { copyId: string };
+// `replacing` is the copy's live code as read, so the server can refuse if it has changed since.
+type Payload = { isbn: string } | { title: string; authors: string[] } | { copyId: string } | { copyId: string; replacing: string };
 // `stays` is null for a new copy; otherwise the collection an existing copy stays in (name null when it has none).
 type Pending = { how: Payload; stays: { name: string | null } | null };
+
+// Not a refusal this screen understands: the request may have done its work before the answer went missing.
+const KNOWN: readonly (string | null)[] = ["label-in-use", "label-unknown", "not-allowed", "not-found", "book-not-found"];
+const unknownFailure = (e: unknown) => !(e instanceof ApiError) || (e.status !== 401 && !KNOWN.includes(e.rejected));
 
 // One collator for every sort: a new one per comparison is slow.
 const COLLATOR = new Intl.Collator();
@@ -60,6 +65,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [lost, setLost] = useState(false);
   // /pair?copy=<id> labels a book already on a shelf; read once from the address.
   const [copyId] = useState<string | null>(() => new URLSearchParams(location.search).get("copy"));
+  // With replace=1 the copy already has a label, and the one read takes its place.
+  const [replace] = useState(() => copyId !== null && new URLSearchParams(location.search).get("replace") === "1");
   const [step, setStep] = useState<Step>(copyId !== null ? "copyloading" : "isbn");
   const [forCopy, setForCopy] = useState<{ title: string; authors: string[]; coverUrl: string | null } | null>(null);
   const [imported, setImported] = useState<ShelfItem | null>(null);
@@ -83,6 +90,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [problem, setProblem] = useState<ScannerProblem | null>(null);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [stays, setStays] = useState<{ name: string; label: string } | null>(null);
+  // The label read and the payload it was read for, held together until the person confirms the replace.
+  const [toReplace, setToReplace] = useState<{ label: string; p: Pending } | null>(null);
   const inFlight = useRef(false);
   // A refused label still in front of the camera must not be saved again until another is read or typed.
   const refused = useRef<string | null>(null);
@@ -135,19 +144,33 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     else void loadCopy(copyId);
   }, []);
 
-  async function loadCopy(id: string) {
+  // `again` is a replace refused because the copy's label changed: once re-read, the same label is asked about
+  // again with the fresh code, and the scanner stays closed so a camera still on the sticker reads nothing.
+  async function loadCopy(id: string, again?: { label: string; notice: string }) {
     const mine = ++seq.current;
     setNotice(undefined);
     go("copyloading");
     try {
       const view = await getCopy(id);
       if (mine !== seq.current || !live.current) return;
-      if (!view.actions.includes("label")) {
+      const how: Payload | null = replace
+        ? (view.actions.includes("relabel") && view.ownerCode !== null ? { copyId: id, replacing: view.ownerCode } : null)
+        : (view.actions.includes("label") ? { copyId: id } : null);
+      if (how === null) {
         go("cannot");
         return;
       }
       setForCopy(view.book);
-      void chosen({ copyId: id }, { name: view.collection?.name ?? null });
+      const stays = { name: view.collection?.name ?? null };
+      if (again !== undefined) {
+        const p: Pending = { how, stays };
+        setPending(p);
+        setToReplace({ label: again.label, p });
+        setNotice(again.notice);
+        go("replaceconfirm");
+        return;
+      }
+      void chosen(how, stays);
     } catch (e) {
       if (mine !== seq.current || !live.current) return;
       if (e instanceof ApiError && e.status === 401) setLost(true);
@@ -176,6 +199,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setImported(null);
     setSimilar([]);
     setAfter(null);
+    setToReplace(null);
     refused.current = null;
     setNotice(undefined);
     go("isbn");
@@ -228,7 +252,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     go("saving");
     try {
       let stayed: { name: string } | null = null;
-      if ("copyId" in p.how) await labelCopy(p.how.copyId, label);
+      if ("replacing" in p.how) await relabelCopy(p.how.copyId, label, p.how.replacing);
+      else if ("copyId" in p.how) await labelCopy(p.how.copyId, label);
       else {
         const saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
         // A scan that found an imported copy labels it where it is; the collection that was picked did not apply.
@@ -247,6 +272,21 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       if (mine !== seq.current || !live.current) return;
       const why = e instanceof ApiError ? e.rejected : null;
       const existing = "copyId" in p.how;
+      // A replace whose answer was lost may have landed, and a retry of it is then refused as label-in-use.
+      // Re-read the copy first: if it already carries the label sent, the replace is done.
+      if ("replacing" in p.how && (unknownFailure(e) || (why === "label-in-use" && label !== p.how.replacing))) {
+        const now = await soft(getCopy(p.how.copyId));
+        if (mine !== seq.current || !live.current) return;
+        if (now === LOST) {
+          setLost(true);
+          return;
+        }
+        if (now !== null && now.ownerCode === label) {
+          inFlight.current = true;
+          location.assign(`/b/${label}`);
+          return;
+        }
+      }
       if (e instanceof ApiError && e.status === 401) {
         setLost(true);
       } else if (why === "label-in-use" || why === "label-unknown") {
@@ -255,6 +295,9 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         refused.current = label;
         setNotice(why === "label-in-use" ? "That label is already on a book. Use a blank one." : "That isn't one of our labels.");
         go("label");
+      } else if ("replacing" in p.how && why === "not-allowed") {
+        // The copy's label changed since it was read (or it is no longer ours): read it again before another try.
+        void loadCopy(p.how.copyId, { label, notice: "This book's label just changed. Try again." });
       } else if (existing && why === "not-allowed") {
         startOver();
         setNotice("That book already has a label.");
@@ -293,6 +336,22 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
 
   // The collection for a new copy comes from the pick the person made; an existing copy stays where it is.
   function withLabel(label: string, p: Pending) {
+    if ("replacing" in p.how) {
+      if (label === p.how.replacing) {
+        // The sticker already on the book: nothing to confirm, and not offered again until another is read.
+        refused.current = label;
+        setLinked(null);
+        setCode(null);
+        setNotice("That's the label already on this book. Scan a new blank one.");
+        go("label");
+        return;
+      }
+      // Every way a label arrives (scan, typed, from the address) asks before the old one is retired.
+      setToReplace({ label, p });
+      setNotice(undefined);
+      go("replaceconfirm");
+      return;
+    }
     let target: string | undefined;
     if (p.stays === null) {
       const list = colsRef.current;
@@ -327,6 +386,13 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     const asks = stays === null && (list === null || list.length >= 2);
     if (linked !== null && !asks) withLabel(linked, p);
     else go("label");
+  }
+  // Back to scanning; the label declined is not offered again until another is read or typed.
+  function cancelReplace() {
+    if (toReplace !== null) refused.current = toReplace.label;
+    setLinked(null);
+    setToReplace(null);
+    go("label");
   }
   const rescan = () => {
     setIsbn(null);
@@ -430,8 +496,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       )}
       {step === "cannot" && (
         <>
-          <p>That book can't take a label here.</p>
-          <p><a href="/mine">My books</a></p>
+          {replace && copyId !== null ? (
+            <>
+              <p>This book's label can't be replaced here.</p>
+              <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
+            </>
+          ) : (
+            <>
+              <p>That book can't take a label here.</p>
+              <p><a href="/mine">My books</a></p>
+            </>
+          )}
         </>
       )}
       {step === "confirm" && book !== null && (
@@ -535,6 +610,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           )}
         </>
       )}
+      {step === "replaceconfirm" && toReplace !== null && forCopy !== null && (
+        <>
+          <Book title={forCopy.title} authors={forCopy.authors} coverUrl={forCopy.coverUrl} />
+          <p>Replace the label on <Name>{forCopy.title}</Name>?</p>
+          <p className="label-code">Label {toReplace.label}</p>
+          <p>
+            <button type="button" onClick={() => void save(toReplace.label, toReplace.p, undefined)}>Replace</button>
+            <button type="button" onClick={cancelReplace}>Cancel</button>
+          </p>
+        </>
+      )}
       {step === "saving" && stays === null && <p>Saving…</p>}
       {step === "saving" && stays !== null && (
         <>
@@ -545,7 +631,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       {step === "failed" && code !== null && pending !== null && (
         <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}
-      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && <p><button type="button" className="link" onClick={startOver}>Start over</button></p>}
+      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && (replace && copyId !== null ? (
+        // Replace mode never opens the add flow: it cannot find a labelled copy, so it would make a second one.
+        <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
+      ) : <p><button type="button" className="link" onClick={startOver}>Start over</button></p>)}
     </div>
   );
 }

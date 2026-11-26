@@ -114,11 +114,19 @@ en/em dashes are accepted.
 
 ## 4. Owner tools
 
+First release (label tools, `docs/superpowers/specs/2026-11-26-label-tools-design.md`):
+built, not yet released: print at once, past sheets, the owner's code, replace
+a label. The second release carries lending to a name, giving, requests and
+release.
+
 Loan to a named person without an account. Give to a member. Request and
 approve ownership. Release. Replace a label.
 
 Carry-overs from step 3:
 
+- Retiring a label without binding its successor in the same batch breaks the
+  any-label checks and lets a stale relabel bind through relabel.ts statement 3.
+  Re-check both before release 2 adds a writer that retires.
 - Give, adopt and approve-request must ensure the new owner's default in the
   same batch and set both `owner_id` and `collection_id` in one statement;
   release must null both.
@@ -148,10 +156,12 @@ Carry-overs from step 2:
 - The `type as ActionType` cast in the ledger, and its return does not
   distinguish not-allowed from not-found for a copy id.
 - Removing a copy is a soft delete: events reference copies.
-- Replacing a label retires the old one (`retired_at`); it does not unbind it.
+- Done: (label tools) Replacing a label retires the old one (`retired_at`); it
+  does not unbind it.
 - Columns added to existing tables must be nullable (see Known hazards).
-- When a copy can have two labels, the copy view must be given the requested
-  code rather than reading it from the joined label row.
+- Done: (label tools) When a copy can have two labels, the copy view must be
+  given the requested code rather than reading it from the joined label row.
+  `renderCopy` takes the code in hand.
 - Loans to a named person change the copy view: today a copy with no holder
   renders as held by the name "".
 - The claim guard SQL is built by string concatenation with a repeated spread;

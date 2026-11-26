@@ -77,11 +77,11 @@ test("adding by ISBN makes a copy owned and held by the adder", async () => {
   const [code] = await mint(ledger);
   const copy = ok(await ledger.add(natalie, { code, book: { isbn: "978-0-441-17271-9" } }));
   expect(copy).toMatchObject({
-    code, book: DUNE,
+    code, ownerCode: code, book: DUNE,
     owner: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
     holder: { kind: "member", person: { id: natalie.id, name: "Natalie" } },
     home: true,
-    actions: ["move"],
+    actions: ["move", "relabel"],
   });
   expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(copy.history[0]).toEqual({
@@ -256,7 +256,7 @@ test("a member sees owner, holder, history newest first, and their actions", asy
   expect(view.home).toBe(true);
   expect(view.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(view.actions).toEqual(["claim"]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move", "relabel"]);
 });
 
 test("a blank label is blank; an unknown or malformed code is unknown", async () => {
@@ -524,9 +524,9 @@ test("the acting viewer's actions reflect the new state", async () => {
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
   expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual([]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move", "relabel"]);
   expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
-  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move"]);
+  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move", "relabel"]);
 });
 
 // A raw owner change that keeps the invariant, as a step 4 owner change will: Kim's default first, then both columns at once.
@@ -794,9 +794,10 @@ test("the owner moves a copy between their collections; holder and history are u
   const moved = ok(await ledger.moveCopy(natalie, copyId, shed.id));
   expect(moved.copyId).toBe(copyId);
   expect(moved.code).toBeNull();
-  expect(JSON.stringify(moved)).not.toContain(code);
+  expect(moved.ownerCode).toBe(code); // the owner's view; the code is nowhere else in it
+  expect(JSON.stringify({ ...moved, ownerCode: null })).not.toContain(code);
   expect(moved.home).toBe(true);
-  expect(moved.actions).toEqual(["move"]);
+  expect(moved.actions).toEqual(["move", "relabel"]);
   expect(await collectionOf(copyId)).toBe(shed.id);
   expect(await eventRows()).toEqual(events);
   expect((await holders())[0]).toMatchObject({ owner_id: natalie.id, holder_member_id: natalie.id });
@@ -974,4 +975,70 @@ test("a move is asked of decide: a copy with no owner cannot be moved", async ()
   const { ledger, copyId, shed } = await twoCollections();
   await env.DB.prepare("update copies set owner_id = null, collection_id = null where id = ?").bind(copyId).run();
   expect(await ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
+});
+
+test("one mint is one sheet: every label shares a sheet id, and the next mint gets another", async () => {
+  const { ledger } = make();
+  await mint(ledger, 3);
+  await mint(ledger, 2);
+  const { results } = await env.DB.prepare("select sheet_id from labels order by rowid").all<{ sheet_id: string }>();
+  expect(results.every((r) => typeof r.sheet_id === "string" && r.sheet_id.length > 0)).toBe(true);
+  expect(new Set(results.slice(0, 3).map((r) => r.sheet_id)).size).toBe(1);
+  expect(results[3].sheet_id).toBe(results[4].sheet_id);
+  expect(results[0].sheet_id).not.toBe(results[3].sheet_id);
+});
+
+test("a retired label views as retired, signed in or not, and claim through it is not-found", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  const [successor] = await mint(ledger);
+  await env.DB.batch([
+    env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(code),
+    env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, successor),
+  ]);
+  expect(await ledger.view(code, null)).toEqual({ kind: "retired" });
+  expect(await ledger.view(code, sam)).toEqual({ kind: "retired" });
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-found" });
+});
+
+test("a copy reached by a code carries that code, even if the label changed between the read and the render", async () => {
+  const { ledger: setup } = make();
+  const { code: old, copyId } = await homeCopy(setup);
+  const [spare] = await mint(setup);
+  // Between view's label read and renderCopy's batch, the label is swapped by hand (as a replace would).
+  const { ledger } = make({
+    db: racing(() => env.DB.batch([
+      env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(old),
+      env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare),
+    ])),
+  });
+  const copy = asCopy(await ledger.view(old, sam));
+  expect(copy.code).toBe(old);
+  expect(JSON.stringify(copy)).not.toContain(spare);
+});
+
+test("the public view carries the scanned code, even if the label changed between the read and the render", async () => {
+  const { ledger: setup } = make();
+  const { code: old, copyId } = await homeCopy(setup);
+  const [spare] = await mint(setup);
+  const { ledger } = make({
+    db: racing(() => env.DB.batch([
+      env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(old),
+      env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare),
+    ])),
+  });
+  const view = await ledger.view(old, null);
+  expect(view).toMatchObject({ kind: "public", code: old });
+  expect(JSON.stringify(view)).not.toContain(spare);
+});
+
+test("the index refuses a second live label on a copy, but a retired and a live one may share it", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const [spare] = await mint(ledger);
+  await expect(env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare).run()).rejects.toThrow(/UNIQUE/);
+  await env.DB.prepare("update labels set retired_at = 5 where copy_id = ? and code <> ?").bind(copyId, spare).run();
+  await env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare).run();
+  const { results } = await env.DB.prepare("select retired_at from labels where copy_id = ?").bind(copyId).all();
+  expect(results).toHaveLength(2);
 });
