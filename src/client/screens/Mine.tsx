@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CollectionSummary, Member, Shelf } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
-import { ApiError, createCollection, getShelf, myCollections } from "../api";
-import { Name } from "./BookCard";
+import { ApiError, approveRequest, createCollection, declineRequest, getShelf, listRequests, myCollections } from "../api";
+import { Name, personLabel } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
@@ -31,6 +31,8 @@ async function loadGroups(): Promise<Group[]> {
 
 export function Mine({ member, returnTo }: { member: Member | null; returnTo: string }) {
   const { state, reload, lose, retry } = useLoaded(loadGroups, member !== null);
+  // Requests are their own read: if it fails the section says so and the shelves stay.
+  const requests = useLoaded(async () => (await listRequests()).requests, member !== null);
   const [onlyUnlabelled, setOnlyUnlabelled] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
@@ -62,6 +64,38 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
     });
   }
 
+  const [answerError, setAnswerError] = useState<string | undefined>(undefined);
+  const [answered, setAnswered] = useState(false);
+  // The request whose Approve is waiting for its confirmation.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  // A 401 on the requests re-read means signed out: the whole screen goes to sign-in.
+  useEffect(() => {
+    if (requests.state.status === "lost") lose();
+  }, [requests.state.status, lose]);
+
+  function answer(copyId: string, send: (id: string) => Promise<unknown>, approving: boolean) {
+    void guard(async () => {
+      setAnswerError(undefined);
+      setAnswered(true);
+      setConfirming(null);
+      try {
+        await send(copyId);
+      } catch (e) {
+        if (!live.current) return;
+        if (e instanceof ApiError && e.status === 401) {
+          lose();
+          return;
+        }
+        setAnswerError(e instanceof ApiError && e.rejected === "not-allowed"
+          ? "That request was already answered or withdrawn."
+          : "Something went wrong. Try again.");
+        await requests.reload();
+        return;
+      }
+      await Promise.all([requests.reload(), approving ? reload() : Promise.resolve()]);
+    });
+  }
+
   return (
     <div className="shelf-page">
       <h1>Natalie's Little Library</h1>
@@ -71,6 +105,35 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
         <Trouble onRetry={retry} />
       ) : state.status === "ok" ? (
         <>
+          {(answerError !== undefined || (answered && requests.state.status === "failed")) && (
+            <p role="alert" className="refusal">{answerError ?? "Something went wrong. Try again."}</p>
+          )}
+          {(requests.state.status === "failed" || requests.state.status === "gone") && !answered && <p>Couldn't load requests.</p>}
+          {requests.state.status === "ok" && requests.state.data.length > 0 && (
+            <section className="requests">
+              <h2>Requests</h2>
+              <ul className="plain-list">
+                {requests.state.data.map((r) => (
+                  <li key={r.copyId}>
+                    <a href={`/copies/${encodeURIComponent(r.copyId)}`}><Name>{r.book.title}</Name></a>
+                    {confirming === r.copyId ? (
+                      <>
+                        <p>Let <Name>{personLabel(r.by)}</Name> keep <Name>{r.book.title}</Name>?</p>
+                        <button type="button" disabled={busy} onClick={() => answer(r.copyId, approveRequest, true)}>Approve</button>{" "}
+                        <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <p><Name>{personLabel(r.by)}</Name> asked to keep this</p>
+                        <button type="button" disabled={busy} onClick={() => setConfirming(r.copyId)}>Approve</button>{" "}
+                        <button type="button" disabled={busy} onClick={() => answer(r.copyId, declineRequest, false)}>Decline</button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <h2>My books</h2>
           {state.data.length === 0 ? (
             <p>

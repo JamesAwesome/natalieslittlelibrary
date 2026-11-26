@@ -81,16 +81,22 @@ const expectedShape: Record<
       ["created_at", "INTEGER", 1, 0],
       ["collection_id", "TEXT", 0, 0],
       ["import_isbn", "TEXT", 0, 0],
+      ["holder_person_id", "TEXT", 0, 0],
+      ["requested_by", "TEXT", 0, 0],
+      ["requested_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [
       ["book_id", "books", "id", "NO ACTION", "NO ACTION"],
       ["collection_id", "collections", "id", "NO ACTION", "NO ACTION"],
       ["holder_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["holder_person_id", "people", "id", "NO ACTION", "NO ACTION"],
       ["owner_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["requested_by", "members", "id", "NO ACTION", "NO ACTION"],
     ],
     indexes: [
       ["copies_collection_id_idx", 0, "c", 0, ["collection_id"]],
       ["copies_holder_member_id_idx", 0, "c", 0, ["holder_member_id"]],
+      ["copies_holder_person_id_idx", 0, "c", 0, ["holder_person_id"]],
       ["copies_owner_id_idx", 0, "c", 0, ["owner_id"]],
       ["sqlite_autoindex_copies_1", 1, "pk", 0, ["id"]],
     ],
@@ -139,12 +145,39 @@ const expectedShape: Record<
       ["at", "INTEGER", 1, 0],
       ["actor_id", "TEXT", 1, 0],
       ["type", "TEXT", 1, 0],
+      ["subject_member_id", "TEXT", 0, 0],
+      ["subject_person_id", "TEXT", 0, 0],
     ],
     foreignKeys: [
       ["actor_id", "members", "id", "NO ACTION", "NO ACTION"],
       ["copy_id", "copies", "id", "NO ACTION", "NO ACTION"],
+      ["subject_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["subject_person_id", "people", "id", "NO ACTION", "NO ACTION"],
     ],
-    indexes: [["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]]],
+    indexes: [
+      ["events_actor_id_type_idx", 0, "c", 0, ["actor_id", "type"]],
+      ["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]],
+    ],
+  },
+  people: {
+    columns: [
+      ["id", "TEXT", 1, 1],
+      ["created_by", "TEXT", 1, 0],
+      ["name", "TEXT", 1, 0],
+      ["name_key", "TEXT", 1, 0],
+      ["linked_member_id", "TEXT", 0, 0],
+      ["created_at", "INTEGER", 1, 0],
+      ["linked_at", "INTEGER", 0, 0],
+    ],
+    foreignKeys: [
+      ["created_by", "members", "id", "NO ACTION", "NO ACTION"],
+      ["linked_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+    ],
+    indexes: [
+      ["people_creator_name_key_unique", 1, "c", 0, ["created_by", "name_key"]],
+      ["people_linked_member_id_idx", 0, "c", 0, ["linked_member_id"]],
+      ["sqlite_autoindex_people_1", 1, "pk", 0, ["id"]],
+    ],
   },
   book_lookups: {
     columns: [
@@ -204,8 +237,13 @@ const expectedIndexSql: Record<string, string> = {
     "CREATE UNIQUE INDEX `collections_owner_name_key_unique` ON `collections` (`owner_id`,`name_key`)",
   copies_collection_id_idx: "CREATE INDEX `copies_collection_id_idx` ON `copies` (`collection_id`)",
   copies_holder_member_id_idx: "CREATE INDEX `copies_holder_member_id_idx` ON `copies` (`holder_member_id`)",
+  copies_holder_person_id_idx: "CREATE INDEX `copies_holder_person_id_idx` ON `copies` (`holder_person_id`)",
   copies_owner_id_idx: "CREATE INDEX `copies_owner_id_idx` ON `copies` (`owner_id`)",
+  events_actor_id_type_idx: "CREATE INDEX `events_actor_id_type_idx` ON `events` (`actor_id`,`type`)",
   events_copy_id_id_idx: "CREATE INDEX `events_copy_id_id_idx` ON `events` (`copy_id`,`id`)",
+  people_creator_name_key_unique:
+    "CREATE UNIQUE INDEX `people_creator_name_key_unique` ON `people` (`created_by`,`name_key`)",
+  people_linked_member_id_idx: "CREATE INDEX `people_linked_member_id_idx` ON `people` (`linked_member_id`)",
   labels_copy_id_idx: "CREATE INDEX `labels_copy_id_idx` ON `labels` (`copy_id`)",
   labels_one_live_per_copy:
     'CREATE UNIQUE INDEX `labels_one_live_per_copy` ON `labels` (`copy_id`) WHERE "labels"."retired_at" is null and "labels"."copy_id" is not null',
@@ -663,6 +701,18 @@ const EVERY_NEW_ROUTE: [string, string][] = [
   ["POST", "/api/imports"],
   ["GET", "/api/labels/sheets"],
   ["GET", "/api/labels/sheets/x"],
+  ["POST", "/api/copies/x/lend"],
+  ["POST", "/api/copies/x/request"],
+  ["POST", "/api/copies/x/withdraw"],
+  ["POST", "/api/copies/x/decline"],
+  ["POST", "/api/copies/x/give"],
+  ["POST", "/api/copies/x/approve"],
+  ["POST", "/api/copies/x/release"],
+  ["GET", "/api/people"],
+  ["POST", "/api/people/x/rename"],
+  ["POST", "/api/people/x/link"],
+  ["GET", "/api/requests"],
+  ["POST", "/api/labels/t7k2q9xzmb/adopt"],
 ];
 
 test.each(EVERY_NEW_ROUTE)("%s %s signed out is 401", async (method, path) => {
@@ -720,6 +770,8 @@ const WRITES: Write[] = [
   ["POST /api/copies/:id/relabel", (f) => ({ method: "POST", path: `/api/copies/${f.home}/relabel`, body: { code: f.codes.forHome, replacing: f.codes.labelled } })],
   ["POST /api/copies", (f) => ({ method: "POST", path: "/api/copies", body: { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare } })],
   ["POST /api/imports", (f) => ({ method: "POST", path: "/api/imports", body: { collectionId: f.spare, rows: [{ title: "Imported", authors: [], isbn: null }] } })],
+  ["POST /api/copies/:id/lend", (f) => ({ method: "POST", path: `/api/copies/${f.home}/lend`, body: { to: { name: "Sarah" } } })],
+  ["POST /api/copies/:id/release", (f) => ({ method: "POST", path: `/api/copies/${f.home}/release` })],
 ];
 
 test.each(WRITES)("%s from another site is 403 and changes nothing, where the same request from this site succeeds", async (_name, build) => {
@@ -735,6 +787,102 @@ test.each(WRITES)("%s from another site is 403 and changes nothing, where the sa
   const control = await send(req.method, req.path, f.cookie, req.body, { origin: SITE });
   expect(control.status).toBe(200);
   expect(await snapshot()).not.toBe(before);
+});
+
+test("lend answers the copy lent; a malformed target is 400 invalid; a lend by someone else is 403", async () => {
+  const f = await writeFixture();
+  for (const body of [{}, { to: 5 }, { to: null }, { to: { member: 5 } }, { to: { name: "" } }, { to: { name: "A", member: "B" } }]) {
+    const res = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, body);
+    expect(res.status, JSON.stringify(body)).toBe(400);
+    expect(await res.json()).toEqual({ rejected: "invalid" });
+  }
+  const other = await signInAs(env.DB, sam);
+  const refused = await send("POST", `/api/copies/${f.home}/lend`, other.cookie, { to: { name: "Sarah" } });
+  expect(refused.status).toBe(403);
+  expect(await refused.json()).toEqual({ rejected: "not-allowed" });
+  expect((await send("POST", "/api/copies/nope/lend", f.cookie, { to: { name: "Sarah" } })).status).toBe(404);
+  const res = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, { to: { member: other.member.id } });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ copyId: f.home, holder: { kind: "member", person: { id: other.member.id } } });
+});
+
+test("people routes: list, rename, link, and open requests; a malformed body is 400", async () => {
+  const f = await writeFixture();
+  const lent = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, { to: { name: "Sarah" } });
+  expect(lent.status).toBe(200);
+  const listed = (await (await send("GET", "/api/people", f.cookie)).json()) as { people: { id: string; name: string }[] };
+  expect(listed.people.map((p) => p.name)).toEqual(["Sarah"]);
+  const id = listed.people[0].id;
+  for (const body of [{}, { name: 5 }, { name: null }]) {
+    expect((await send("POST", `/api/people/${id}/rename`, f.cookie, body)).status).toBe(400);
+  }
+  for (const body of [{}, { member: 5 }, { member: null }]) {
+    expect((await send("POST", `/api/people/${id}/link`, f.cookie, body)).status).toBe(400);
+  }
+  const renamed = await send("POST", `/api/people/${id}/rename`, f.cookie, { name: "Sally" });
+  expect(renamed.status).toBe(200);
+  expect(await renamed.json()).toMatchObject({ id, name: "Sally" });
+  const other = await signInAs(env.DB, sam);
+  expect((await send("POST", `/api/people/${id}/rename`, other.cookie, { name: "X" })).status).toBe(404);
+  expect((await send("POST", `/api/people/${id}/link`, other.cookie, { member: other.member.id })).status).toBe(403);
+  const linked = await send("POST", `/api/people/${id}/link`, f.cookie, { member: other.member.id });
+  expect(linked.status).toBe(200);
+  expect(await linked.json()).toMatchObject({ linked: { id: other.member.id }, holding: [] });
+  const requests = await send("GET", "/api/requests", f.cookie);
+  expect(await requests.json()).toEqual({ requests: [] });
+});
+
+test("request, withdraw and decline answer the copy, with no body needed", async () => {
+  const f = await writeFixture();
+  const other = await signInAs(env.DB, sam);
+  expect((await send("POST", `/api/labels/${f.codes.labelled}/claim`, other.cookie)).status).toBe(200);
+  const asked = await send("POST", `/api/copies/${f.home}/request`, other.cookie);
+  expect(asked.status).toBe(200);
+  expect(await asked.json()).toMatchObject({ copyId: f.home, request: { by: { id: other.member.id } } });
+  expect((await send("POST", `/api/copies/${f.home}/decline`, other.cookie)).status).toBe(403);
+  const declined = await send("POST", `/api/copies/${f.home}/decline`, f.cookie);
+  expect(declined.status).toBe(200);
+  expect(await declined.json()).toMatchObject({ request: null });
+  expect((await send("POST", `/api/copies/${f.home}/request`, other.cookie)).status).toBe(200);
+  const withdrawn = await send("POST", `/api/copies/${f.home}/withdraw`, other.cookie);
+  expect(withdrawn.status).toBe(200);
+  expect(await withdrawn.json()).toMatchObject({ request: null });
+  expect((await send("POST", "/api/copies/nope/withdraw", other.cookie)).status).toBe(404);
+});
+
+test("give answers the copy given; a target that is not a string is 400 invalid; a give by someone else is 403", async () => {
+  const f = await writeFixture();
+  const other = await signInAs(env.DB, sam);
+  for (const body of [{}, { to: 5 }, { to: null }, { to: { member: other.member.id } }]) {
+    const res = await send("POST", `/api/copies/${f.home}/give`, f.cookie, body);
+    expect(res.status, JSON.stringify(body)).toBe(400);
+    expect(await res.json()).toEqual({ rejected: "invalid" });
+  }
+  expect((await send("POST", `/api/copies/${f.home}/give`, other.cookie, { to: other.member.id })).status).toBe(403);
+  expect((await send("POST", "/api/copies/nope/give", f.cookie, { to: other.member.id })).status).toBe(404);
+  const res = await send("POST", `/api/copies/${f.home}/give`, f.cookie, { to: other.member.id });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ copyId: f.home, owner: { id: other.member.id }, home: true });
+});
+
+test("approve, release and adopt answer the copy, with no body needed", async () => {
+  const f = await writeFixture();
+  const other = await signInAs(env.DB, sam);
+  expect((await send("POST", `/api/labels/${f.codes.labelled}/claim`, other.cookie)).status).toBe(200);
+  expect((await send("POST", `/api/copies/${f.home}/request`, other.cookie)).status).toBe(200);
+  expect((await send("POST", `/api/copies/${f.home}/approve`, other.cookie)).status).toBe(403);
+  const approved = await send("POST", `/api/copies/${f.home}/approve`, f.cookie);
+  expect(approved.status).toBe(200);
+  expect(await approved.json()).toMatchObject({ copyId: f.home, owner: { id: other.member.id }, request: null });
+  expect((await send("POST", `/api/copies/${f.home}/release`, f.cookie)).status).toBe(403);
+  const released = await send("POST", `/api/copies/${f.home}/release`, other.cookie);
+  expect(released.status).toBe(200);
+  expect(await released.json()).toMatchObject({ copyId: f.home, owner: null, collection: null });
+  const adopted = await send("POST", `/api/labels/${f.codes.labelled}/adopt`, f.cookie);
+  expect(adopted.status).toBe(200);
+  expect(await adopted.json()).toMatchObject({ copyId: f.home, code: f.codes.labelled, owner: { name: "Natalie" }, home: true });
+  expect((await send("POST", "/api/copies/nope/release", f.cookie)).status).toBe(404);
+  expect((await send("POST", "/api/labels/t7k2q9xzmb/adopt", f.cookie)).status).toBe(404);
 });
 
 test("move puts a copy in another of the owner's collections and answers without a code", async () => {

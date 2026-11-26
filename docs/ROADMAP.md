@@ -67,8 +67,7 @@ Carry-overs from step 1:
 
 My collection, what I'm holding, other members' shelves. StoryGraph import.
 
-Built, not yet released (2026-11-25; release is the next free version tag, after the
-PR merges): collections with a default and a picker, shelves (mine, holding,
+Built and released as v0.3.0: collections with a default and a picker, shelves (mine, holding,
 friends'), copies by id, moving a copy, pairing into a collection, labelling an
 imported copy from its shelf, and the StoryGraph import parsed in the browser.
 Still to do: James's CSV header check (the column map is a guess from
@@ -115,9 +114,13 @@ en/em dashes are accepted.
 ## 4. Owner tools
 
 First release (label tools, `docs/superpowers/specs/2026-11-26-label-tools-design.md`):
-built, not yet released: print at once, past sheets, the owner's code, replace
-a label. The second release carries lending to a name, giving, requests and
-release.
+built and released as v0.4.0: print at once, past sheets, the owner's code,
+replace a label.
+
+Second release (owner tools, `docs/superpowers/specs/2026-11-26-owner-tools-design.md`):
+built, not yet released: lending to a member or a named person, giving,
+requests and approval, release and take, the People page, and tombstones for
+removed members.
 
 Loan to a named person without an account. Give to a member. Request and
 approve ownership. Release. Replace a label.
@@ -126,13 +129,13 @@ Carry-overs from step 3:
 
 - Retiring a label without binding its successor in the same batch breaks the
   any-label checks and lets a stale relabel bind through relabel.ts statement 3.
-  Re-check both before release 2 adds a writer that retires.
-- Give, adopt and approve-request must ensure the new owner's default in the
-  same batch and set both `owner_id` and `collection_id` in one statement;
-  release must null both.
-- `ensureDefault`'s `on conflict do nothing` swallows a clash with an existing
-  non-default "Home library", leaving the owner with no default. Reachable only
-  once transfers exist; decide whether to rename or refuse.
+  Still open: release 2 added no writer that retires a label, so nothing new
+  to re-check; do it when one is added.
+- Done: (owner tools) Give, adopt and approve-request ensure the new owner's
+  default in the same batch and set both `owner_id` and `collection_id` in one
+  statement; release nulls both.
+- Done: (owner tools) `ensureDefault`'s name clash with an existing non-default
+  "Home library": the default is named "Home library 2".
 - "Free to claim" (a per-collection setting) has open questions: does claiming
   move ownership or only the holder, can a non-owner leave a book in the
   collection, and if books can be ownerless the first invariant needs an
@@ -162,10 +165,9 @@ Carry-overs from step 2:
 - Done: (label tools) When a copy can have two labels, the copy view must be
   given the requested code rather than reading it from the joined label row.
   `renderCopy` takes the code in hand.
-- Loans to a named person change the copy view: today a copy with no holder
-  renders as held by the name "".
-- The claim guard SQL is built by string concatenation with a repeated spread;
-  tidy it before adding more actions. The view and `COPY_SELECT` are
+- Done: (owner tools) A copy with no member holder renders as `holder: null`, or as a placeholder holder, never as "".
+- Done: (owner tools) The claim guard SQL is generalized rather than copied per action.
+- The view and `COPY_SELECT` are
   near-duplicate selects. Claim on a blank label is not-found while add says
   label-unknown.
 

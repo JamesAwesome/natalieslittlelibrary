@@ -1,6 +1,7 @@
 import { parseLabelLink } from "../../shared/labelCode";
 import type { CopyView, Member, Rejection } from "../../shared/types";
 import { ACTIVE } from "./collections";
+import { CLEAR_REMOVED_ASKER, stateColumns, stateOf, type StateColumns } from "./copyState";
 import { decide } from "./rules";
 import { BLANK } from "./unlabelled";
 
@@ -26,13 +27,14 @@ export function createRelabel(
 
     const copy = await db
       .prepare(
-        `select owner_id, holder_member_id, (select code from labels where copy_id = copies.id and retired_at is null) as code
+        `select ${stateColumns("copies")},
+           (select code from labels where copy_id = copies.id and retired_at is null) as code
          from copies where id = ?`,
       )
       .bind(copyId)
-      .first<{ owner_id: string | null; holder_member_id: string | null; code: string | null }>();
+      .first<StateColumns & { code: string | null }>();
     if (!copy) return { rejected: "not-found" };
-    const decision = decide({ ownerId: copy.owner_id, holderMemberId: copy.holder_member_id, labelled: copy.code !== null }, owner, "relabel");
+    const decision = decide(stateOf(copy, copy.code !== null), owner, { type: "relabel" });
     if ("rejected" in decision) return decision;
     const replacing = parseLabelLink(rawReplacing);
     if (replacing === null || replacing !== copy.code) return { rejected: "not-allowed" };
@@ -59,6 +61,14 @@ export function createRelabel(
              and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is not null)`,
         )
         .bind(copyId, at, code, copyId, replacing, copyId),
+      // A removed asker's request goes with the swap, once the new label is the copy's live one.
+      db
+        .prepare(
+          `update copies set ${CLEAR_REMOVED_ASKER}
+             where id = ? and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is null)
+               and exists (select 1 from labels where code = ? and copy_id = ? and retired_at is not null)`,
+        )
+        .bind(copyId, code, copyId, replacing, copyId),
     ]);
     // The bind is last; its change count says whether the batch applied.
     if (results[2].meta.changes === 0) {

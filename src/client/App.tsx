@@ -8,6 +8,7 @@ import { Import } from "./screens/Import";
 import { Home } from "./screens/Home";
 import { Members } from "./screens/Members";
 import { Mine } from "./screens/Mine";
+import { People } from "./screens/People";
 import { Shelf } from "./screens/Shelf";
 import { NotFound } from "./screens/NotFound";
 
@@ -119,6 +120,8 @@ export function App() {
       <Import member={member} returnTo={returnTo} />
     ) : route.name === "members" ? (
       <Members member={member} returnTo={returnTo} />
+    ) : route.name === "people" ? (
+      <People member={member} returnTo={returnTo} />
     ) : route.name === "member" ? (
       <Members id={route.id} member={member} returnTo={returnTo} />
     ) : (

@@ -261,7 +261,7 @@ test("a copy reached by id loads with getCopy and never asks for a label", async
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   vi.mocked(api.getCopy).mockResolvedValue({
     copyId: "c1", code: null, ownerCode: null, book: { isbn: null, title: "Dune", authors: [], coverUrl: null }, owner: { id: "1", name: "Natalie", pictureUrl: null },
-    holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } }, home: true, collection: null, history: [], actions: [],
+    holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } }, request: null, home: true, collection: null, history: [], actions: [],
   });
   at("/copies/c1");
   render(<App />);

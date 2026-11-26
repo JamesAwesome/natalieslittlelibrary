@@ -240,3 +240,13 @@ test("an owner change between the read and the batch is not-allowed and changes 
   expect(await isBlank(fresh)).toBe(true);
   expect(await labelsOf(copyId)).toEqual([{ code: old, retired_at: null }]);
 });
+
+test("a relabel clears a removed asker's request", async () => {
+  const { ledger } = make();
+  const { code: old, copyId } = await homeCopy(ledger);
+  const [fresh] = await mint(ledger);
+  await env.DB.prepare("update copies set holder_member_id = ?, requested_by = ?, requested_at = 7 where id = ?").bind(sam.id, sam.id, copyId).run();
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  ok(await ledger.replaceLabel(natalie, copyId, { code: fresh, replacing: old }));
+  expect(await env.DB.prepare("select requested_by, requested_at from copies where id = ?").bind(copyId).first()).toEqual({ requested_by: null, requested_at: null });
+});

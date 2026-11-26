@@ -287,6 +287,46 @@ test("a re-import does not ask the lookup about ISBNs the importer already holds
   expect(lookupMany.mock.calls.map((c) => c[0])).toEqual([[EMMA.isbn]]);
 });
 
+test("re-importing skips a book the importer gave away, had approved away, or released", async () => {
+  const { ledger, lookupMany } = make();
+  const rows = [row("Given"), row("Approved"), row("Released", MISSED)];
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows }));
+  const idOf = async (title: string) =>
+    (await env.DB.prepare("select c.id from copies c join books b on b.id = c.book_id where b.title = ?").bind(title).first<{ id: string }>())!.id;
+  const [given, approved, released] = [await idOf("Given"), await idOf("Approved"), await idOf("Released")];
+  ok(await ledger.act(natalie, { type: "give", copyId: given, to: sam.id }));
+  ok(await ledger.act(natalie, { type: "lend", copyId: approved, to: { member: sam.id } }));
+  ok(await ledger.act(sam, { type: "request", copyId: approved }));
+  ok(await ledger.act(natalie, { type: "approve", copyId: approved }));
+  const [code] = await mint(ledger);
+  ok(await ledger.labelCopy(natalie, released, code));
+  ok(await ledger.act(natalie, { type: "release", copyId: released }));
+  lookupMany.mockClear();
+  const before = await count("copies");
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows }))).toEqual({ added: 0, skipped: 3 });
+  expect(await count("copies")).toBe(before);
+  // The released row's ISBN is held by a copy Natalie gave up, so the lookup is not asked about it.
+  expect(lookupMany).not.toHaveBeenCalled();
+  // Sam, who owns two of them now, is not stopped from importing the one he never had.
+  expect(ok(await ledger.importCopies(sam, { collectionId: null, rows }))).toEqual({ added: 1, skipped: 2 });
+});
+
+test("re-importing skips an ISBN row the importer gave away or had approved away", async () => {
+  const { ledger, lookupMany } = make();
+  lookupMany.mockImplementation(found(DUNE, EMMA));
+  const rows = [row("Dune", DUNE.isbn), row("Emma", EMMA.isbn)];
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows }));
+  const idOf = async (isbn: string) =>
+    (await env.DB.prepare("select c.id from copies c join books b on b.id = c.book_id where b.isbn = ?").bind(isbn).first<{ id: string }>())!.id;
+  const [dune, emma] = [await idOf(DUNE.isbn!), await idOf(EMMA.isbn!)];
+  ok(await ledger.act(natalie, { type: "give", copyId: dune, to: sam.id }));
+  ok(await ledger.act(natalie, { type: "lend", copyId: emma, to: { member: sam.id } }));
+  ok(await ledger.act(sam, { type: "request", copyId: emma }));
+  ok(await ledger.act(natalie, { type: "approve", copyId: emma }));
+  expect(ok(await ledger.importCopies(natalie, { collectionId: null, rows }))).toEqual({ added: 0, skipped: 2 });
+  expect(await count("copies")).toBe(2);
+});
+
 test("an import that lands between add's read and its write: the label goes on the imported copy, not a second one", async () => {
   const setup = make();
   const [code] = await mint(setup.ledger);
@@ -520,4 +560,14 @@ test("candidates contain no label code", async () => {
   expect(labelled.code).toBe(codes[0]);
   const after = JSON.stringify(ok(await ledger.candidates(natalie, { title: "dune" })));
   for (const code of codes) expect(after).not.toContain(code);
+});
+
+test("labelling a copy clears a removed asker's request", async () => {
+  const { ledger } = make();
+  const id = await importedUnlabelled(ledger);
+  const [code] = await mint(ledger);
+  await env.DB.prepare("update copies set holder_member_id = ?, requested_by = ?, requested_at = 7 where id = ?").bind(sam.id, sam.id, id).run();
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  ok(await ledger.labelCopy(natalie, id, code));
+  expect(await env.DB.prepare("select requested_by, requested_at from copies where id = ?").bind(id).first()).toEqual({ requested_by: null, requested_at: null });
 });

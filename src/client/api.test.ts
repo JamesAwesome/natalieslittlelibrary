@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  ApiError, addCopy, claim, createCollection, deleteCollection, getCandidates, getCopy, getHolding, getLabel, getMe, getShelf,
+  ApiError, adoptCopy, addCopy, approveRequest, declineRequest, giveCopy, lendCopy, linkPerson, listPeople, listRequests, releaseCopy,
+  renamePerson, requestCopy, withdrawRequest, claim, createCollection, deleteCollection, getCandidates, getCopy, getHolding, getLabel, getMe, getShelf,
   importRows, labelCopy, listMembers, listSheets, logout, lookupBook, makeDefault, memberCollections, mintLabels, moveCopy, myCollections,
   renameCollection, returnCopy, sheetLabels,
 } from "./api";
@@ -185,4 +186,35 @@ test("an imported StoryGraph row travels as title, authors and isbn under collec
   expect(Object.keys(body).sort()).toEqual(["collectionId", "rows"]);
   for (const r of body.rows) expect(Object.keys(r).sort()).toEqual(["authors", "isbn", "title"]);
   for (const s of [REVIEW_SENTINEL, RATING, DATE_READ, "Translator"]) expect(raw).not.toContain(s);
+});
+
+test("the owner-tool calls send their method, path and body", async () => {
+  const cases: [() => Promise<unknown>, string, unknown][] = [
+    [() => lendCopy("c 1", { name: "Sarah" }), "/api/copies/c%201/lend", { to: { name: "Sarah" } }],
+    [() => lendCopy("c1", { member: "m1" }), "/api/copies/c1/lend", { to: { member: "m1" } }],
+    [() => lendCopy("c1", { person: "p1" }), "/api/copies/c1/lend", { to: { person: "p1" } }],
+    [() => giveCopy("c1", "m 2"), "/api/copies/c1/give", { to: "m 2" }],
+    [() => requestCopy("c1"), "/api/copies/c1/request", undefined],
+    [() => withdrawRequest("c1"), "/api/copies/c1/withdraw", undefined],
+    [() => approveRequest("c1"), "/api/copies/c1/approve", undefined],
+    [() => declineRequest("c1"), "/api/copies/c1/decline", undefined],
+    [() => releaseCopy("c1"), "/api/copies/c1/release", undefined],
+    [() => adoptCopy("a/b"), "/api/labels/a%2Fb/adopt", undefined],
+    [() => renamePerson("p 1", "Sara"), "/api/people/p%201/rename", { name: "Sara" }],
+    [() => linkPerson("p1", "m1"), "/api/people/p1/link", { member: "m1" }],
+  ];
+  for (const [run, url, body] of cases) {
+    const f = stubFetch(async () => json({}));
+    await run();
+    expect(sent(f)).toEqual({ url, method: "POST", body });
+  }
+});
+
+test("listPeople and listRequests GET", async () => {
+  const f = stubFetch(async () => json({ people: [] }));
+  expect(await listPeople()).toEqual({ people: [] });
+  expect(sent(f)).toEqual({ url: "/api/people", method: "GET", body: undefined });
+  const g = stubFetch(async () => json({ requests: [] }));
+  expect(await listRequests()).toEqual({ requests: [] });
+  expect(sent(g)).toEqual({ url: "/api/requests", method: "GET", body: undefined });
 });

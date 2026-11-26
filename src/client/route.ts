@@ -7,6 +7,7 @@ export type Route =
   | { name: "shelf"; id: string }
   | { name: "holding" }
   | { name: "members" }
+  | { name: "people" }
   | { name: "member"; id: string }
   | { name: "copy-by-id"; id: string }
   | { name: "import" }
@@ -26,6 +27,7 @@ export function matchRoute(pathname: string): Route {
   if (path === "/mine") return { name: "mine" };
   if (path === "/holding") return { name: "holding" };
   if (path === "/members") return { name: "members" };
+  if (path === "/people") return { name: "people" };
   if (path === "/import") return { name: "import" };
   if (path.startsWith("/b/")) {
     const code = path.slice(3);

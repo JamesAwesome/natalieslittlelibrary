@@ -12,7 +12,7 @@ test("a row shows cover placeholder, title, authors, status, and links to the co
 });
 
 test("a book that is out says who has it, in bdi", () => {
-  render(<ShelfList items={[item({ copyId: "c1", home: false, holder: { kind: "named", name: "Sam" } })]} />);
+  render(<ShelfList items={[item({ copyId: "c1", home: false, holder: { kind: "person", id: "p1", name: "Sam" } })]} />);
   expect(screen.getByText("Sam").tagName).toBe("BDI");
   expect(screen.getByText(/^With/)).toBeInTheDocument();
 });

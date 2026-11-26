@@ -42,3 +42,9 @@ test("a failure shows trouble with a retry", async () => {
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 });
+
+test("an ownerless copy says No owner", async () => {
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [item({ copyId: "c9", owner: null, collection: null })] });
+  render(<Holding member={me} returnTo="/holding" />);
+  expect(await screen.findByText("No owner")).toBeInTheDocument();
+});

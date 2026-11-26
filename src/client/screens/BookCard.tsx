@@ -1,4 +1,10 @@
 import { useState } from "react";
+import type { Holder, Person } from "../../shared/types";
+
+// A person's name as shown: a removed member says so.
+export const personLabel = (p: Person): string => (p.removed ? `${p.name} (no longer a member)` : p.name);
+// A holder's name as shown; only called for a holder that exists.
+export const holderLabel = (h: Holder): string => (h.kind === "member" ? personLabel(h.person) : h.name);
 
 export const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
 

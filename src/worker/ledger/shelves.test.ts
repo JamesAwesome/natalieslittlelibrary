@@ -162,12 +162,21 @@ test("holding lists what Sam holds of Natalie's, with owner and collection, and 
   expect(await ledger.holding(kim)).toEqual([]);
 });
 
+test("holding lists an ownerless copy the member holds", async () => {
+  const { ledger, dune } = await fixture();
+  ok(await ledger.act(natalie, { type: "release", copyId: dune.copyId }));
+  const held = await ledger.holding(sam);
+  expect(held.map((i) => i.copyId)).toEqual([dune.copyId]);
+  expect(held[0]).toMatchObject({ owner: null, collection: null, home: false, holder: { kind: "member", person: { id: sam.id } } });
+  expect(await ledger.holding(natalie)).toEqual([]);
+});
+
 test("viewCopy has the collection, no code, and offers return and move to the owner but never claim", async () => {
   const { ledger, dune } = await fixture();
   const v = ok(await ledger.viewCopy(dune.copyId, natalie));
   expect(v.code).toBeNull();
   expect(v.collection).toMatchObject({ name: "Home library" });
-  expect(v.actions).toEqual(["return", "move", "relabel"]);
+  expect(v.actions).toEqual(["return", "move", "relabel", "lend", "give", "release"]);
   expect(v.actions).not.toContain("claim");
   expect(v.history.length).toBeGreaterThan(0);
 });
@@ -175,7 +184,7 @@ test("viewCopy has the collection, no code, and offers return and move to the ow
 test("viewCopy offers label to the owner of an unlabelled copy", async () => {
   const { ledger } = await fixture();
   const v = ok(await ledger.viewCopy("c-raw", natalie));
-  expect(v.actions).toEqual(["move", "label"]);
+  expect(v.actions).toEqual(["move", "label", "lend", "give"]);
   expect(v.code).toBeNull();
 });
 
@@ -273,4 +282,15 @@ test("shelf, collection counts and the by-id join are served from copies_collect
   const { SHELF_SELECT, inCollection } = await import("./shelves");
   expect(await plan(`${SHELF_SELECT} where k.id = ?`, "x")).toMatch(/copies_collection_id_idx/);
   expect(await plan(`select count(*) from copies c, collections k where k.id = ? and ${inCollection("c", "k")}`, "x")).toMatch(/copies_collection_id_idx/);
+});
+
+test("a shelf item held by a placeholder shows the placeholder; a removed holder is a tombstone", async () => {
+  const { ledger, emma, dune } = await fixture();
+  await env.DB.prepare("insert into people (id, created_by, name, name_key, created_at) values ('p-sarah', ?, 'Sarah', 'sarah', 1)").bind(natalie.id).run();
+  await env.DB.prepare("update copies set holder_member_id = null, holder_person_id = 'p-sarah' where id = ?").bind(emma.copyId).run();
+  const items = ok(await ledger.shelf(ok(await ledger.collectionsOf(natalie.id)).collections[0].id)).items;
+  expect(items.find((i) => i.copyId === emma.copyId)!.holder).toEqual({ kind: "person", id: "p-sarah", name: "Sarah" });
+  await env.DB.prepare("update members set removed_at = 3 where id = ?").bind(sam.id).run();
+  const after = ok(await ledger.shelf(ok(await ledger.collectionsOf(natalie.id)).collections[0].id)).items;
+  expect(after.find((i) => i.copyId === dune.copyId)!.holder).toEqual({ kind: "member", person: { id: sam.id, name: "Sam", pictureUrl: null, removed: true } });
 });
