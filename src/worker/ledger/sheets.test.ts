@@ -40,11 +40,15 @@ test("sheetCodes gives blanks in mint order; includeMine adds labels on the memb
 
 test("a label on a book the member owns but that was replaced is never printed", async () => {
   const { ledger } = make();
-  const { code } = await homeCopy(ledger);
+  const { code, copyId } = await homeCopy(ledger);
   const [sheet] = await ledger.sheets(natalie);
-  await env.DB.prepare("update labels set retired_at = 1 where code = ?").bind(code).run();
+  const [successor] = await mint(ledger);
+  await env.DB.batch([
+    env.DB.prepare("update labels set retired_at = 1 where code = ?").bind(code),
+    env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, successor),
+  ]);
   expect(ok(await ledger.sheetCodes(natalie, sheet.id, { includeMine: true }))).toEqual([]);
-  expect((await ledger.sheets(natalie))[0].mine).toBe(0);
+  expect((await ledger.sheets(natalie)).find((s) => s.id === sheet.id)?.mine).toBe(0);
 });
 
 test("someone else's sheet, an unknown id and an over-long id are not-found", async () => {

@@ -990,8 +990,12 @@ test("one mint is one sheet: every label shares a sheet id, and the next mint ge
 
 test("a retired label views as retired, signed in or not, and claim through it is not-found", async () => {
   const { ledger } = make();
-  const { code } = await homeCopy(ledger);
-  await env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(code).run();
+  const { code, copyId } = await homeCopy(ledger);
+  const [successor] = await mint(ledger);
+  await env.DB.batch([
+    env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(code),
+    env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, successor),
+  ]);
   expect(await ledger.view(code, null)).toEqual({ kind: "retired" });
   expect(await ledger.view(code, sam)).toEqual({ kind: "retired" });
   expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-found" });

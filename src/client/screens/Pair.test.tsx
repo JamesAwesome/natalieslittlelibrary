@@ -768,9 +768,19 @@ test.each([
 ] as const)("a copy that can't be relabelled shows the cannot step (%s)", async (_n, over) => {
   labelled(over as Partial<CopyView>);
   show("?copy=c1&replace=1");
-  await screen.findByText("That book can't take a label here.");
+  await screen.findByText("This book's label can't be replaced here.");
+  expect(screen.queryByText("That book can't take a label here.")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Back to the book" })).toHaveAttribute("href", "/copies/c1");
+  expect(screen.queryByRole("link", { name: "My books" })).not.toBeInTheDocument();
   expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
   expect(api.relabelCopy).not.toHaveBeenCalled();
+});
+
+test("without replace=1, a copy that can't take a label keeps the My books wording", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, ownerCode: "t7k2q9xzmb", book, actions: ["move"] } as CopyView);
+  show("?copy=c1");
+  await screen.findByText("That book can't take a label here.");
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
 });
 
 const OWN = "That's the label already on this book. Scan a new blank one.";
@@ -863,7 +873,7 @@ test("a replace refused not-allowed for a copy that can no longer be relabelled 
   await typeCode("h4k7m2p9qr");
   labelled({ ownerCode: null, actions: [] });
   await click("Replace");
-  await screen.findByText("That book can't take a label here.");
+  await screen.findByText("This book's label can't be replaced here.");
   expect(api.relabelCopy).toHaveBeenCalledTimes(1);
 });
 
@@ -953,14 +963,14 @@ test("plain ?copy= still offers Start over", async () => {
   expect(screen.queryByRole("link", { name: "Back to the book" })).not.toBeInTheDocument();
 });
 
-test("a replace refused not-found shows that the book can't take a label", async () => {
+test("a replace refused not-found shows that the label can't be replaced", async () => {
   labelled();
   vi.mocked(api.relabelCopy).mockRejectedValue(refuse(404, "not-found"));
   show("?copy=c1&replace=1");
   await screen.findByText("Now scan a blank label.");
   await typeCode("h4k7m2p9qr");
   await click("Replace");
-  await screen.findByText("That book can't take a label here.");
+  await screen.findByText("This book's label can't be replaced here.");
 });
 
 test("without replace=1, ?copy= still labels an unlabelled copy as before", async () => {

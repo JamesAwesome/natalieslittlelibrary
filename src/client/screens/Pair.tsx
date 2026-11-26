@@ -496,8 +496,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       )}
       {step === "cannot" && (
         <>
-          <p>That book can't take a label here.</p>
-          <p><a href="/mine">My books</a></p>
+          {replace && copyId !== null ? (
+            <>
+              <p>This book's label can't be replaced here.</p>
+              <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
+            </>
+          ) : (
+            <>
+              <p>That book can't take a label here.</p>
+              <p><a href="/mine">My books</a></p>
+            </>
+          )}
         </>
       )}
       {step === "confirm" && book !== null && (
