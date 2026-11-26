@@ -335,6 +335,8 @@ an API key (tested 2026-11-17); adding it later is one more adapter plus a key.
 In the same test Open Library missed two real books out of three, so typing the
 title is a normal path, not an edge case.
 
+*Update 2026-11-25:* Google Books is now the second source, asked only when Open Library has no answer and a `GOOGLE_BOOKS_API_KEY` secret is set. Its answer is cached and saved like Open Library's, with source `google-books` and its cover. Without the key, lookups are Open Library only. Google's API terms restrict keeping its content; James accepted that for this private app (see the "Revision 2" section of `2026-11-25-google-books-fallback-design.md`).
+
 ### Membership (worker)
 
 Interface: `identify(request)`; `beginLogin(returnTo, viaLabel?)`;

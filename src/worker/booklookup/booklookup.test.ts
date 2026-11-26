@@ -3,7 +3,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BookInfo } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
 import found from "./fixtures/found.json";
-import { createBookLookup, type BookSource } from "./index";
+import googleFound from "./fixtures/google-found.json";
+import { createBookLookup, lookupSources, type BookSource } from "./index";
 
 const ISBN = "9798855427974";
 const BOOK_KEY = `ISBN:${ISBN}`;
@@ -272,4 +273,79 @@ test("authors are trimmed and capped at 10", async () => {
   const book = await createBookLookup({ db: env.DB, fetch: stubFetch(body) }).lookup(ISBN);
   expect(book?.authors).toHaveLength(10);
   expect(book?.authors[0]).toBe("Author 0");
+});
+
+// A fetch that answers by host.
+function byHost(open: () => Response, google: () => Response, calls: string[] = []): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    return new URL(url).hostname === "www.googleapis.com" ? google() : open();
+  }) as typeof fetch;
+}
+const json = (body: unknown, status = 200) => () => new Response(JSON.stringify(body), { status });
+const googleCalls = (calls: string[]) => calls.filter((u) => u.includes("googleapis.com"));
+
+test("lookupSources with no key, an empty key, or a blank key is Open Library only", () => {
+  for (const k of [undefined, null, "", "   ", 42]) expect(lookupSources(k).map((s) => s.name)).toEqual(["openlibrary"]);
+});
+
+test("lookupSources with a key puts Google Books after Open Library", () => {
+  expect(lookupSources("test-key").map((s) => s.name)).toEqual(["openlibrary", "google-books"]);
+});
+
+test("Open Library found: Google is never asked", async () => {
+  const calls: string[] = [];
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json(found), json(googleFound), calls) });
+  expect((await lookup.lookup(ISBN))?.title).toBe(found[BOOK_KEY].title);
+  expect(googleCalls(calls)).toEqual([]);
+});
+
+test("Open Library miss then Google found: Google's book is returned with its cover and cached with source google-books", async () => {
+  const calls: string[] = [];
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}), json(googleFound), calls) });
+  const book = await lookup.lookup(ISBN);
+  expect(book?.title).toBe(googleFound.items[0].volumeInfo.title);
+  expect(book?.coverUrl).toMatch(/^https:\/\/books\.google\.com\/books\/content\?/);
+  expect(googleCalls(calls)).toHaveLength(1);
+  const stored = await rows();
+  expect(stored.map((r) => r.source)).toEqual(["google-books"]);
+  expect(stored[0].cover_url).toBe(book?.coverUrl);
+  // A second lookup is answered from the cache.
+  expect(await lookup.lookup(ISBN)).toEqual(book);
+  expect(googleCalls(calls)).toHaveLength(1);
+});
+
+test("Open Library 500 then Google found", async () => {
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}, 500), json(googleFound)) });
+  expect((await lookup.lookup(ISBN))?.title).toBe(googleFound.items[0].volumeInfo.title);
+});
+
+test("Open Library timeout then Google found", async () => {
+  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(String(input)).hostname !== "www.googleapis.com") {
+      return new Promise<Response>((_res, rej) => init?.signal?.addEventListener("abort", () => rej(new Error("aborted"))));
+    }
+    return new Response(JSON.stringify(googleFound), { status: 200 });
+  }) as typeof fetch;
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: f, timeoutMs: 50 });
+  expect((await lookup.lookup(ISBN))?.title).toBe(googleFound.items[0].volumeInfo.title);
+});
+
+test("Google over quota after an Open Library miss: null, nothing cached", async () => {
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}), json({}, 429)) });
+  expect(await lookup.lookup(ISBN)).toBeNull();
+  expect(await rows()).toEqual([]);
+});
+
+test("both miss: null, nothing cached", async () => {
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}), json({ totalItems: 0 })) });
+  expect(await lookup.lookup(ISBN)).toBeNull();
+  expect(await rows()).toEqual([]);
+});
+
+test("no cached row and no stored cover contain the key", async () => {
+  const lookup = createBookLookup({ db: env.DB, sources: lookupSources("test-key"), fetch: byHost(json({}), json(googleFound)) });
+  await lookup.lookup(ISBN);
+  expect(JSON.stringify(await rows())).not.toContain("test-key");
 });
