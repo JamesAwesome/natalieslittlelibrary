@@ -1012,9 +1012,28 @@ test("a copy reached by a code carries that code, even if the label changed betw
   expect(JSON.stringify(copy)).not.toContain(spare);
 });
 
-test("the index allows one live label per copy", async () => {
+test("the public view carries the scanned code, even if the label changed between the read and the render", async () => {
+  const { ledger: setup } = make();
+  const { code: old, copyId } = await homeCopy(setup);
+  const [spare] = await mint(setup);
+  const { ledger } = make({
+    db: racing(() => env.DB.batch([
+      env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(old),
+      env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare),
+    ])),
+  });
+  const view = await ledger.view(old, null);
+  expect(view).toMatchObject({ kind: "public", code: old });
+  expect(JSON.stringify(view)).not.toContain(spare);
+});
+
+test("the index refuses a second live label on a copy, but a retired and a live one may share it", async () => {
   const { ledger } = make();
   const { copyId } = await homeCopy(ledger);
   const [spare] = await mint(ledger);
   await expect(env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare).run()).rejects.toThrow(/UNIQUE/);
+  await env.DB.prepare("update labels set retired_at = 5 where copy_id = ? and code <> ?").bind(copyId, spare).run();
+  await env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare).run();
+  const { results } = await env.DB.prepare("select retired_at from labels where copy_id = ?").bind(copyId).all();
+  expect(results).toHaveLength(2);
 });
