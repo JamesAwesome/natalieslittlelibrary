@@ -4,6 +4,7 @@ import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
+import { createRelabel } from "./relabel";
 import { createSheetReads } from "./sheets";
 import { createShelfReads, inCollection } from "./shelves";
 import { BLANK, cleanText, createUnlabelled, MAX_AUTHOR, MAX_AUTHORS, MAX_TITLE } from "./unlabelled";
@@ -25,7 +26,7 @@ export interface Ledger {
   collectionsOf(ownerId: string): Promise<{ owner: Person; collections: CollectionSummary[] } | Rejection>;
   shelf(collectionId: string): Promise<Shelf | Rejection>;
   holding(member: Member): Promise<ShelfItem[]>;
-  moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection>; // answers with no code
+  moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection>; // answers with code null
   createCollection(member: Member, name: string): Promise<CollectionSummary | Rejection>;
   renameCollection(member: Member, id: string, name: string): Promise<CollectionSummary | Rejection>;
   deleteCollection(member: Member, id: string): Promise<{ deleted: true } | Rejection>;
@@ -35,6 +36,8 @@ export interface Ledger {
   sheets(member: Member): Promise<SheetSummary[]>; // the member's mints, newest first
   sheetCodes(member: Member, sheetId: string, opts: { includeMine: boolean }): Promise<{ code: string; url: string }[] | Rejection>;
   labelCopy(owner: Member, copyId: string, code: string): Promise<CopyView | Rejection>; // answers with the code the request carried
+  // Retires `replacing`, the copy's live label, and binds the blank `code` in its place; answers with the new code in hand.
+  replaceLabel(owner: Member, copyId: string, input: { code: string; replacing: string }): Promise<CopyView | Rejection>;
   candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection>; // never a label code
 }
 
@@ -90,11 +93,13 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return code;
   }
 
-  // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, or scanning an imported copy).
-  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, async (copyId, viewer, code) => {
+  // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, scanning an imported copy,
+  // or replacing a label).
+  const renderWithCode = async (copyId: string, viewer: Member, code: string): Promise<CopyView | null> => {
     const v = await renderCopy(copyId, viewer, code);
     return v?.kind === "copy" ? v.copy : null;
-  });
+  };
+  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, renderWithCode);
 
   async function mintLabels(member: Member, count: number) {
     if (!Number.isInteger(count) || count < 1 || count > MAX_MINT) return { rejected: "invalid" } as const;
@@ -177,6 +182,8 @@ export function createLedger(deps: LedgerDeps): Ledger {
       copy: {
         copyId,
         code: codeInHand,
+        // The live label's code, for the owner only, however the page was reached.
+        ownerCode: row.owner_id !== null && row.owner_id === viewer.id ? row.code : null,
         book,
         owner:
           row.owner_id !== null && row.owner_name !== null
@@ -440,5 +447,5 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   const { importCopies, labelCopy, candidates } = unlabelled;
-  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createSheetReads(db, deps.siteUrl), ...createCollectionWrites(db, now) };
+  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createSheetReads(db, deps.siteUrl), ...createRelabel(db, now, renderWithCode), ...createCollectionWrites(db, now) };
 }

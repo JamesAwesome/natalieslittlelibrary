@@ -77,11 +77,11 @@ test("adding by ISBN makes a copy owned and held by the adder", async () => {
   const [code] = await mint(ledger);
   const copy = ok(await ledger.add(natalie, { code, book: { isbn: "978-0-441-17271-9" } }));
   expect(copy).toMatchObject({
-    code, book: DUNE,
+    code, ownerCode: code, book: DUNE,
     owner: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
     holder: { kind: "member", person: { id: natalie.id, name: "Natalie" } },
     home: true,
-    actions: ["move"],
+    actions: ["move", "relabel"],
   });
   expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(copy.history[0]).toEqual({
@@ -256,7 +256,7 @@ test("a member sees owner, holder, history newest first, and their actions", asy
   expect(view.home).toBe(true);
   expect(view.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(view.actions).toEqual(["claim"]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move", "relabel"]);
 });
 
 test("a blank label is blank; an unknown or malformed code is unknown", async () => {
@@ -524,9 +524,9 @@ test("the acting viewer's actions reflect the new state", async () => {
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
   expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual([]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move", "relabel"]);
   expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
-  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move"]);
+  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move", "relabel"]);
 });
 
 // A raw owner change that keeps the invariant, as a step 4 owner change will: Kim's default first, then both columns at once.
@@ -794,9 +794,10 @@ test("the owner moves a copy between their collections; holder and history are u
   const moved = ok(await ledger.moveCopy(natalie, copyId, shed.id));
   expect(moved.copyId).toBe(copyId);
   expect(moved.code).toBeNull();
-  expect(JSON.stringify(moved)).not.toContain(code);
+  expect(moved.ownerCode).toBe(code); // the owner's view; the code is nowhere else in it
+  expect(JSON.stringify({ ...moved, ownerCode: null })).not.toContain(code);
   expect(moved.home).toBe(true);
-  expect(moved.actions).toEqual(["move"]);
+  expect(moved.actions).toEqual(["move", "relabel"]);
   expect(await collectionOf(copyId)).toBe(shed.id);
   expect(await eventRows()).toEqual(events);
   expect((await holders())[0]).toMatchObject({ owner_id: natalie.id, holder_member_id: natalie.id });

@@ -9,10 +9,12 @@ const actionText: Record<ActionType, string> = {
   return: "Mark as returned",
   move: "Move",
   label: "Put a label on it",
+  relabel: "Replace label",
 };
 const historyText: Record<HistoryEntry["type"], string> = {
   added: "added this book",
   labelled: "put a label on it",
+  relabelled: "replaced its label",
   claimed: "took it",
   returned: "marked it returned",
 };
@@ -43,8 +45,9 @@ function Copy(props: {
   const current = copy.collection?.id;
   const options = (choices ?? []).filter((c) => c.id !== current);
   const chosen = picked !== undefined && options.some((c) => c.id === picked) ? picked : options[0]?.id;
-  // A copy with no label code was reached by id; claiming goes through the code, so it is not offered.
-  const buttons = copy.actions.filter((a) => a !== "move" && a !== "label" && !(a === "claim" && copy.code === null));
+  // A copy with no label code was reached by id; claiming goes through the code, so it is not offered. Move, label and
+  // relabel have controls of their own; as buttons they would fall through act() to a return.
+  const buttons = copy.actions.filter((a) => a !== "move" && a !== "label" && a !== "relabel" && !(a === "claim" && copy.code === null));
   return (
     <>
       <Book {...copy.book} />

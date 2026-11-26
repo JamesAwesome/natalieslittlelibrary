@@ -252,6 +252,13 @@ app.post("/api/copies/:id/label", member(async (c, who) => {
   return id === null ? notFound(c) : answer(c, await c.var.services.ledger.labelCopy(who, id, body.code));
 }));
 
+app.post("/api/copies/:id/relabel", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.code !== "string" || typeof body.replacing !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.replaceLabel(who, id, { code: body.code, replacing: body.replacing }));
+}));
+
 app.post("/api/imports", member(async (c, who) => {
   const body = await objectBody(c);
   if (!body) return invalid(c);

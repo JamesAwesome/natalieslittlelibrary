@@ -18,7 +18,7 @@ const book = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert", 
 
 function copyView(over: Partial<CopyView> = {}): CopyView {
   return {
-    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
+    copyId: "c1", code: "abc", ownerCode: null, book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
     history: [
       { at: Date.UTC(2026, 10, 3, 12), type: "claimed", actor: bob },
       { at: Date.UTC(2026, 10, 1, 12), type: "labelled", actor: ann },
@@ -140,6 +140,12 @@ test("returned entries read 'marked it returned'", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ history: [{ at: 0, type: "returned", actor: bob }] })));
   show();
   expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Bob marked it returned/.test(el.textContent ?? ""))).toBeInTheDocument();
+});
+
+test("relabelled entries read 'replaced its label'", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ history: [{ at: 0, type: "relabelled", actor: ann }] })));
+  show();
+  expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Ann replaced its label /.test(el.textContent ?? ""))).toBeInTheDocument();
 });
 
 test("home reads 'At home'; away, a named holder shows as 'With <name>'", async () => {
@@ -490,6 +496,21 @@ test("a move on a label page refetches the label so the page keeps what it showe
   expect(await screen.findByText(line("Owned by Natalie \u00B7 Cookbooks"))).toBeInTheDocument();
   expect(api.getLabel).toHaveBeenCalledTimes(2);
   expect(screen.getByText("Dune")).toBeInTheDocument();
+});
+
+test("relabel is never an action button", async () => {
+  const names = async (over: Partial<CopyView>) => {
+    vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ...over })));
+    const { unmount } = show();
+    await screen.findByText("Dune");
+    const shown = screen.queryAllByRole("button").map((b) => b.textContent);
+    unmount();
+    return shown;
+  };
+  const without = await names({ actions: ["return"] });
+  expect(await names({ actions: ["return", "relabel"] })).toEqual(without);
+  expect(without).toContain("Mark as returned");
+  expect(screen.queryByText("Replace label")).not.toBeInTheDocument();
 });
 
 test("Put a label on it links to pairing this copy", async () => {

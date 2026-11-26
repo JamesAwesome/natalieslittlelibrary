@@ -119,10 +119,13 @@ test("no shelf, collections list, holding list, or copy by id contains a label c
     ok(await ledger.collectionsOf(natalie.id)),
     await ledger.holding(sam),
   ];
-  // A copy by id has the CopyView shape, whose `code` is null here; no code string is in it either.
-  const byId = [ok(await ledger.viewCopy(dune.copyId, natalie)), ok(await ledger.viewCopy(atBeach.copyId, sam))];
+  // A copy by id has the CopyView shape, whose `code` is null here. Only its owner gets a code, its own, in `ownerCode`.
+  const owners = ok(await ledger.viewCopy(dune.copyId, natalie));
+  expect(owners.ownerCode).toBe(codes[0]);
+  const byId = [{ ...owners, ownerCode: null }, ok(await ledger.viewCopy(atBeach.copyId, sam))];
   for (const v of byId) {
     expect(v.code).toBeNull();
+    expect(v.ownerCode).toBeNull();
     for (const code of codes) expect(JSON.stringify(v)).not.toContain(code);
   }
   const noCodeKey = (v: unknown): boolean => {
@@ -164,7 +167,7 @@ test("viewCopy has the collection, no code, and offers return and move to the ow
   const v = ok(await ledger.viewCopy(dune.copyId, natalie));
   expect(v.code).toBeNull();
   expect(v.collection).toMatchObject({ name: "Home library" });
-  expect(v.actions).toEqual(["return", "move"]);
+  expect(v.actions).toEqual(["return", "move", "relabel"]);
   expect(v.actions).not.toContain("claim");
   expect(v.history.length).toBeGreaterThan(0);
 });

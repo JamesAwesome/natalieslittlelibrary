@@ -6,8 +6,8 @@ import { availableActions, decide, type CopyState } from "./rules";
 const member = (id: string): Member => ({ id, name: id, email: `${id}@example.com`, pictureUrl: null, isAdmin: false });
 
 test.each([
-  ["owner at home", { ownerId: "a", holderMemberId: "a", labelled: true }, "a", ["move"]],
-  ["owner while the book is out", { ownerId: "a", holderMemberId: "b", labelled: true }, "a", ["return", "move"]],
+  ["owner at home", { ownerId: "a", holderMemberId: "a", labelled: true }, "a", ["move", "relabel"]],
+  ["owner while the book is out", { ownerId: "a", holderMemberId: "b", labelled: true }, "a", ["return", "move", "relabel"]],
   ["owner of a copy with no label", { ownerId: "a", holderMemberId: "a", labelled: false }, "a", ["move", "label"]],
   ["holder who is not the owner", { ownerId: "a", holderMemberId: "b", labelled: true }, "b", []],
   ["a third member, book at home", { ownerId: "a", holderMemberId: "a", labelled: true }, "c", ["claim"]],
@@ -22,7 +22,7 @@ test.each([
 test("claim is offered only when the label is in hand", () => {
   const state = { ownerId: "a", holderMemberId: "a", labelled: true };
   expect(availableActions(state, member("c"), { labelInHand: false })).toEqual([]);
-  expect(availableActions(state, member("a"), { labelInHand: false })).toEqual(["move"]);
+  expect(availableActions(state, member("a"), { labelInHand: false })).toEqual(["move", "relabel"]);
 });
 
 const OWNER = "a";
@@ -58,18 +58,25 @@ test.each([
   ["the owner", OWNER, "home", "label", "not-allowed"],
   ["the holder", HOLDER, "out, no label", "label", "not-allowed"],
   ["a third member", THIRD, "home, no label", "label", "not-allowed"],
+  ["the owner", OWNER, "home", "relabel", "relabelled"],
+  ["the owner", OWNER, "out", "relabel", "relabelled"],
+  ["the owner", OWNER, "home, no label", "relabel", "not-allowed"],
+  ["the owner", OWNER, "out, no label", "relabel", "not-allowed"],
+  ["the holder", HOLDER, "out", "relabel", "not-allowed"],
+  ["a third member", THIRD, "home", "relabel", "not-allowed"],
+  ["a third member", THIRD, "no owner", "relabel", "not-allowed"],
 ] as const)("%s, copy %s, %s -> %s", (_who, viewer, state, action, outcome) => {
   const d = decide(states[state], member(viewer), action);
   const holder = states[state].holderMemberId;
   if (outcome === "not-allowed") expect(d).toEqual({ rejected: "not-allowed" });
   else if (outcome === "moved") expect(d).toEqual({ holderMemberId: holder, event: null });
-  else if (outcome === "labelled") expect(d).toEqual({ holderMemberId: holder, event: "labelled" });
+  else if (outcome === "labelled" || outcome === "relabelled") expect(d).toEqual({ holderMemberId: holder, event: outcome });
   else expect(d).toEqual({ holderMemberId: viewer, event: outcome });
 });
 
 test("an action is available exactly when decide allows it", () => {
   const ids = [OWNER, HOLDER, THIRD];
-  const actions: ActionType[] = ["claim", "return", "move", "label"];
+  const actions: ActionType[] = ["claim", "return", "move", "label", "relabel"];
   for (const ownerId of [...ids, null]) {
     for (const holderMemberId of [...ids, null]) {
       for (const labelled of [true, false]) {

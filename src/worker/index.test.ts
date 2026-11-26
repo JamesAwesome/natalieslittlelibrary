@@ -659,6 +659,7 @@ const EVERY_NEW_ROUTE: [string, string][] = [
   ["GET", "/api/copies/x"],
   ["POST", "/api/copies/x/move"],
   ["POST", "/api/copies/x/label"],
+  ["POST", "/api/copies/x/relabel"],
   ["POST", "/api/imports"],
 ];
 
@@ -696,11 +697,11 @@ async function writeFixture() {
   const json = async <T>(res: Response) => (await res.json()) as T;
   await send("POST", "/api/imports", nat.cookie, { rows: [{ title: "Loose", authors: ["L"], isbn: null }] }); // makes the default
   const spare = await json<{ id: string }>(await send("POST", "/api/collections", nat.cookie, { name: "Spare" })); // empty, not default
-  const { labels } = await json<{ labels: { code: string }[] }>(await send("POST", "/api/labels", nat.cookie, { count: 3 }));
-  const [labelled, forLoose, forNew] = labels.map((l) => l.code);
+  const { labels } = await json<{ labels: { code: string }[] }>(await send("POST", "/api/labels", nat.cookie, { count: 4 }));
+  const [labelled, forLoose, forNew, forHome] = labels.map((l) => l.code);
   const home = await json<{ copyId: string }>(await send("POST", "/api/copies", nat.cookie, { code: labelled, title: "Shelved", authors: ["S"] }));
   const loose = (await env.DB.prepare("select id from copies where id <> ?").bind(home.copyId).first<{ id: string }>())!.id;
-  return { cookie: nat.cookie, spare: spare.id, home: home.copyId, loose, codes: { forLoose, forNew } };
+  return { cookie: nat.cookie, spare: spare.id, home: home.copyId, loose, codes: { labelled, forLoose, forNew, forHome } };
 }
 const snapshot = async () =>
   JSON.stringify(await Promise.all(["collections", "copies", "labels", "events", "books"].map(async (t) =>
@@ -714,6 +715,7 @@ const WRITES: Write[] = [
   ["POST /api/collections/:id/default", (f) => ({ method: "POST", path: `/api/collections/${f.spare}/default` })],
   ["POST /api/copies/:id/move", (f) => ({ method: "POST", path: `/api/copies/${f.home}/move`, body: { collectionId: f.spare } })],
   ["POST /api/copies/:id/label", (f) => ({ method: "POST", path: `/api/copies/${f.loose}/label`, body: { code: f.codes.forLoose } })],
+  ["POST /api/copies/:id/relabel", (f) => ({ method: "POST", path: `/api/copies/${f.home}/relabel`, body: { code: f.codes.forHome, replacing: f.codes.labelled } })],
   ["POST /api/copies", (f) => ({ method: "POST", path: "/api/copies", body: { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare } })],
   ["POST /api/imports", (f) => ({ method: "POST", path: "/api/imports", body: { collectionId: f.spare, rows: [{ title: "Imported", authors: [], isbn: null }] } })],
 ];
@@ -752,6 +754,32 @@ test("label binds a code to an imported copy and answers with that code and no o
   expect((await send("POST", `/api/copies/${f.loose}/label`, f.cookie, { code: 5 })).status).toBe(400);
 });
 
+test("POST /api/copies/:id/relabel replaces, and a body without replacing is 400", async () => {
+  const f = await writeFixture();
+  expect((await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: f.codes.forHome })).status).toBe(400);
+  expect((await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: f.codes.forHome, replacing: 5 })).status).toBe(400);
+  expect((await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: 5, replacing: f.codes.labelled })).status).toBe(400);
+  expect((await send("POST", "/api/copies/nope/relabel", f.cookie, { code: f.codes.forHome, replacing: f.codes.labelled })).status).toBe(404);
+  const res = await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: f.codes.forHome, replacing: f.codes.labelled });
+  expect(res.status).toBe(200);
+  const text = await res.text();
+  expect(JSON.parse(text)).toMatchObject({ copyId: f.home, code: f.codes.forHome, ownerCode: f.codes.forHome });
+  expect(text).not.toContain(f.codes.labelled);
+  expect(await (await get(`/api/labels/${f.codes.labelled}`, f.cookie)).json()).toEqual({ kind: "retired" });
+  const again = await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: f.codes.forNew, replacing: f.codes.labelled });
+  expect(again.status).toBe(403);
+  expect(await again.json()).toEqual({ rejected: "not-allowed" });
+});
+
+test("a cross-site relabel is 403", async () => {
+  const f = await writeFixture();
+  const before = await snapshot();
+  const res = await send("POST", `/api/copies/${f.home}/relabel`, f.cookie, { code: f.codes.forHome, replacing: f.codes.labelled }, { "sec-fetch-site": "cross-site" });
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ rejected: "not-allowed" });
+  expect(await snapshot()).toBe(before);
+});
+
 test("add takes a collectionId, and candidates finds an imported copy by isbn", async () => {
   const f = await writeFixture();
   const added = await send("POST", "/api/copies", f.cookie, { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare });
@@ -779,6 +807,7 @@ test("an id that fails the shape check is a JSON 404 before the ledger, even whe
     ["GET", "/api/collections/legacy_id"], ["PATCH", "/api/collections/legacy_id", { name: "X" }], ["DELETE", "/api/collections/legacy_id"],
     ["POST", "/api/collections/legacy_id/default"], ["GET", "/api/copies/legacy_copy"],
     ["POST", "/api/copies/legacy_copy/move", { collectionId: "a".repeat(32) }], ["POST", "/api/copies/legacy_copy/label", { code: f.codes.forLoose }],
+    ["POST", "/api/copies/legacy_copy/relabel", { code: f.codes.forHome, replacing: f.codes.labelled }],
   ] as [string, string, unknown?][]) {
     const res = await send(method, path, f.cookie, body);
     expect(res.status, `${method} ${path}`).toBe(404);
@@ -918,7 +947,7 @@ test("an import whose lookup is unavailable is 503 and writes nothing", async ()
   }
 });
 
-test("no collections, shelf, holding, candidates, or copy-by-id answer contains a label code or an @", async () => {
+test("no collections, shelf, holding, candidates, or copy-by-id answer contains a label code or an @, but the owner's ownerCode", async () => {
   const nat = await signInAs(env.DB, natalie);
   const s = await signInAs(env.DB, sam);
   const { labels } = (await (await send("POST", "/api/labels", nat.cookie, { count: 2 })).json()) as { labels: { code: string }[] };
@@ -931,11 +960,18 @@ test("no collections, shelf, holding, candidates, or copy-by-id answer contains 
     "/api/collections/mine", `/api/collections/${mine.collections[0].id}`, "/api/holding", "/api/members",
     `/api/members/${nat.member.id}/collections`, `/api/copies/${added.copyId}`, "/api/copies/candidates?title=Unlabelled",
   ];
+  const copyById = `/api/copies/${added.copyId}`;
   for (const cookie of [nat.cookie, s.cookie]) {
     for (const path of paths) {
       const res = await get(path, cookie);
       expect(res.status, path).toBe(200);
-      const text = await res.text();
+      let text = await res.text();
+      // The owner's copy page carries the live code in ownerCode, and only there.
+      if (cookie === nat.cookie && path === copyById) {
+        const body = JSON.parse(text) as { code: string | null; ownerCode: string | null };
+        expect(body).toMatchObject({ code: null, ownerCode: code });
+        text = JSON.stringify({ ...body, ownerCode: null });
+      }
       expect(text, path).not.toContain(code);
       expect(text, path).not.toContain(spare);
       expect(text, path).not.toContain("@");
