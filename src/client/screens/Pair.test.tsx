@@ -773,17 +773,45 @@ test.each([
   expect(api.relabelCopy).not.toHaveBeenCalled();
 });
 
+const OWN = "That's the label already on this book. Scan a new blank one.";
+
+test("scanning the copy's own label does not open the confirm; it says so, keeps scanning, and ignores that code until another is read", async () => {
+  labelled();
+  show("?copy=c1&replace=1");
+  await screen.findByText("Now scan a blank label.");
+  await click("stub label"); // t7k2q9xzmb is the label the copy already has
+  expect(await screen.findByText(OWN)).toBeInTheDocument();
+  expect(queryPara(ASK)).not.toBeInTheDocument();
+  expect(wantOf()).toBe("label");
+  await click("stub label"); // still in front of the camera: refused, no second confirm
+  expect(queryPara(ASK)).not.toBeInTheDocument();
+  await typeCode("t7k2q9xzmb");
+  expect(screen.getByText(OWN)).toBeInTheDocument();
+  expect(queryPara(ASK)).not.toBeInTheDocument();
+  await click("stub other label");
+  expect(await findPara(ASK)).toBeInTheDocument();
+  expect(api.relabelCopy).not.toHaveBeenCalled();
+});
+
+test("the copy's own label in the address does not open the confirm either", async () => {
+  labelled();
+  show("?copy=c1&replace=1&label=T7K2Q9XZMB");
+  expect(await screen.findByText(OWN)).toBeInTheDocument();
+  expect(queryPara(ASK)).not.toBeInTheDocument();
+  expect(wantOf()).toBe("label");
+});
+
 test("a label already on a book is refused with the blank-label notice and scanning resumes", async () => {
   labelled();
   vi.mocked(api.relabelCopy).mockRejectedValue(refuse(409, "label-in-use"));
   show("?copy=c1&replace=1");
   await screen.findByText("Now scan a blank label.");
-  await click("stub label");
+  await click("stub other label");
   await click("Replace");
   await screen.findByText("That label is already on a book. Use a blank one.");
-  expect(api.relabelCopy).toHaveBeenCalledWith("c1", "t7k2q9xzmb", "t7k2q9xzmb");
+  expect(api.relabelCopy).toHaveBeenCalledWith("c1", "mmmmmmmmmm", "t7k2q9xzmb");
   expect(wantOf()).toBe("label");
-  await click("stub label");
+  await click("stub other label");
   expect(queryPara(ASK)).not.toBeInTheDocument();
   expect(api.relabelCopy).toHaveBeenCalledTimes(1);
   expect(api.labelCopy).not.toHaveBeenCalled();

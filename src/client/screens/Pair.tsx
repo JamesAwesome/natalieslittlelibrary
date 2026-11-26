@@ -337,6 +337,15 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   // The collection for a new copy comes from the pick the person made; an existing copy stays where it is.
   function withLabel(label: string, p: Pending) {
     if ("replacing" in p.how) {
+      if (label === p.how.replacing) {
+        // The sticker already on the book: nothing to confirm, and not offered again until another is read.
+        refused.current = label;
+        setLinked(null);
+        setCode(null);
+        setNotice("That's the label already on this book. Scan a new blank one.");
+        go("label");
+        return;
+      }
       // Every way a label arrives (scan, typed, from the address) asks before the old one is retired.
       setToReplace({ label, p });
       setNotice(undefined);
