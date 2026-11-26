@@ -105,9 +105,16 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
     setReadFailed(false);
     setGarbled(false);
     try {
-      const text = await file.text();
+      const bytes = await file.arrayBuffer();
       if (!live.current || mine !== fileSeq.current) return;
-      setGarbled(text.includes("\uFFFD"));
+      // Warn only on bytes that aren't UTF-8: a "\uFFFD" already in the export (StoryGraph has some) is not a sign of a wrong encoding.
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        text = new TextDecoder("utf-8").decode(bytes);
+        setGarbled(true);
+      }
       setParsed(parseExport(text));
     } catch {
       if (live.current && mine === fileSeq.current) setReadFailed(true);
