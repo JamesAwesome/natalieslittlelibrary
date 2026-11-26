@@ -142,6 +142,12 @@ const invalid = (c: AppContext) => c.json({ rejected: "invalid" }, 400);
 app.get("/api/health", (c) => c.json({ ok: true }));
 app.get("/api/me", (c) => c.json({ member: viewer(c) }));
 
+app.get("/api/labels/sheets", member(async (c, who) => c.json({ sheets: await c.var.services.ledger.sheets(who) })));
+app.get("/api/labels/sheets/:id", member(async (c, who) => {
+  const result = await c.var.services.ledger.sheetCodes(who, c.req.param("id") ?? "", { includeMine: c.req.query("include") === "mine" });
+  return Array.isArray(result) ? c.json({ labels: result }) : answer(c, result);
+}));
+
 app.get("/api/labels/:code", async (c) => c.json(await c.var.services.ledger.view(c.req.param("code"), viewer(c))));
 
 app.post("/api/labels", member(async (c, who) => {

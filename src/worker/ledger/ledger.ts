@@ -1,9 +1,10 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
+import { createSheetReads } from "./sheets";
 import { createShelfReads, inCollection } from "./shelves";
 import { BLANK, cleanText, createUnlabelled, MAX_AUTHOR, MAX_AUTHORS, MAX_TITLE } from "./unlabelled";
 
@@ -31,6 +32,8 @@ export interface Ledger {
   makeDefault(member: Member, id: string): Promise<CollectionSummary[] | Rejection>; // the member's collections after
   // 1 to 20 rows, unlabelled copies owned and held by the importer; rows they already have are skipped inside the write.
   importCopies(owner: Member, input: { collectionId: string | null; rows: ImportRow[] }): Promise<ImportResult | Rejection>;
+  sheets(member: Member): Promise<SheetSummary[]>; // the member's mints, newest first
+  sheetCodes(member: Member, sheetId: string, opts: { includeMine: boolean }): Promise<{ code: string; url: string }[] | Rejection>;
   labelCopy(owner: Member, copyId: string, code: string): Promise<CopyView | Rejection>; // answers with the code the request carried
   candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection>; // never a label code
 }
@@ -437,5 +440,5 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   const { importCopies, labelCopy, candidates } = unlabelled;
-  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createCollectionWrites(db, now) };
+  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createSheetReads(db, deps.siteUrl), ...createCollectionWrites(db, now) };
 }

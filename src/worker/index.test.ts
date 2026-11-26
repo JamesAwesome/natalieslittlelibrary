@@ -949,3 +949,22 @@ test("candidates needs an isbn or a title, and a copy id that cannot exist is 40
   expect((await get("/api/copies/nope", cookie)).status).toBe(404);
   expect((await send("POST", "/api/copies/nope/move", cookie, { collectionId: "a".repeat(32) })).status).toBe(404);
 });
+
+test("GET /api/labels/sheets signed out is 401, and is not taken for a label code", async () => {
+  const res = await get("/api/labels/sheets", "");
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ rejected: "signed-out" });
+});
+
+test("GET /api/labels/sheets/:id?include=mine answers labels with urls", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  await post("/api/labels", cookie, { count: 2 });
+  const { sheets } = (await (await get("/api/labels/sheets", cookie)).json()) as { sheets: { id: string; total: number }[] };
+  expect(sheets).toHaveLength(1);
+  expect(sheets[0].total).toBe(2);
+  const res = await get(`/api/labels/sheets/${sheets[0].id}?include=mine`, cookie);
+  const { labels } = (await res.json()) as { labels: { code: string; url: string }[] };
+  expect(labels).toHaveLength(2);
+  for (const l of labels) expect(l.url).toBe(`${SITE}/b/${l.code}`);
+  expect((await get("/api/labels/sheets/nope", cookie)).status).toBe(404);
+});

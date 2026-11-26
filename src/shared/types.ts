@@ -40,3 +40,5 @@ export type LabelView =
   | { kind: "copy"; copy: CopyView };
 export type RejectionReason = "not-found" | "not-allowed" | "label-unknown" | "label-in-use" | "name-taken" | "book-not-found" | "invalid" | "signed-out" | "unavailable";
 export type Rejection = { rejected: RejectionReason };
+
+export type SheetSummary = { id: string; at: number; total: number; blank: number; mine: number };
