@@ -89,8 +89,20 @@ look taken from either app.
   only what `CopyView.actions` allows.
 - **Label sheets and the scanner keep working.**
   - `src/client/labelsheet/` and `src/client/scanner/` keep their behaviour.
-  - The label sheet's rules (today `index.css:140-352`: the sheet styles, `@page label-sheet` and `@media print`) move unchanged
-    into their own file.
+  - The label sheet's rules move unchanged into `styles/print.css`. Today they
+    are `index.css:238-273`, `282-297` and `299-352` (the sheet styles,
+    `@page label-sheet` and `@media print`). The page rules around them
+    (`.copy-page`, `.pair-page`, `.labels-page` controls and `.label-code` at
+    `275-280`) are screen styles and get restyled like everything else.
+  - `print.css` and everything under `labelsheet/`, including the inline
+    `fill="#000"` and cut colours in `Sheet.tsx`, are **exempt** from the
+    token and no-black-or-white gates below. A label prints in black on white
+    whatever the phone's setting.
+  - `print.css` is imported **last**, so no later screen rule of equal
+    specificity can un-hide something the print rules hide.
+  - How to check a sheet still prints the same: print
+    `labelsheet/preview.html?outlines` to PDF on `main` and on the branch, in
+    both the light and dark settings, and compare them page by page.
   - `labelsheet/preview.tsx` imports the stylesheet through the same entry as
     `main.tsx`.
 - **Tests.** About 655 client tests use Testing Library by role and visible
@@ -131,7 +143,7 @@ and adds `/more`.
 |---|---|---|
 | `/` | Your wall (all your collections). Signed out: sign-in. | Books |
 | `/mine` | Same as `/`; rewritten to `/` with `history.replaceState` **(call)** | Books |
-| `/collections/:id` | That one collection's wall | Books if yours, else Friends |
+| `/collections/:id` | That one collection's wall. For its owner, Rename, Make this the default and Delete (today `Shelf.tsx:80-108`) sit above the wall, restyled, same behaviour | Books if yours, else Friends |
 | `/holding` | Wall of what you hold | Holding |
 | `/members` | Friends list | Friends |
 | `/members/:id` | That friend's wall (all their collections) | Friends |
@@ -140,26 +152,53 @@ and adds `/more`.
 | `/pair`, `/labels`, `/import`, `/people` | As today, restyled | More |
 | anything else | Not found | none |
 
+- **Tabs that depend on loaded data** (book pages, `/collections/:id`): no tab
+  is marked until the page has loaded. Blank, unknown and retired labels mark
+  Books. Once loaded, the tab stays as it was for that visit, even if a claim
+  makes you the holder **(call)**.
 - **Tab bar.**
   - It shows on every screen while signed in, and never while signed out.
+    That includes a session lost mid-visit: when a screen falls back to
+    sign-in (`lost`), the tab bar goes too.
   - It is a `<nav aria-label="Main">` of four links, with `aria-current="page"`
     on the active one.
+  - The active tab differs by more than colour (rust and the muted grey are
+    the same lightness): a filled icon and a heavier label **(call)**.
   - It is fixed to the bottom, padded by `env(safe-area-inset-bottom)`, with
-    `viewport-fit=cover` added to the viewport meta.
+    `viewport-fit=cover` added to the viewport meta. In landscape, the left
+    and right insets pad the bar and the page.
+  - The room the page leaves for it is padding on `#root`, not `body`.
+    The print reset at `index.css:315-319` already clears `#root`, so a
+    printed sheet doesn't gain a blank last page.
   - It carries the `app-chrome` class, so label printing hides it.
   - Each tab is a hand-drawn SVG icon from one stroke set, with a text label
     under it **(call)**. No emoji or Unicode glyphs.
+- **Navigation stays full page loads.**
+  - Links stay plain `href`s, and `App.tsx:73` still reloads a page restored
+    from the back/forward cache, so data is never stale.
+  - So that going back to a wall doesn't lose your place, each wall saves its
+    chips and `scrollY` to `sessionStorage`, keyed by path, as you leave. It
+    restores them once its covers have rendered, with
+    `history.scrollRestoration = "manual"` **(call)**.
+  - Reads and writes are wrapped in try/catch; with no storage, the wall
+    simply starts at the top with All.
 - **Back.**
-  - A book page shows a back link at the top. It goes back in history when the
-    previous page was in the app, otherwise to its tab's root. It is labelled
-    with where it goes ("‹ Books", "‹ Holding", "‹ Sam's books").
-  - A book page reached by scanning a label has no in-app history, so its back
-    link goes to the tab's root.
+  - A book page shows a back link at the top. It is a plain link, not
+    `history.back()`, because the app can't reliably tell whether the last
+    page was its own.
+  - Its target and label come from `document.referrer`. If the referrer is
+    same-origin and `matchRoute` says it was a wall (`/`, `/holding`,
+    `/members/:id`, `/collections/:id`), the link goes there and is labelled
+    with that wall ("‹ My books", "‹ Holding", "‹ Sam's books").
+  - Otherwise it goes to the root of the page's tab. That covers a scanned
+    label, a link opened in a new tab, and coming back from Pair after a
+    scan.
+  - Signed out, there is no back link.
 - **Home's buttons go.** Signed in, `/` is the wall.
   - The "Hi, {name}" line moves to the top of the More list.
   - Sign out moves to the end of the More list.
-  - The `notice` that Home shows today (a `role="alert"` paragraph) shows above
-    the wall instead.
+  - The `notice` that Home shows today comes only from a failed sign-out
+    (`App.tsx:97-102`), so it shows on More, above Sign out.
 - **Screen titles.** Each screen's `h1` is its own title ("My books",
   "Holding", "Friends", the friend's name, the book's title). "Natalie's
   Little Library" is no longer every screen's `h1`. It stays as the document
@@ -171,11 +210,13 @@ One component for every wall: your books, a single collection, Holding and a
 friend's shelf. It takes `ShelfItem[]` and a description of whose wall it is.
 
 - **Order.**
-  - Books are sorted by title with `Intl.Collator` (base sensitivity, numeric),
-    ignoring a leading "The ", "A " or "An " **(call)**. So "The Call of the
-    Wild" files under C.
-  - A title whose sort key starts with anything other than a letter A–Z, after
-    stripping accents, files under "#", at the end.
+  - The sort key is the title without a leading "The ", "A " or "An "
+    **(call)**, so "The Call of the Wild" files under C.
+  - Group first: a book's letter is the sort key's first character with
+    accents stripped, A–Z. Anything else files under "#", which comes last.
+  - Then sort within each group with `Intl.Collator("en", { sensitivity:
+    "base", numeric: true })`. The locale is pinned so a Swedish phone, say,
+    can't split a group.
 - **Grouping.** A letter heading (`h2`, Fraunces, accent colour) starts each
   letter that has books. Letters with no books get no heading.
 - **Grid.**
@@ -189,25 +230,37 @@ friend's shelf. It takes `ShelfItem[]` and a description of whose wall it is.
     image has `alt=""`.
   - Below the cover is one short line, shown only when it applies:
     - on your own wall, "With {holder}" when the book is out;
-    - on Holding, "From {owner}";
+    - on Holding, "From {owner}", or "No owner" for a released book;
     - on a friend's wall, "Out" when the book isn't at home.
+  - Names always go through `personLabel` and `holderLabel`, so removed
+    members and placeholder people read as they do today.
 - **Header.**
-  - It stays at the top while the wall scrolls.
-  - It holds the screen title, a count line ("248 books · 3 lent out" on your
-    own wall; "{n} books" elsewhere), and the chips.
-- **Chips.** A row of toggle buttons, scrolling sideways when they don't fit.
-  Each is at least 44px tall: the tap area is padded beyond the drawn pill.
-  `aria-pressed` marks the selected one.
+  - The screen title and the count line ("248 books · 3 lent out" on your own
+    wall; "{n} books" elsewhere) scroll away with the wall.
+  - Only the chips row stays at the top **(call)**. A sticky title, count and
+    chips would leave room for about one and a half rows of covers on a
+    320px phone.
+- **Chips.** A row of buttons, scrolling sideways when they don't fit. Each is
+  at least 44px tall: the tap area is padded beyond the drawn pill.
+  - **Status chips** are toggle buttons with `aria-pressed`. The selected one
+    is filled with ink, so it differs by more than colour.
+  - **Collection ▾** is a menu button (`aria-haspopup="menu"`). It lists "All
+    collections", then each collection.
   - **Your wall:**
     - All · At home · Lent out · No label · Collection ▾.
-    - Collection ▾ lists your collections and ends with "New collection…",
-      which opens the existing create form in place.
+    - Your Collection ▾ ends with "New collection…", which opens the existing
+      create form in place.
+    - With a collection picked, the menu also offers "Manage {name}", which
+      goes to `/collections/:id` (rename, default, delete).
     - This replaces Mine's "only unlabelled" toggle and its create form.
   - **A friend's wall:** All · At home · Collection ▾ (their collections).
   - **Holding and a single collection:** no chips.
-  - **Combining.** Status chips (At home, Lent out, No label) are exclusive with
-    one another. Collection ▾ combines with any of them. Filters are local
-    state, not in the URL **(call)**.
+  - **Combining.**
+    - Status chips are exclusive with one another, and All clears only the
+      status chip.
+    - Collection ▾ combines with any of them.
+    - Filters are local state, not in the URL **(call)**. They survive going
+      back through `sessionStorage`, as described under Routes and tabs.
 - **The A–Z rail.**
   - It shows only when the wall has more than 24 books and at least two
     letters **(call)**.
@@ -215,18 +268,33 @@ friend's shelf. It takes `ShelfItem[]` and a description of whose wall it is.
     (A–Z, then #). Marks for letters with no books are drawn muted.
   - The strip's touch area is at least 44px wide. Individual letters are not
     separate targets.
-  - On `pointerdown` and `pointermove` it maps the finger's height to a mark.
-    It scrolls that letter's heading, or the next letter with books, under the
-    sticky header (`scroll-margin-top`), and shows the current letter in a
-    small bubble beside the thumb while dragging.
+  - It is fixed in the viewport, between the sticky chips row and the tab bar,
+    and inside the right safe-area inset, so it never scrolls out from under
+    the thumb.
+  - It has `touch-action: none` and takes pointer capture on `pointerdown`.
+    Without these, the browser takes the drag as a page scroll and cancels it.
+  - On `pointerdown` and `pointermove` it maps the finger's height to a mark
+    (a pure function, tested). It scrolls that letter's heading, or the next
+    letter with books, under the chips row (`scroll-margin-top`), and shows
+    the current letter in a small bubble beside the thumb while dragging.
+  - While dragging it scrolls instantly, never smoothly, because repeated
+    smooth scrolls cancel one another.
   - It has `aria-hidden="true"`. Screen-reader users move by the letter
     headings, which are real headings.
-  - With reduced motion, the scroll jumps instead of gliding.
 - **Requests bar (owner only).**
   - When anyone has asked to keep one of your books, a bar shows above the
     chips: "1 request" or "{n} requests".
   - Tapping it opens the approve and decline list from Mine as it is today,
     with the same wording and confirmations.
+  - If requests fail to load, the bar is replaced by today's line, "Couldn't
+    load requests." (`Mine.tsx:118`).
+- **When one shelf fails.**
+  - Your wall and a friend's wall merge several collections. If some load and
+    others fail, the wall shows what loaded.
+  - It adds an alert, "Some books couldn't load.", with Try again, and drops
+    the count line, which would be wrong.
+  - Only when everything fails does it show `Trouble`. This keeps Mine's
+    current behaviour (`Mine.tsx:13-29`).
 - **Empty walls.**
   - Your own, empty: "You haven't added any books yet.", with Pair a book and
     Import from StoryGraph as links.
@@ -258,13 +326,24 @@ A cover sits in a fixed 2:3 box.
      inset border and a small "Cover didn't load" line under the title
      **(call)**.
 
-  Today states 2 and 3 share `cover-missing`. Both are tested by role and
-  text.
+  - Today states 2 and 3 share `cover-missing`, and the tests find it by class
+    (`CopyPage.test.tsx:90,576-578`). The new tests check by visible text
+    that the two states differ.
+  - The whole cover, tile text included, stays `aria-hidden`, so "Cover
+    didn't load" and the tile's title never join the link's name or
+    duplicate text that other tests query.
+  - Covers and member pictures keep `referrerPolicy="no-referrer"`
+    (`BookCard.tsx:13`).
+- **How many tiles to expect.** Of the 290 books marked owned in Natalie's
+  export, 18 have no ISBN, so they will be no-cover tiles (counted locally;
+  no titles read). Books with an ISBN that neither source has a cover for
+  will add to that, and that number isn't known yet.
 - **Sharpness.** Google Books thumbnails (`googleCover` in
   `src/worker/booklookup/sources.ts`) are about 128px wide, and Open Library
   "medium" covers are about 180px. A 160px cover on a 3× screen may look soft.
-  - PR 1 puts real covers of public-domain editions on the wall and the book
-    page, and the builder judges them at real size.
+  - In PR 1, the builder judges real covers of public-domain editions at
+    real size, in the new `Cover` on today's copy page and shelf rows (the
+    wall and new book page come later).
   - If they look soft, the client may ask for a larger image of the same cover
     (Open Library `-M` to `-L`; for Google, whatever size parameter actually
     works). It falls back to the stored URL on error, and the stored URL never
@@ -282,21 +361,28 @@ scanning a label. It is option A from the mockups.
   2. The cover, centred, about 150–180px wide.
   3. The title (`h1`, Fraunces) and the authors.
   4. A status line: "At home", or "With {holder}". For anyone but the owner it
-     adds "· {owner}'s book".
+     adds "· {owner}'s book". A book with no owner says "No one owns this
+     book.", as today. Names go through `personLabel` and `holderLabel`.
   5. A meta line, owner only: the collection and the label code.
-  6. The main button, full width.
+  6. The main button, full width, when there is one.
   7. The other actions, as a list of 44px rows with a chevron.
   8. History (`h2`).
-- **Which button is main.** It is picked from `copy.actions` in this order
-  **(call)**: I have this book, Mark as returned, Take this book, Approve, Lend,
-  Ask to keep this, Withdraw. Every other allowed action is a row. A request
-  shows as a line above the button, as today.
+- **Which button is main.**
+  - It is picked from `copy.actions` in this order **(call)**: I have this
+    book, Mark as returned, Take this book, Approve, Lend, Ask to keep this,
+    Withdraw. Every other allowed action is a row.
+  - If none of those is allowed, there is no main button. For example, a
+    friend's book opened from a wall never offers claim or take, because
+    those need the label in hand.
+  - A request shows as a line above the button, as today.
 - **Flows stay put.** Lend, give, approve, release and move open in place
   below the button, as today. Their steps, wording and confirmations don't
   change; only their styling does.
 - **Signed out.**
-  - The same layout, with "Sign in to take it" as the main button (the existing
-    sign-in link with `returnTo`) and no tab bar.
+  - The same layout, with no tab bar and no back link.
+  - The main button is "Sign in to take it". It is today's `SignIn` component,
+    restyled, so it keeps `returnTo` and its in-app-browser warning
+    (`SignIn.tsx:30-37`).
   - Public label views (`kind: "public"`) show cover, title and authors.
   - Unknown, retired and blank labels keep today's messages, in the new
     styling.
@@ -304,8 +390,10 @@ scanning a label. It is option A from the mockups.
 ### Friends, Holding and More
 
 - **Friends (`/members`).**
-  - A list of members other than you. Each row has the member's picture (or
-    initial on an accent disc), name and book count, and links to their wall.
+  - A list of members other than you. Each row has the member's picture, name
+    and book count, and links to their wall.
+  - The picture falls back to an initial on an accent disc, both when it is
+    null and when it fails to load.
   - The count is the sum of `memberCollections(id)` counts, fetched for each
     member after the list loads. A row whose count fails shows no count.
   - No cover strip: that would need every friend's whole shelf on every visit.
@@ -357,8 +445,12 @@ scanning a label. It is option A from the mockups.
 - **Type.**
   - **Packages.** `@fontsource-variable/fraunces` and
     `@fontsource-variable/geist` (both 5.3.0, OFL), self-hosted by Vite.
-  - **Loading.** Latin subset only, and `font-display: swap`. There are no
-    requests to Google at runtime.
+  - **Loading.** Import the packages' own CSS. Its `unicode-range` already
+    downloads only the characters a page uses, so no hand-made subset is
+    needed, and names like Łódź don't fall back to another font mid-word.
+    `font-display: swap`. There are no requests to Google at runtime.
+  - **Family names.** The packages name the fonts `'Fraunces Variable'` and
+    `'Geist Variable'`; the tokens use those.
   - **Fraunces** sets screen titles, book titles, letter headings and the
     no-cover tile, at weight 600, always upright.
   - **Geist** sets everything else.
@@ -376,15 +468,26 @@ scanning a label. It is option A from the mockups.
   - The three named easings as tokens. Only `transform` and `opacity` animate.
   - Reduced motion removes all movement.
 - **Phone setup.**
-  - Two `theme-color` metas, one per `prefers-color-scheme`, set to paper.
-  - A `manifest.webmanifest` with name "Natalie's Little Library", short name
-    "Little Library" and `display: "browser"`.
-  - Icons at 192 and 512, plus a 180px `apple-touch-icon`.
-  - **Why `display: "browser"` (call):** on iOS a home-screen app keeps its own
-    cookies apart from Safari's. A label scanned with the Camera opens in
-    Safari, which would then be signed out, so the saved app opens Safari too.
-  - The icon is a simple mark in the tokens' rust and paper. The builder draws
-    it, and James sees it in PR 4.
+  - **Theme colour.** Two `theme-color` metas, one per
+    `prefers-color-scheme`, set to paper. Android uses them. Safari 26
+    reportedly tints from the page's own background and fixed edge elements,
+    which paper on `body` and on the tab bar covers.
+  - **Manifest.** A `manifest.webmanifest` with name "Natalie's Little
+    Library", short name "Little Library" and `display: "browser"`.
+  - **Icons.** At 192 and 512, plus a 180px `apple-touch-icon`. The icon is a
+    simple mark in the tokens' rust and paper. The builder draws it, and James
+    sees it in PR 4.
+  - **Why `display: "browser"` (call).** An iOS home-screen web app keeps its
+    own storage. It gets a copy of Safari's login cookies when it's added
+    (iOS 17.2 and later), but the two sign-ins drift apart after that.
+    Labels scanned with the Camera always open in Safari, so the aim is for
+    the saved icon to open Safari too.
+  - **Not yet known.** From iOS 26, Add to Home Screen opens any site as a web
+    app unless the person turns "Open as Web App" off, and nobody documents
+    whether `display: "browser"` changes that.
+  - **PR 4 must check this on an iPhone.** If the icon still opens as a web
+    app, More gets one line telling people to turn "Open as Web App" off when
+    they add it **(call)**.
 
 ### Hallmark gates
 
@@ -412,8 +515,14 @@ apply are written here.
     - no bounce easing;
     - no `transition: all`;
     - no fade-up on scroll;
-    - no celebratory toasts;
-    - straight quotes become typographic ones in new copy.
+    - no celebratory toasts.
+  - Typographic quotes and apostrophes go in new copy ("Natalie’s",
+    “Cover didn’t load”). Existing strings, and the tests that query them,
+    keep theirs. Where this spec writes a straight quote in new copy, the
+    typographic one wins **(call)**.
+- **Exempt:** `styles/print.css` and `src/client/labelsheet/` keep their
+  literal black, white and greys, because a label must print black on white
+  in either setting.
   - Before opening each pull request, the builder runs Hallmark's slop test
     (`~/.claude/skills/hallmark/references/slop-test.md`, the page-scope gates
     that apply to an app) and its six-axis self-critique. The result goes in
@@ -427,33 +536,50 @@ apply are written here.
 
 ## Delivery
 
-Four pull requests, merged in order, each green on `app` CI and safe to sit
-on `main` untagged. James tags once, after trying the last one on a phone.
+Four pull requests, merged in order, each green on `app` CI. James tags once,
+after trying the last one on a phone.
+
+**Each one must be releasable on its own.** CI deploys whatever annotated tag
+is newest on `main` (`.github/workflows/ci.yml:44-59`). So a hotfix tagged
+partway through the series ships whatever part of it is merged. After every
+merge, the app has to work end to end, just less redesigned.
 
 1. **Tokens, type and covers.**
-   - Split `index.css` into `styles/tokens.css`, `base.css`, `print.css` (the
-     label sheet's rules, unchanged) and per-area files, loaded from one entry.
+   - Split `index.css` into `styles/tokens.css`, `base.css`, per-area files
+     and `print.css` (the label sheet's rules, unchanged, imported last),
+     loaded from one entry that `main.tsx` and `labelsheet/preview.tsx`
+     both use.
    - Add the fonts and the new tokens in both settings.
    - Add `Cover` with its three states.
-   - Do the real-cover sharpness check.
+   - Do the real-cover sharpness check on today's copy page and shelf rows.
    - Existing screens pick up the new look without changing structure.
-   - Done when: every existing test passes with only cover-state test
-     updates, and a label sheet prints exactly as before.
+   - **Done when:**
+     - Every existing test passes. The only changes allowed are the
+       cover-state tests, plus switching any query that the new tile's text
+       makes ambiguous to a role query. An antagonist trial found five of
+       these, in `Pair.test.tsx` and `App.test.tsx`.
+     - The label-sheet PDFs (see Constraints) match `main`.
 2. **App shell.**
    - Add `TabBar`, the route-to-tab map, `/more`, the `/mine` rewrite, the
-     signed-out shell (no tabs) and per-screen `h1`s.
-   - Home's buttons are removed.
-   - Done when: every screen is reachable from the tabs, and the tab bar
+     signed-out and session-lost shell (no tabs), per-screen `h1`s, and the
+     sign-out notice on More.
+   - Home's buttons are removed. Until PR 3, `/` renders today's Mine screen,
+     restyled, so the app has a working home in between.
+   - **Done when:** every screen is reachable from the tabs, and the tab bar
      doesn't print.
 3. **Walls.**
-   - Add `CoverWall`, `AlphaRail`, the chips and the requests bar.
-   - Mine, Shelf, Holding and a member's shelves move onto the wall.
+   - Add `CoverWall`, `AlphaRail`, the chips, the requests bar, partial
+     failure, and saving and restoring chips and scroll.
+   - Mine, Shelf (with its manage controls), Holding and a member's shelves
+     move onto the wall.
    - Add the Friends list with counts.
-   - `ShelfList` goes once nothing uses it.
+   - `ShelfList` stays while `People.tsx:96` uses it. `BookCount` moves out of
+     it to wherever it is still needed.
 4. **Book page and the rest.**
    - The cover-first book page, including signed out.
    - Restyle Pair, Labels, Import and People.
-   - Add the manifest, icons and `theme-color`.
+   - Add the manifest, icons and `theme-color`, and do the iPhone check under
+     Phone setup.
 
 Each pull request gets a reviewer and an antagonist, as every plan task does
 here.
@@ -461,16 +587,23 @@ here.
 ### Tests to add
 
 - The sort key: articles, accents, digits, and "#" coming last.
-- Grouping into letters.
+- Grouping into letters, the same whatever the phone's locale.
 - The rail's position-to-letter mapping, as a pure function.
-- Chip filtering, including Collection combined with a status chip.
-- The route-to-tab map, including a book page for owner, holder and anyone
-  else.
-- The main-button priority.
-- The three cover states.
-- Empty walls.
-- Friends counts, including one failing.
-- The tab bar is absent when signed out.
+- Chip filtering, including Collection combined with a status chip, and All
+  clearing only the status chip.
+- The route-to-tab map, including a book page for its owner, its holder and
+  anyone else, and blank, unknown and retired labels.
+- The back link's target and label for each kind of referrer: a wall,
+  another in-app page, another site, and none.
+- Saving and restoring chips and scroll, including with storage that throws.
+- The main-button priority, including no main button.
+- The three cover states, told apart by visible text, not class.
+- Owner-less books on Holding and on the book page.
+- Empty walls, and a merged wall with one shelf failing.
+- The requests bar's failure line.
+- Friends counts, including one failing, and a picture that fails to load.
+- The tab bar is absent when signed out and after the session is lost.
+- "Manage {name}" reaching the collection's rename, default and delete.
 
 ## Left to the builder
 
