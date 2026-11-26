@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-26",
+  "design_md": null,
+  "framework": "React 19 + Vite 8, no router library (src/client/route.ts)",
+  "fonts": "system-ui body (src/client/index.css:40), ui-monospace for codes (index.css:277); no web fonts loaded",
+  "palette": "hex tokens on :root, warm paper (--bg #fffaf2, --accent #8a3b12), dark mode via prefers-color-scheme (index.css:1-26); contrast ratios commented beside link colours",
+  "motion": "motion-cut: no motion library, no transitions or animations in index.css",
+  "spacing": "no spacing tokens; raw px values",
+  "fragile": ["src/client/labelsheet (print styles, @media print at index.css:310)", "src/client/scanner"]
+}
