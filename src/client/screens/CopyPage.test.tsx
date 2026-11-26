@@ -561,10 +561,21 @@ test("Replace label links to pairing in replace mode, only when offered", async 
   expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
 });
 
-test("a replaced label says so and shows no book", async () => {
+test.each([["signed in", me], ["signed out", null]])("a replaced label says so and shows nothing else (%s)", async (_n, who) => {
   vi.mocked(api.getLabel).mockResolvedValue({ kind: "retired" });
-  const { container } = show();
-  expect(await screen.findByText("This label has been replaced.")).toBeInTheDocument();
+  const { container } = show(who);
+  const p = await screen.findByText("This label has been replaced.");
+  expect(p.tagName).toBe("P");
+  expect(p.textContent).toBe("This label has been replaced.");
+  expect(screen.queryByText("Dune")).toBeNull();
   expect(container.querySelector("img")).toBeNull();
   expect(screen.queryAllByRole("button")).toHaveLength(0);
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
+});
+
+test("Replace label stays hidden when Put a label on it is offered", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ownerCode: null, actions: ["move", "label"] })));
+  show();
+  expect(await screen.findByRole("link", { name: "Put a label on it" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
 });

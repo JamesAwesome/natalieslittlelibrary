@@ -273,7 +273,8 @@ a.button {
 }
 
 .copy-page .label-code {
-  font: 6pt/1 ui-monospace, Menlo, Consolas, monospace;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
   color: var(--fg);
 }
 
