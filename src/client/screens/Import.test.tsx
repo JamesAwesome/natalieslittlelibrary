@@ -24,7 +24,7 @@ const bigExport = (extra: number) =>
   FIXTURE.trimEnd() + "\r\n" + Array.from({ length: extra }, (_, i) => `Extra ${i},Ex Author,,,paperback,read,Yes,${RATING},,${DATE_READ}`).join("\r\n") + "\r\n";
 
 const setupUser = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-async function choose(user: ReturnType<typeof setupUser>, text = FIXTURE) {
+async function choose(user: ReturnType<typeof setupUser>, text: BlobPart = FIXTURE) {
   await user.upload(screen.getByLabelText(/StoryGraph export/), new File([text], "export.csv", { type: "text/csv" }));
 }
 const show = () => render(<Import member={me} returnTo="/import" />);
@@ -319,12 +319,22 @@ test("one book reads in the singular", async () => {
   expect(await screen.findByText("1 book to import.")).toBeInTheDocument();
 });
 
-test("a file that decodes with replacement characters says it may be garbled", async () => {
+test("a file that isn't UTF-8 says it may be garbled", async () => {
   collections([home]);
   const user = setupUser();
   show();
-  await choose(user, FIXTURE.replace("Hardcover Book", "Hardcover B\uFFFDok"));
+  const [before, after] = FIXTURE.split("Hardcover Book");
+  const enc = new TextEncoder();
+  // "Hardcover B\u00E9" in Latin-1: 0xE9 alone is not valid UTF-8.
+  const latin1 = new Uint8Array([...enc.encode(before + "Hardcover B"), 0xe9, ...enc.encode("ok" + after)]);
+  await choose(user, latin1);
   expect(await screen.findByText("This file doesn't look like UTF-8; some titles may be garbled.")).toBeInTheDocument();
+  cleanup();
+  show();
+  // A replacement character already in a valid UTF-8 export (StoryGraph's own data has them) is not a warning.
+  await choose(user, FIXTURE.replace("Hardcover Book", "Hardcover B\uFFFDok"));
+  await screen.findByText("6 books to import.");
+  expect(screen.queryByText(/UTF-8/)).not.toBeInTheDocument();
   cleanup();
   show();
   await choose(user);
