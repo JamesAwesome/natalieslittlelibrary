@@ -579,3 +579,20 @@ test("Replace label stays hidden when Put a label on it is offered", async () =>
   expect(await screen.findByRole("link", { name: "Put a label on it" })).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
 });
+
+test("an action this page does not know is never a button, and never returns the book", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["return", "release" as never] })));
+  show();
+  await screen.findByText("Dune");
+  expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Mark as returned"]);
+});
+
+test("a claim through a label replaced meanwhile shows only the replaced page", async () => {
+  vi.mocked(api.getLabel).mockResolvedValueOnce(asCopy(copyView())).mockResolvedValue({ kind: "retired" });
+  vi.mocked(api.claim).mockRejectedValue(new api.ApiError(404, "not-found"));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "I have this book" }));
+  expect(await screen.findByText("This label has been replaced.")).toBeInTheDocument();
+  expect(screen.queryByText(/Something went wrong/)).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
