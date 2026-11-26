@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ActionType, CollectionSummary, CopyView, HistoryEntry, LabelView, Member } from "../../shared/types";
-import { ApiError, claim, getCopy, getLabel, moveCopy, myCollections, returnCopy } from "../api";
+import type { ActionType, CollectionSummary, CopyView, HistoryEntry, LabelView, LendTo, Member, Person } from "../../shared/types";
+import {
+  adoptCopy, ApiError, approveRequest, claim, declineRequest, getCopy, getLabel, giveCopy, lendCopy, listMembers, moveCopy, myCollections,
+  releaseCopy, requestCopy, returnCopy, withdrawRequest,
+} from "../api";
 import { Book, holderLabel, Name, personLabel } from "./BookCard";
+import { LendBox } from "./LendBox";
 import { SignIn } from "./SignIn";
 
 const actionText: Record<ActionType, string> = {
@@ -19,9 +23,7 @@ const actionText: Record<ActionType, string> = {
   release: "Release",
   adopt: "Take this book",
 };
-// Until the page has controls for these, as buttons they would fall through act() to a return.
-const unwired: ActionType[] = ["lend", "give", "request", "withdraw", "approve", "decline", "release", "adopt"];
-// What an entry says after the actor's name; `who` is its subject (Task 6 gives the subject a real place on the page).
+// What an entry says after the actor's name; `who` is its subject.
 const historyText: Record<HistoryEntry["type"], (who: ReactNode) => ReactNode> = {
   added: () => "added this book",
   labelled: () => "put a label on it",
@@ -56,31 +58,91 @@ function Copy(props: {
   choices: CollectionSummary[] | undefined;
   choicesFailed: boolean;
   onMove: (collectionId: string) => void;
+  onLend: (to: LendTo) => void;
+  onGive: (memberId: string) => void;
+  onRelease: () => void;
 }) {
-  const { copy, busy, onAction, choices, choicesFailed, onMove } = props;
+  const { copy, busy, onAction, choices, choicesFailed, onMove, onLend, onGive, onRelease } = props;
+  const [step, setStep] = useState<"lend" | "give" | "release" | undefined>(undefined);
+  const [giveTo, setGiveTo] = useState<Person | undefined>(undefined);
+  const [members, setMembers] = useState<Person[] | "failed" | undefined>(undefined);
+  useEffect(() => {
+    if (step !== "give") return;
+    let live = true;
+    listMembers().then(
+      (m) => live && setMembers(m.members.filter((x) => x.id !== copy.owner?.id && !x.removed)),
+      () => live && setMembers("failed"),
+    );
+    return () => {
+      live = false;
+    };
+  }, [step, copy.owner?.id]);
+  const close = () => {
+    setStep(undefined);
+    setGiveTo(undefined);
+  };
   // Only other collections are offered; with none, there is nothing to move to.
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const current = copy.collection?.id;
   const options = (choices ?? []).filter((c) => c.id !== current);
   const chosen = picked !== undefined && options.some((c) => c.id === picked) ? picked : options[0]?.id;
-  // A copy with no label code was reached by id; claiming goes through the code, so it is not offered. Move, label and
-  // relabel have controls of their own; as buttons they would fall through act() to a return.
+  // A copy with no label code was reached by id; claiming and taking go through the code, so they are not offered.
+  // Move, label, relabel, lend, give and release have controls of their own.
   // An action this page has no text for (a newer server's) is ignored, never a blank button.
-  const buttons = copy.actions.filter((a) => a in actionText && a !== "move" && a !== "label" && a !== "relabel" && !unwired.includes(a) && !(a === "claim" && copy.code === null));
+  const own: ActionType[] = ["move", "label", "relabel", "lend", "give", "release"];
+  const buttons = copy.actions.filter((a) => a in actionText && !own.includes(a) && !((a === "claim" || a === "adopt") && copy.code === null));
+  const mayAsk = (a: "lend" | "give" | "release") => copy.actions.includes(a) && step === undefined;
   return (
     <>
       <Book {...copy.book} />
       {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
-      {copy.owner && (
+      {copy.owner ? (
         <p>Owned by <Name>{personLabel(copy.owner)}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
-      )}
+      ) : <p>No one owns this book.</p>}
       {copy.home ? <p>At home</p> : copy.holder && <p>With <Name>{holderLabel(copy.holder)}</Name></p>}
+      {copy.request && <p><Name>{personLabel(copy.request.by)}</Name> asked to keep this</p>}
       {buttons.length > 0 && (
         <p>
           {buttons.map((a) => (
             <button key={a} type="button" disabled={busy} onClick={() => onAction(a)}>{actionText[a]}</button>
           ))}
         </p>
+      )}
+      {mayAsk("lend") && <p><button type="button" disabled={busy} onClick={() => setStep("lend")}>{actionText.lend}</button></p>}
+      {mayAsk("give") && <p><button type="button" disabled={busy} onClick={() => setStep("give")}>{actionText.give}</button></p>}
+      {mayAsk("release") && <p><button type="button" disabled={busy} onClick={() => setStep("release")}>{actionText.release}</button></p>}
+      {step === "lend" && copy.owner && (
+        <div>
+          <LendBox ownerId={copy.owner.id} busy={busy} onLend={onLend} />
+          <button type="button" onClick={close}>Cancel</button>
+        </div>
+      )}
+      {step === "give" && giveTo === undefined && (
+        <div>
+          {members === undefined && <p>Loading members.</p>}
+          {members === "failed" && <p>Couldn't load the members, so giving isn't available right now.</p>}
+          {Array.isArray(members) && members.length === 0 && <p>There is no one to give it to.</p>}
+          {Array.isArray(members) && (
+            <ul>
+              {members.map((m) => <li key={m.id}><button type="button" disabled={busy} onClick={() => setGiveTo(m)}><Name>{m.name}</Name></button></li>)}
+            </ul>
+          )}
+          <button type="button" onClick={close}>Cancel</button>
+        </div>
+      )}
+      {step === "give" && giveTo !== undefined && (
+        <div>
+          <p>Give <Name>{copy.book.title}</Name> to <Name>{giveTo.name}</Name>?</p>
+          <button type="button" disabled={busy} onClick={() => onGive(giveTo.id)}>{actionText.give}</button>
+          <button type="button" onClick={close}>Cancel</button>
+        </div>
+      )}
+      {step === "release" && (
+        <div>
+          <p>Release {copy.book.title}? It leaves your collection and anyone who scans it can take it.</p>
+          <button type="button" disabled={busy} onClick={onRelease}>{actionText.release}</button>
+          <button type="button" onClick={close}>Cancel</button>
+        </div>
       )}
       {copy.actions.includes("move") && options.length > 0 && chosen !== undefined && (
         <p className="move">
@@ -109,6 +171,43 @@ function Copy(props: {
   );
 }
 
+// What the page asks the server to do. Lend and give carry their target; the rest need none.
+type Doing = { type: "lend"; to: LendTo } | { type: "give"; to: string } | { type: Exclude<ActionType, "lend" | "give"> };
+
+// Every action type has its own call, so none can fall through to another: adding a type fails to compile until it is handled.
+function dispatch(doing: Doing, copy: CopyView, code: string | null): Promise<CopyView> {
+  switch (doing.type) {
+    case "claim":
+      return code !== null ? claim(code) : Promise.reject(new Error("claim needs the label's code"));
+    case "adopt":
+      return code !== null ? adoptCopy(code) : Promise.reject(new Error("take needs the label's code"));
+    case "return":
+      return returnCopy(copy.copyId);
+    case "lend":
+      return lendCopy(copy.copyId, doing.to);
+    case "give":
+      return giveCopy(copy.copyId, doing.to);
+    case "request":
+      return requestCopy(copy.copyId);
+    case "withdraw":
+      return withdrawRequest(copy.copyId);
+    case "approve":
+      return approveRequest(copy.copyId);
+    case "decline":
+      return declineRequest(copy.copyId);
+    case "release":
+      return releaseCopy(copy.copyId);
+    case "move":
+    case "label":
+    case "relabel":
+      return Promise.reject(new Error(`${doing.type} has its own control`));
+    default: {
+      const never: never = doing;
+      return Promise.reject(new Error(`unhandled action ${JSON.stringify(never)}`));
+    }
+  }
+}
+
 type Props = ({ code: string } | { copyId: string }) & { member: Member | null; returnTo: string };
 
 // Keyed on the code (or copy id) so moving between pages starts from nothing.
@@ -127,6 +226,8 @@ function Page(props: Props) {
   const [gone, setGone] = useState(false);
   const [choices, setChoices] = useState<CollectionSummary[] | undefined>(undefined);
   const [choicesFailed, setChoicesFailed] = useState(false);
+  // Bumped whenever the copy is replaced, so an open lend, give or release step does not outlive what it was about.
+  const [rev, setRev] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const inFlight = useRef(false);
@@ -138,6 +239,7 @@ function Page(props: Props) {
       const v: LabelView = code !== null ? await getLabel(code) : { kind: "copy", copy: await getCopy(copyId ?? "") };
       if (!live.current) return;
       if (v.kind === "public") setLost(true);
+      setRev((r) => r + 1);
       setView(v);
     } catch (e) {
       if (!live.current) return;
@@ -177,6 +279,11 @@ function Page(props: Props) {
     };
   }, [load]);
 
+  function shown(copy: CopyView) {
+    setRev((r) => r + 1);
+    setView({ kind: "copy", copy });
+  }
+
   async function move(copy: CopyView, collectionId: string) {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -186,7 +293,7 @@ function Page(props: Props) {
       const next = await moveCopy(copy.copyId, collectionId);
       // A label page refetches, so what depends on the code (the copy link) stays; the answer to a move carries none.
       if (code !== null) await load();
-      else if (live.current) setView({ kind: "copy", copy: next });
+      else if (live.current) shown(next);
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) {
@@ -209,21 +316,22 @@ function Page(props: Props) {
     }
   }
 
-  async function act(type: ActionType, copy: CopyView) {
+  async function act(doing: Doing, copy: CopyView) {
+    const type = doing.type;
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setNotice(undefined);
     try {
-      const next = await (type === "claim" && code !== null ? claim(code) : returnCopy(copy.copyId));
-      if (live.current) setView({ kind: "copy", copy: next });
+      const next = await dispatch(doing, copy, code);
+      if (live.current) shown(next);
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) {
         setLost(true);
       } else if (e instanceof ApiError && e.status === 403 && e.rejected === "not-allowed") {
         setNotice("That's already changed. Here's where the book is now.");
-      } else if (type === "claim" && e instanceof ApiError && e.rejected === "not-found") {
+      } else if ((type === "claim" || type === "adopt") && e instanceof ApiError && e.rejected === "not-found") {
         // The label was replaced meanwhile; the reload below shows that, and "try again" cannot work.
       } else {
         // The server may have accepted it before the answer was lost; show the truth.
@@ -278,7 +386,20 @@ function Page(props: Props) {
           <SignIn returnTo={returnTo} />
         </>
       )}
-      {view.kind === "copy" && <Copy copy={view.copy} busy={busy} choices={choices} onAction={(a) => void act(a, view.copy)} choicesFailed={choicesFailed} onMove={(id) => void move(view.copy, id)} />}
+      {view.kind === "copy" && (
+        <Copy
+          key={rev}
+          copy={view.copy}
+          busy={busy}
+          choices={choices}
+          choicesFailed={choicesFailed}
+          onAction={(type) => void act({ type } as Doing, view.copy)}
+          onMove={(id) => void move(view.copy, id)}
+          onLend={(to) => void act({ type: "lend", to }, view.copy)}
+          onGive={(to) => void act({ type: "give", to }, view.copy)}
+          onRelease={() => void act({ type: "release" }, view.copy)}
+        />
+      )}
     </div>
   );
 }

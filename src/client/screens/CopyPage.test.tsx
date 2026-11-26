@@ -7,7 +7,9 @@ import { CopyPage } from "./CopyPage";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, getLabel: vi.fn(), claim: vi.fn(), returnCopy: vi.fn(), getCopy: vi.fn(), moveCopy: vi.fn(), myCollections: vi.fn() };
+  return { ...actual, getLabel: vi.fn(), claim: vi.fn(), returnCopy: vi.fn(), getCopy: vi.fn(), moveCopy: vi.fn(), myCollections: vi.fn(),
+    lendCopy: vi.fn(), giveCopy: vi.fn(), requestCopy: vi.fn(), withdrawRequest: vi.fn(), approveRequest: vi.fn(), declineRequest: vi.fn(),
+    releaseCopy: vi.fn(), adoptCopy: vi.fn(), listPeople: vi.fn(), listMembers: vi.fn() };
 });
 
 const me = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
@@ -203,13 +205,182 @@ test("only the listed action gets a button", async () => {
   expect(screen.queryByRole("button", { name: "I have this book" })).not.toBeInTheDocument();
 });
 
-test("actions the page has no controls for yet get no button, and nothing returns the copy", async () => {
-  const actions = ["lend", "give", "request", "withdraw", "approve", "decline", "release", "adopt"] as const;
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: [...actions] })));
+const plain = [
+  ["request", "Ask to keep this", "requestCopy"],
+  ["withdraw", "Withdraw", "withdrawRequest"],
+  ["approve", "Approve", "approveRequest"],
+  ["decline", "Decline", "declineRequest"],
+] as const;
+
+test.each(plain)("the %s button calls its own api function and never returnCopy", async (action, text, fn) => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: [action] })));
+  vi.mocked(api[fn]).mockResolvedValue(copyView({ actions: [] }));
   show();
-  await screen.findByText(line("Owned by Ann"));
-  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  await userEvent.click(await screen.findByRole("button", { name: text }));
+  expect(api[fn]).toHaveBeenCalledExactlyOnceWith("c1");
   expect(api.returnCopy).not.toHaveBeenCalled();
+  expect(api.claim).not.toHaveBeenCalled();
+});
+
+test("Lend, Give, Release and Take offer no stray plain buttons", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: ["lend", "give", "release"] })));
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [] });
+  show();
+  await screen.findByRole("button", { name: "Lend" });
+  expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Lend", "Give", "Release"]);
+  expect(api.returnCopy).not.toHaveBeenCalled();
+});
+
+test("Lend opens the lend box and lendCopy's answer is shown", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["lend"] })));
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [me2, bob] });
+  vi.mocked(api.lendCopy).mockResolvedValue(copyView({ owner: me2, holder: { kind: "person", id: "p1", name: "Zed" }, actions: [] }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Lend" }));
+  await userEvent.type(screen.getByRole("textbox"), "Zed");
+  await userEvent.click(await screen.findByRole("button", { name: 'Lend to "Zed"' }));
+  expect(api.lendCopy).toHaveBeenCalledExactlyOnceWith("c1", { name: "Zed" });
+  expect(await screen.findByText(line("With Zed"))).toBeInTheDocument();
+});
+
+test("Give lists members, confirms by name, then gives", async () => {
+  const kim = { id: "4", name: "Kim", pictureUrl: null };
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["give"] })));
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [me2, kim] });
+  vi.mocked(api.giveCopy).mockResolvedValue(copyView({ owner: kim, actions: [] }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Give" }));
+  expect(screen.queryByRole("button", { name: "Natalie" })).not.toBeInTheDocument();
+  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  expect(screen.getByText(line("Give Dune to Kim?"))).toBeInTheDocument();
+  expect(api.giveCopy).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Give" }));
+  expect(api.giveCopy).toHaveBeenCalledExactlyOnceWith("c1", "4");
+  expect(await screen.findByText(line("Owned by Kim"))).toBeInTheDocument();
+});
+
+test("Give can be backed out of without a call", async () => {
+  const kim = { id: "4", name: "Kim", pictureUrl: null };
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["give"] })));
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [kim] });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Give" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByText(line("Give Dune to Kim?"))).not.toBeInTheDocument();
+  expect(api.giveCopy).not.toHaveBeenCalled();
+});
+
+test("Release confirms first, then releases", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["release"] })));
+  vi.mocked(api.releaseCopy).mockResolvedValue(copyView({ owner: null, holder: null, actions: [] }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Release" }));
+  expect(screen.getByText("Release Dune? It leaves your collection and anyone who scans it can take it.")).toBeInTheDocument();
+  expect(api.releaseCopy).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Release" }));
+  expect(api.releaseCopy).toHaveBeenCalledExactlyOnceWith("c1");
+  expect(await screen.findByText("No one owns this book.")).toBeInTheDocument();
+});
+
+test("an open request reads '<name> asked to keep this', with Approve and Decline for the owner", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, request: { by: bob, at: 5 }, actions: ["approve", "decline"] })));
+  show();
+  expect(await screen.findByText(line("Bob asked to keep this"))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
+});
+
+test("the asker sees Withdraw", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ request: { by: bob, at: 5 }, actions: ["withdraw"] })));
+  show();
+  expect(await screen.findByText(line("Bob asked to keep this"))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
+});
+
+test("an ownerless copy reached by a code says so and offers Take, which adopts by the code", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: null, holder: null, actions: ["adopt"] })));
+  vi.mocked(api.adoptCopy).mockResolvedValue(copyView({ owner: me2, holder: null, actions: [] }));
+  show();
+  expect(await screen.findByText("No one owns this book.")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Take this book" }));
+  expect(api.adoptCopy).toHaveBeenCalledExactlyOnceWith("abc");
+  expect(api.returnCopy).not.toHaveBeenCalled();
+  expect(await screen.findByText(line("Owned by Natalie"))).toBeInTheDocument();
+});
+
+test("an ownerless copy reached by id shows the line and no Take button", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(copyView({ owner: null, holder: null, code: null, actions: ["adopt"] }));
+  render(<CopyPage copyId="c1" member={me} returnTo="/c/c1" />);
+  expect(await screen.findByText("No one owns this book.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Take this book" })).not.toBeInTheDocument();
+});
+
+test("a removed owner's copy reached by a code reads as no longer a member and offers Take", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: { ...me2, removed: true }, holder: null, actions: ["adopt"] })));
+  show();
+  expect(await screen.findByText(line("Owned by Natalie (no longer a member)"))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Take this book" })).toBeInTheDocument();
+});
+
+test("a removed member reads as no longer a member as owner, actor and subject", async () => {
+  const gone = { ...bob, removed: true as const };
+  vi.mocked(api.getLabel).mockResolvedValue(
+    asCopy(copyView({ owner: gone, actions: [], history: [{ at: 1, type: "lent", actor: gone, subject: { kind: "member", person: gone } }] })),
+  );
+  show();
+  expect(await screen.findByText(line("Owned by Bob (no longer a member)"))).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "LI" && /^Bob \(no longer a member\) lent this to Bob \(no longer a member\) /.test(el.textContent ?? ""))).toBeInTheDocument();
+});
+
+test("a history entry with a subject reads 'Natalie lent this to Sarah'", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(
+    asCopy(copyView({ actions: [], history: [{ at: 1, type: "lent", actor: me2, subject: { kind: "person", id: "p1", name: "Sarah" } }] })),
+  );
+  show();
+  expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Natalie lent this to Sarah /.test(el.textContent ?? ""))).toBeInTheDocument();
+});
+
+test.each([
+  ["Release", ["release"], async () => { await userEvent.click(await screen.findByRole("button", { name: "Release" })); await userEvent.click(screen.getByRole("button", { name: "Release" })); }, "releaseCopy"],
+  ["Take", ["adopt"], async () => { await userEvent.click(await screen.findByRole("button", { name: "Take this book" })); }, "adoptCopy"],
+  ["Ask", ["request"], async () => { await userEvent.click(await screen.findByRole("button", { name: "Ask to keep this" })); }, "requestCopy"],
+] as const)("a 403 not-allowed on %s shows the changed notice and reloads", async (_n, actions, run, fn) => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: [...actions] })));
+  vi.mocked(api[fn]).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  show();
+  await run();
+  expect(await screen.findByText("That's already changed. Here's where the book is now.")).toBeInTheDocument();
+  expect(api.getLabel).toHaveBeenCalledTimes(2);
+});
+
+test("a 403 not-allowed on Give and on Lend shows the changed notice and reloads", async () => {
+  const kim = { id: "4", name: "Kim", pictureUrl: null };
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["give", "lend"] })));
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [kim] });
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [] });
+  vi.mocked(api.giveCopy).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  vi.mocked(api.lendCopy).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Give" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  await userEvent.click(screen.getByRole("button", { name: "Give" }));
+  expect(await screen.findByText("That's already changed. Here's where the book is now.")).toBeInTheDocument();
+  await userEvent.click(await screen.findByRole("button", { name: "Lend" }));
+  await userEvent.type(screen.getByRole("textbox"), "ki");
+  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  await waitFor(() => expect(api.lendCopy).toHaveBeenCalledWith("c1", { member: "4" }));
+  expect(api.getLabel).toHaveBeenCalledTimes(3);
+});
+
+test("a 401 on a new action drops to sign-in", async () => {
+  vi.mocked(api.getLabel).mockResolvedValueOnce(asCopy(copyView({ actions: ["request"] }))).mockResolvedValueOnce(publicView);
+  vi.mocked(api.requestCopy).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Ask to keep this" }));
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
 });
 
 test("claim calls claim once and shows the returned state", async () => {
@@ -621,7 +792,7 @@ test("Replace label stays hidden when Put a label on it is offered", async () =>
 });
 
 test("an action this page does not know is never a button, and never returns the book", async () => {
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["return", "release" as never] })));
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["return", "frobnicate" as never] })));
   show();
   await screen.findByText("Dune");
   expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Mark as returned"]);

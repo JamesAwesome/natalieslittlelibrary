@@ -6,9 +6,12 @@ import type {
   ImportResult,
   ImportRow,
   LabelView,
+  LendTo,
   Member,
   Person,
+  PersonSummary,
   RejectionReason,
+  RequestItem,
   Shelf,
   ShelfItem,
   SheetSummary,
@@ -116,3 +119,20 @@ export const relabelCopy = (copyId: string, code: string, replacing: string) =>
   call<CopyView>(`/api/copies/${id(copyId)}/relabel`, "POST", { code, replacing });
 export const importRows = (collectionId: string | null, rows: ImportRow[], signal?: AbortSignal) =>
   call<ImportResult>("/api/imports", "POST", { collectionId, rows }, signal);
+const copyAction = (path: string, body?: unknown) => (copyId: string) =>
+  call<CopyView>(`/api/copies/${id(copyId)}/${path}`, "POST", body);
+export const lendCopy = (copyId: string, to: LendTo) => call<CopyView>(`/api/copies/${id(copyId)}/lend`, "POST", { to });
+export const giveCopy = (copyId: string, memberId: string) =>
+  call<CopyView>(`/api/copies/${id(copyId)}/give`, "POST", { to: memberId });
+export const requestCopy = copyAction("request");
+export const withdrawRequest = copyAction("withdraw");
+export const approveRequest = copyAction("approve");
+export const declineRequest = copyAction("decline");
+export const releaseCopy = copyAction("release");
+export const adoptCopy = (code: string) => call<CopyView>(`/api/labels/${id(code)}/adopt`, "POST");
+export const listPeople = () => call<{ people: PersonSummary[] }>("/api/people");
+export const renamePerson = (personId: string, name: string) =>
+  call<PersonSummary>(`/api/people/${id(personId)}/rename`, "POST", { name });
+export const linkPerson = (personId: string, memberId: string) =>
+  call<PersonSummary>(`/api/people/${id(personId)}/link`, "POST", { member: memberId });
+export const listRequests = () => call<{ requests: RequestItem[] }>("/api/requests");
