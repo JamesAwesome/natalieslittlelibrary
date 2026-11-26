@@ -1,0 +1,26 @@
+:root {
+  --bg: #fffaf2;
+  --fg: #2b2118;
+  --accent: #8a3b12;
+  --accent-fg: #ffffff;
+  --alert-bg: #fde8e4;
+  --alert-fg: #7a1f12;
+  --cover-bg: #e8dccb;
+  --link: #1a5fb4; /* 6.05:1 on --bg, 4.65:1 on --cover-bg */
+  --link-visited: #6f3a9e; /* 7.28:1 on --bg */
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1712;
+    --fg: #f3e9dc;
+    --accent: #e08a55;
+    --accent-fg: #1d1712;
+    --alert-bg: #4a211a;
+    --alert-fg: #ffd9d1;
+    --cover-bg: #3a3128;
+    --link: #8ab4f8; /* 8.42:1 on --bg, 6.04:1 on --cover-bg, 6.54:1 on --alert-bg */
+    --link-visited: #c9a8f0; /* 8.74:1 on --bg */
+  }
+}

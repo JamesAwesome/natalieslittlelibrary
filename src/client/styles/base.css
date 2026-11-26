@@ -1,0 +1,91 @@
+a:not(.button) {
+  color: var(--link);
+}
+
+a:not(.button):visited {
+  color: var(--link-visited);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+#root {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 16px;
+}
+
+button,
+a.button {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.refusal {
+  margin: 0 0 16px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--alert-fg);
+}
+
+.book {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+}
+
+.book h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.authors {
+  margin: 4px 0 0;
+}
+
+.cover {
+  flex: none;
+  width: 96px;
+  height: 144px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--cover-bg);
+}
+
+.history {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history li {
+  padding: 8px 0;
+  border-top: 1px solid var(--alert-bg);
+}
+
+.when {
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
