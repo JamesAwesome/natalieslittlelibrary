@@ -173,6 +173,12 @@ Carry-overs from step 2:
 
 Done when: each has been done once with a real book.
 
+## Design round (before step 5)
+
+Added 2026-11-26: James put step 5 on hold for a full design round, inspired
+by reading apps like Apple Books and Kindle. Handoff:
+`docs/superpowers/handoffs/2026-11-26-design-round.md`.
+
 ## 5. Open up
 
 Settle the domain. Scheduled database export. Switch from the allowlist to
