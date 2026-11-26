@@ -276,7 +276,7 @@ test("bad saved values fall back to the defaults", () => {
   expect((screen.getByLabelText("Nudge right/left") as HTMLSelectElement).value).toBe("0");
 });
 
-const dayOf = (at: number) => new Date(at).toLocaleDateString();
+const dayOf = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const T2 = Date.UTC(2026, 10, 20, 12);
 const T1 = Date.UTC(2026, 10, 10, 12);
 const twoSheets = {
@@ -366,6 +366,22 @@ test("a sheet with nothing to print says so and does not print", async () => {
   await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
   expect(await screen.findByText("Every label on that sheet is already on a book.")).toBeInTheDocument();
   expect(print).not.toHaveBeenCalled();
+});
+
+const HINT = "Tick 'Also print labels already on my books' to print those.";
+
+test("an empty reprint of a sheet with labels on books hints at the checkbox, only while it is unticked", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: [] });
+  show();
+  const again = await screen.findAllByRole("button", { name: "Print again" });
+  await userEvent.click(again[1]!); // the older sheet has none on books
+  expect(await screen.findByText("Every label on that sheet is already on a book.")).toBeInTheDocument();
+  expect(screen.queryByText(HINT)).toBeNull();
+  await userEvent.click(again[0]!);
+  expect(await screen.findByText(HINT)).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText("Also print labels already on my books"));
+  expect(screen.queryByText(HINT)).toBeNull();
 });
 
 test("Print again after a failed partial run, then Make labels, starts a fresh run", async () => {

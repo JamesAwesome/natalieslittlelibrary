@@ -83,6 +83,8 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
   // The labels shown came from a past sheet, not a new run.
   const [reprint, setReprint] = useState(false);
   const [reprintNote, setReprintNote] = useState<"empty" | "failed" | null>(null);
+  // The sheet whose reprint had nothing to print, so the note can say whether the checkbox would change that.
+  const [emptySheet, setEmptySheet] = useState<string | null>(null);
   const [includeMine, setIncludeMine] = useState(false);
   const [sheets, setSheets] = useState<SheetSummary[]>([]);
   const [listFailed, setListFailed] = useState(false);
@@ -176,7 +178,10 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     try {
       const { labels: again } = await sheetLabels(id, includeMine);
       if (!live.current) return;
-      if (again.length === 0) setReprintNote("empty");
+      if (again.length === 0) {
+        setReprintNote("empty");
+        setEmptySheet(id);
+      }
       else {
         setLabels(again);
         setReprint(true);
@@ -273,7 +278,7 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
               <ul>
                 {sheets.map((s) => (
                   <li key={s.id}>
-                    {new Date(s.at).toLocaleDateString()} · {s.total} {s.total === 1 ? "label" : "labels"}, {s.blank} blank, {s.mine} on your books{" "}
+                    {new Date(s.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} · {s.total} {s.total === 1 ? "label" : "labels"}, {s.blank} blank, {s.mine} on your books{" "}
                     <button type="button" disabled={busy || problems.length > 0} onClick={() => void printAgain(s.id)}>Print again</button>
                   </li>
                 ))}
@@ -281,6 +286,9 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
             </>
           )}
           {reprintNote === "empty" && <p>Every label on that sheet is already on a book.</p>}
+          {reprintNote === "empty" && !includeMine && (sheets.find((s) => s.id === emptySheet)?.mine ?? 0) > 0 && (
+            <p>Tick 'Also print labels already on my books' to print those.</p>
+          )}
           {reprintNote === "failed" && <p role="alert" className="refusal">Couldn't load that sheet. Try again.</p>}
         </section>
       )}
