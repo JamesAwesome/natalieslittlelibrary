@@ -211,6 +211,12 @@ test("a 404 from myCollections is trouble, not 'No books yet'", async () => {
 
 const ask = { copyId: "r1", book: { isbn: null, title: "Wanted", authors: [], coverUrl: null }, by: { id: "2", name: "Ann", pictureUrl: null }, at: 1 };
 
+// Approve asks first; the second Approve is the confirmation.
+async function approve() {
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+}
+
 test("open requests sit above My books and are answered in place", async () => {
   setup();
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
@@ -220,6 +226,9 @@ test("open requests sit above My books and are answered in place", async () => {
   expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).toBeInTheDocument();
   const order = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
   expect(order.indexOf("Requests")).toBeLessThan(order.indexOf("My books"));
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Let Ann keep Wanted?")).toBeInTheDocument();
+  expect(api.approveRequest).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
   expect(api.approveRequest).toHaveBeenCalledExactlyOnceWith("r1");
   await waitFor(() => expect(screen.queryByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).not.toBeInTheDocument());
@@ -235,13 +244,24 @@ test("declining sends decline", async () => {
   expect(api.declineRequest).toHaveBeenCalledExactlyOnceWith("r1");
 });
 
-test("a failed requests load hides the section and leaves the shelves", async () => {
+test("a failed requests load says so in place of the section and leaves the shelves", async () => {
   setup();
   vi.mocked(api.listRequests).mockRejectedValue(new api.ApiError(500, null));
   show();
   expect(await screen.findByText("Beach house")).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load requests.")).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Requests" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("Cancel on the approve step answers nothing and brings the buttons back", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(api.approveRequest).not.toHaveBeenCalled();
+  expect(screen.queryByText("Let Ann keep Wanted?")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
 });
 
 test("approving re-reads the shelves too", async () => {
@@ -249,7 +269,7 @@ test("approving re-reads the shelves too", async () => {
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
   vi.mocked(api.approveRequest).mockResolvedValue({} as never);
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await approve();
   await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(2));
 });
 
@@ -268,7 +288,7 @@ test("a 401 on approve goes to sign-in", async () => {
   vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
   vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(401, null));
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await approve();
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
 });
 
@@ -286,7 +306,7 @@ test("a failed answer says so and keeps the request listed", async () => {
   vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
   vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(500, null));
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await approve();
   expect(await screen.findByText("Something went wrong. Try again.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Wanted" })).toBeInTheDocument();
 });
@@ -305,7 +325,7 @@ test("not-allowed says it was already answered and the row goes after the reload
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
   vi.mocked(api.approveRequest).mockRejectedValue(new api.ApiError(403, "not-allowed"));
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await approve();
   expect(await screen.findByText("That request was already answered or withdrawn.")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Wanted" })).not.toBeInTheDocument());
 });

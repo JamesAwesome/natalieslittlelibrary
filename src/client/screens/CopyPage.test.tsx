@@ -208,7 +208,6 @@ test("only the listed action gets a button", async () => {
 const plain = [
   ["request", "Ask to keep this", "requestCopy"],
   ["withdraw", "Withdraw", "withdrawRequest"],
-  ["approve", "Approve", "approveRequest"],
   ["decline", "Decline", "declineRequest"],
 ] as const;
 
@@ -220,6 +219,22 @@ test.each(plain)("the %s button calls its own api function and never returnCopy"
   expect(api[fn]).toHaveBeenCalledExactlyOnceWith("c1");
   expect(api.returnCopy).not.toHaveBeenCalled();
   expect(api.claim).not.toHaveBeenCalled();
+});
+
+test("Approve asks first, then approves; Cancel approves nothing", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, request: { by: bob, at: 5 }, actions: ["approve", "decline"] })));
+  vi.mocked(api.approveRequest).mockResolvedValue(copyView({ actions: [] }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  expect(screen.getByText(line("Let Bob keep Dune?"))).toBeInTheDocument();
+  expect(api.approveRequest).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(api.approveRequest).not.toHaveBeenCalled();
+  expect(screen.queryByText(line("Let Bob keep Dune?"))).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+  expect(api.approveRequest).toHaveBeenCalledExactlyOnceWith("c1");
+  expect(api.returnCopy).not.toHaveBeenCalled();
 });
 
 test("Lend, Give, Release and Take offer no stray plain buttons", async () => {
@@ -245,6 +260,17 @@ test("Lend opens the lend box and lendCopy's answer is shown", async () => {
   await userEvent.click(await screen.findByRole("button", { name: 'Lend to "Zed"' }));
   expect(api.lendCopy).toHaveBeenCalledExactlyOnceWith("c1", { name: "Zed" });
   expect(await screen.findByText(line("With Zed"))).toBeInTheDocument();
+});
+
+test("the lend box does not suggest the member who holds the copy", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, holder: { kind: "member", person: bob }, home: false, actions: ["lend"] })));
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [me2, bob] });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Lend" }));
+  await userEvent.type(screen.getByRole("textbox"), "Bo");
+  expect(await screen.findByRole("button", { name: 'Lend to "Bo"' })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Bob member" })).not.toBeInTheDocument();
 });
 
 test("Give lists members, confirms by name, then gives", async () => {
@@ -277,6 +303,13 @@ test("Give can be backed out of without a call", async () => {
   expect(api.giveCopy).not.toHaveBeenCalled();
 });
 
+test("the Release confirm wraps the title in a bdi", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["release"] })));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Release" }));
+  expect(screen.getByText("Dune", { selector: "bdi" })).toBeInTheDocument();
+});
+
 test("Release confirms first, then releases", async () => {
   vi.mocked(api.getLabel)
     .mockResolvedValueOnce(asCopy(copyView({ owner: me2, actions: ["release"] })))
@@ -284,7 +317,7 @@ test("Release confirms first, then releases", async () => {
   vi.mocked(api.releaseCopy).mockResolvedValue(copyView({ owner: null, holder: null, actions: [] }));
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Release" }));
-  expect(screen.getByText("Release Dune? It leaves your collection and anyone who scans it can take it.")).toBeInTheDocument();
+  expect(screen.getByText(line("Release Dune? It leaves your collection and anyone who scans it can take it."))).toBeInTheDocument();
   expect(api.releaseCopy).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Release" }));
   expect(api.releaseCopy).toHaveBeenCalledExactlyOnceWith("c1");

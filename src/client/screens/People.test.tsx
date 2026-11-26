@@ -58,7 +58,9 @@ test("link: pick a member, confirm, then link", async () => {
   const list = await screen.findByRole("list", { name: "Members" });
   expect(within(list).queryByText("Natalie")).not.toBeInTheDocument();
   await userEvent.click(within(list).getByRole("button", { name: "Sam" }));
-  expect(screen.getByText("Link Sarah to Sam? The books Sarah has will show as theirs.")).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Link Sarah to Sam? The books Sarah has will show as theirs.")).toBeInTheDocument();
+  expect(screen.getAllByText("Sarah", { selector: "bdi" }).length).toBeGreaterThan(0);
+  expect(screen.getByText("Sam", { selector: "p bdi" })).toBeInTheDocument();
   expect(api.linkPerson).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Link" }));
   expect(api.linkPerson).toHaveBeenCalledExactlyOnceWith("p1", "3");

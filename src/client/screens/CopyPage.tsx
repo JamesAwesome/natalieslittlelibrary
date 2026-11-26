@@ -63,7 +63,7 @@ function Copy(props: {
   onRelease: () => void;
 }) {
   const { copy, busy, onAction, choices, choicesFailed, onMove, onLend, onGive, onRelease } = props;
-  const [step, setStep] = useState<"lend" | "give" | "release" | undefined>(undefined);
+  const [step, setStep] = useState<"lend" | "give" | "release" | "approve" | undefined>(undefined);
   const [giveTo, setGiveTo] = useState<Person | undefined>(undefined);
   const [members, setMembers] = useState<Person[] | "failed" | undefined>(undefined);
   useEffect(() => {
@@ -90,7 +90,11 @@ function Copy(props: {
   // Move, label, relabel, lend, give and release have controls of their own.
   // An action this page has no text for (a newer server's) is ignored, never a blank button.
   const own: ActionType[] = ["move", "label", "relabel", "lend", "give", "release"];
-  const buttons = copy.actions.filter((a) => a in actionText && !own.includes(a) && !((a === "claim" || a === "adopt") && copy.code === null));
+  // Approve hands the book over, so it asks first; while it asks, its own buttons stand in for the plain one.
+  const approving = step === "approve" && copy.request !== null;
+  const buttons = copy.actions.filter(
+    (a) => a in actionText && !own.includes(a) && !((a === "claim" || a === "adopt") && copy.code === null) && !(a === "approve" && approving),
+  );
   const mayAsk = (a: "lend" | "give" | "release") => copy.actions.includes(a) && step === undefined;
   return (
     <>
@@ -104,7 +108,7 @@ function Copy(props: {
       {buttons.length > 0 && (
         <p>
           {buttons.map((a) => (
-            <button key={a} type="button" disabled={busy} onClick={() => onAction(a)}>{actionText[a]}</button>
+            <button key={a} type="button" disabled={busy} onClick={() => (a === "approve" ? setStep("approve") : onAction(a))}>{actionText[a]}</button>
           ))}
         </p>
       )}
@@ -113,7 +117,7 @@ function Copy(props: {
       {mayAsk("release") && <p><button type="button" disabled={busy} onClick={() => setStep("release")}>{actionText.release}</button></p>}
       {step === "lend" && copy.owner && (
         <div>
-          <LendBox ownerId={copy.owner.id} busy={busy} onLend={onLend} />
+          <LendBox ownerId={copy.owner.id} holder={copy.holder} busy={busy} onLend={onLend} />
           <button type="button" onClick={close}>Cancel</button>
         </div>
       )}
@@ -137,9 +141,16 @@ function Copy(props: {
           <button type="button" onClick={close}>Cancel</button>
         </div>
       )}
+      {approving && copy.request && (
+        <div>
+          <p>Let <Name>{personLabel(copy.request.by)}</Name> keep <Name>{copy.book.title}</Name>?</p>
+          <button type="button" disabled={busy} onClick={() => onAction("approve")}>{actionText.approve}</button>
+          <button type="button" onClick={close}>Cancel</button>
+        </div>
+      )}
       {step === "release" && (
         <div>
-          <p>Release {copy.book.title}? It leaves your collection and anyone who scans it can take it.</p>
+          <p>Release <Name>{copy.book.title}</Name>? It leaves your collection and anyone who scans it can take it.</p>
           <button type="button" disabled={busy} onClick={onRelease}>{actionText.release}</button>
           <button type="button" onClick={close}>Cancel</button>
         </div>

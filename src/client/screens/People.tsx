@@ -82,7 +82,7 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
           )
         ) : mine?.kind === "confirm" ? (
           <>
-            <p>Link {p.name} to {mine.to.name}? The books {p.name} has will show as theirs.</p>
+            <p>Link <Name>{p.name}</Name> to <Name>{mine.to.name}</Name>? The books <Name>{p.name}</Name> has will show as theirs.</p>
             <button type="button" disabled={busy} onClick={() => run(() => linkPerson(p.id, mine.to.id), undefined, "That link can't be made now.")}>Link</button>{" "}
             <button type="button" onClick={() => setStep(null)}>Cancel</button>
           </>
