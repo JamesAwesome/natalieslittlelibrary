@@ -1,7 +1,7 @@
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo } from "../../shared/types";
-import { googleBooks, openLibrary, type BookSource } from "./sources";
+import { googleBooks, googleBooksWithoutKey, openLibrary, SourceError, type BookSource } from "./sources";
 
 export type BookLookupDeps = {
   db: D1Database;
@@ -11,6 +11,8 @@ export type BookLookupDeps = {
   // Time limit for one many-ISBN request; a whole chunk in one request needs longer than a single lookup.
   batchTimeoutMs?: number; // default 20000: a live 20-key request took 8.4 s
   sources?: BookSource[];
+  // Where a source failure or timeout is reported (Workers Logs in production). Never given the API key.
+  warn?: (message: string) => void;
 };
 
 export interface BookLookup {
@@ -32,10 +34,19 @@ export class LookupUnavailable extends Error {
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_BATCH_TIMEOUT_MS = 20000;
 
-// Open Library first; Google Books after it only when a key is set.
+// Open Library first, then Google Books. Without a key, Google Books is a stand-in that asks nothing and reports
+// the missing key, so a lookup that misses for that reason shows it in the logs.
 export function lookupSources(apiKey: unknown): BookSource[] {
   const key = typeof apiKey === "string" ? apiKey.trim() : "";
-  return key === "" ? [openLibrary] : [openLibrary, googleBooks(key)];
+  return [openLibrary, key === "" ? googleBooksWithoutKey : googleBooks(key)];
+}
+
+// Only an error's type, plus the message when a source worded it (SourceError). Any other message can quote a
+// response body or a URL, and either could carry the API key.
+function describe(err: unknown): string {
+  if (err instanceof SourceError) return `${err.name}: ${err.message}`;
+  if (!(err instanceof Error)) return "a non-error value";
+  return /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";
 }
 
 type CacheRow = { title: string; authors: string; cover_url: string | null };
@@ -58,6 +69,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const batchTimeoutMs = deps.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS;
   const sources = deps.sources ?? [openLibrary];
+  const warn = deps.warn ?? ((message: string) => console.warn(message));
 
   // Bounds any promise by timeoutMs: a timeout settles as `onTimeout`, and the timer never outlives the call.
   async function bounded<T>(work: () => Promise<T>, onTimeout: T): Promise<T> {
@@ -104,18 +116,21 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
   }
 
   // One request, one time limit: on timeout the request is aborted and the answer is null. Never throws.
-  async function withLimit<T>(ms: number, work: (signal: AbortSignal) => Promise<T | null>): Promise<T | null> {
+  // A failure or timeout is reported with the source's name, so a miss caused by a broken source shows in the logs.
+  async function withLimit<T>(label: string, ms: number, work: (signal: AbortSignal) => Promise<T | null>): Promise<T | null> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<null>((resolve) => {
       timer = setTimeout(() => {
         controller.abort();
+        warn(`book lookup: ${label} timed out after ${ms} ms`);
         resolve(null);
       }, ms);
     });
     try {
       return await Promise.race([work(controller.signal), timedOut]);
-    } catch {
+    } catch (err) {
+      if (!controller.signal.aborted) warn(`book lookup: ${label} failed: ${describe(err)}`);
       return null;
     } finally {
       clearTimeout(timer);
@@ -124,7 +139,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
 
   // One source, one time limit. Null means this source has nothing.
   async function ask(source: BookSource, isbn: string): Promise<BookInfo | null> {
-    const facts = cleanBookFacts(await withLimit(timeoutMs, (signal) => source.find(isbn, doFetch, signal)));
+    const facts = cleanBookFacts(await withLimit(source.name, timeoutMs, (signal) => source.find(isbn, doFetch, signal)));
     return facts && { isbn, ...facts };
   }
 
@@ -188,7 +203,7 @@ export function createBookLookup(deps: BookLookupDeps): BookLookup {
         const missing = [...wanted].filter((i) => !result.has(i));
         if (missing.length === 0) break;
         if (!source.findMany) continue;
-        const answer = await withLimit(batchTimeoutMs, (signal) => source.findMany!(missing, doFetch, signal));
+        const answer = await withLimit(`${source.name} (batch)`, batchTimeoutMs, (signal) => source.findMany!(missing, doFetch, signal));
         if (!(answer instanceof Map)) {
           failed = true;
           continue;

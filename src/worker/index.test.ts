@@ -514,15 +514,17 @@ const lookupBody = async (e: Env) => {
   expect(res.status).toBe(200);
   return (await res.json()) as Record<string, unknown>;
 };
-// Answers Open Library with `open` and Google Books with `google`, recording the URLs.
+// Answers Open Library with `open` and Google Books with `google`, recording the URLs and Google's key header.
 const stubBoth = (open: unknown, google: unknown) => {
   const urls: string[] = [];
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
+  const keys: (string | null)[] = [];
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     urls.push(url);
+    if (url.includes("googleapis.com")) keys.push(new Headers(init?.headers).get("x-goog-api-key"));
     return new Response(JSON.stringify(url.includes("googleapis.com") ? google : open), { status: 200 });
   }) as typeof fetch);
-  return { urls, restore: () => spy.mockRestore() };
+  return { urls, keys, restore: () => spy.mockRestore() };
 };
 const googleOnly = (urls: string[]) => urls.filter((u) => u.includes("googleapis.com"));
 
@@ -549,7 +551,8 @@ test("lookup miss with a key: Google's book is answered with its cover, saved as
     expect(JSON.stringify(body)).not.toContain("test-key");
     const google = googleOnly(stub.urls);
     expect(google).toHaveLength(1);
-    expect(new URL(google[0]).searchParams.get("key")).toBe("test-key");
+    expect(google[0]).not.toContain("test-key");
+    expect(stub.keys).toEqual(["test-key"]);
     const stored = (await env.DB.prepare("select source, cover_url from book_lookups").all()).results;
     expect(stored).toEqual([{ source: "google-books", cover_url: expect.stringContaining("books.google.com") }]);
     expect(JSON.stringify(stored)).not.toContain("test-key");
