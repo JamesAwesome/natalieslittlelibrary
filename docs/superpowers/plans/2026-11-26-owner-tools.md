@@ -58,6 +58,7 @@
   - Otherwise a new placeholder is inserted in the same batch, and the copy update is guarded on it existing. If a concurrent lend made the same name first, the insert does nothing, the guard fails and the answer is `not-allowed`; the client reloads and the name now matches.
 - **Placeholder names reuse the collection-name rules.** `cleanCollectionName`'s body moves to `cleanName` in `src/shared/name.ts`, and `cleanCollectionName` and `cleanPersonName` are both that function. The limit is 60 characters and control and format characters are refused.
 - **Confirms are inline steps on the page, not `window.confirm`,** as Pair's replace confirm is.
+- **Task 6 makes the copy page's action dispatch exhaustive** (a `switch` over `ActionType` with a `never` check), so no action can fall through to `returnCopy`.
 - **History wording:**
   - lent: "lent this to <subject>"
   - given: "gave this to <subject>"
@@ -124,7 +125,8 @@ test("a copy held by a placeholder renders the placeholder, and one held by nobo
   const held = ok(await ledger.viewCopy(copyId, natalie));
   expect(held.holder).toEqual({ kind: "person", id: "p-sarah", name: "Sarah" });
   expect(held.home).toBe(false);
-  await env.DB.prepare("update copies set holder_person_id = null where id = ?").bind(copyId).run();
+  // Held by nobody: only reachable for a copy with no owner (the invariant's afterEach checks this).
+  await env.DB.prepare("update copies set holder_person_id = null, owner_id = null, collection_id = null where id = ?").bind(copyId).run();
   expect(ok(await ledger.viewCopy(copyId, natalie)).holder).toBeNull();
 });
 
@@ -136,6 +138,7 @@ test("an open request renders with the asker", async () => {
 });
 
 test("a history subject renders as the placeholder, or as its linked member once linked", async () => {
+  // The copy stays at home throughout (a linked placeholder must hold nothing, per the invariant).
   // Insert a 'lent' event with subject_person_id = p-sarah. The entry's subject is { kind: "person", id: "p-sarah", name: "Sarah" }.
   // Then set people.linked_member_id = kim.id. The same entry's subject is { kind: "member", person: Kim }.
 });
@@ -177,13 +180,14 @@ test("the public view carries no holder or request", async () => {
   - `CopyPage` and the shelf list render `kind: "person"` by its name.
   - Neither renders a holder line for `null`.
   - The `holder.name` fallback for `"named"` goes.
+  - `historyText` is a full `Record` over `HistoryEntry["type"]`, so add the eight wordings from the Rulings now; the subject is rendered in Task 6.
 - [ ] **Step 8: Run all five commands; commit** `feat: people, requests and history subjects in the schema; holders render as member, placeholder or none`.
 
 ### Task 2: The rules table
 
 **Files:**
-- Modify: `src/worker/ledger/rules.ts`, `src/shared/types.ts` (`ActionType`)
-- Test: `src/worker/ledger/rules.test.ts`
+- Modify: `src/worker/ledger/rules.ts`, `src/shared/types.ts` (`ActionType`), `src/client/screens/CopyPage.tsx` (`actionText`, `buttons`)
+- Test: `src/worker/ledger/rules.test.ts`, `src/client/screens/CopyPage.test.tsx`
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -246,7 +250,11 @@ export function availableActions(state: CopyState, viewer: Member, opts: { label
   - `decide` calls it, then checks the target (lend: not the owner, not the current holder; give: not the owner) and builds the Change.
   - Every Change whose owner or either holder differs from the state has `requestedBy: null`.
   - `availableActions` filters `ACTIONS` by `allows`, with claim and adopt needing `labelInHand`.
-- [ ] **Step 4: Fix callers to compile.** In `ledger.ts`, `relabel.ts` and `unlabelled.ts`, build the new `CopyState` and pass `{ type }` objects; behaviour unchanged. Run all five commands.
+- [ ] **Step 4: Fix callers to compile.**
+  - In `ledger.ts`, `relabel.ts` and `unlabelled.ts`, build the new `CopyState` and pass `{ type }` objects; behaviour unchanged.
+  - `CopyPage`'s `actionText` is a full `Record` over `ActionType`: add the eight button texts from Global Constraints. Exclude the eight new types from `buttons`: until Task 6 wires them, a generic button would fall through `act()` to `returnCopy`.
+  - Add a `CopyPage.test.tsx` test: a copy whose `actions` lists every new type renders none of their buttons, and nothing calls `returnCopy`.
+  - Run all five commands.
 - [ ] **Step 5: Commit** `feat: the full rules table for lending, giving, requests, release and take`.
 
 ### Task 3: One guarded write for every action; lend, ask to keep, withdraw, decline
@@ -291,7 +299,7 @@ export type ActInput =
   - **"ask to keep, then decline":** a `declined` event with the asker as subject.
   - **"an open request is cleared when the owner lends the book elsewhere".** Review Focus 4: the asker's view has no `withdraw` and `request: null`.
   - **"an open request is cleared when a third member claims it".**
-  - **"lend racing a claim: one wins".** Review Focus 1. Use `racing()` to land Sam's claim between Natalie's read and write: her lend is `not-allowed`, the holder is Sam, and there is one new event.
+  - **"lend racing a claim: one wins".** Review Focus 1. Use `racing()` to land Sam's claim between Natalie's read and write: her lend is `not-allowed`, the holder is Sam, and there is one new event. Run it twice, once lending to a member and once to a new name; the new-name run also asserts `count("people")` is 0.
   - **"lend to a name racing the same name"**:
     - a racing insert of the same `name_key` makes the lend `not-allowed`;
     - one people row;
@@ -326,7 +334,7 @@ export type ActInput =
   - **Lend `{ name }`:**
     - clean it with `cleanPersonName`, or answer `invalid`;
     - read the owner's person by `name_key`; linked → `{ member: linked }`, unlinked → `{ person: id }`;
-    - otherwise the prelude is `insert into people … on conflict (created_by, name_key) do nothing` with a fresh `crypto.randomUUID()`, and the target is that id.
+    - otherwise the prelude is `insert into people … select … where <the copy-state guard G> on conflict (created_by, name_key) do nothing` with a fresh `crypto.randomUUID()`, and the target is that id. The insert carries G so a refused lend leaves no placeholder behind.
 - [ ] **Step 5: Routes** in `index.ts`:
   - `lend` validates the `to` shape, then calls `act`;
   - the other three call `act` with the copy id.
@@ -439,7 +447,7 @@ requests(member: Member): Promise<RequestItem[]>;            // open requests on
     2. `update people set linked_member_id = ?, linked_at = ? where id = ? and <guard>`.
 
     The second statement's change count is the signal.
-  - **`people`** is two reads: the people, then `SHELF_SELECT where c.holder_person_id in (their ids)`, grouped.
+  - **`people`** is two reads in one batch: the member's people, then `SHELF_SELECT` joined to `people p on p.id = c.holder_person_id where p.created_by = ?`, grouped by person. It does not bind an `in (…)` list: D1 allows 100 bound parameters.
 - [ ] **Step 4: Routes. Run all five; commit** `feat: people (list, rename, link) and open requests`.
 
 ### Task 6: Copy page: lend, give, requests, release, take
@@ -515,9 +523,9 @@ requests(member: Member): Promise<RequestItem[]>;            // open requests on
 
 ## Release notes (for the PR body)
 
-- **Before deploying,** run this read-only pre-check; expect no rows. It shows the new columns are absent and the migration is pending:
+- **Before deploying,** run this read-only pre-check; expect 0. The new invariant requires every owned copy to have a holder, and old data must already meet it:
   ```sql
-  select name from pragma_table_info('copies') where name in ('holder_person_id', 'requested_by', 'requested_at')
+  select count(*) from copies where owner_id is not null and holder_member_id is null
   ```
 - **The tag's deploy job** applies the migration, then deploys.
 - **Rollback is unsafe once any book is lent to a placeholder, given, released or taken.** Old code reads a placeholder holder as "held by nobody", and an ownerless copy has no actions.
