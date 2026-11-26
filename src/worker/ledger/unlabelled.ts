@@ -76,7 +76,7 @@ export function createUnlabelled(
   lookup: (isbn: string) => Promise<BookInfo | null>,
   lookupMany: (isbns: string[]) => Promise<Map<string, BookInfo>>,
   // The copy as the owner sees it with the request's own label in hand.
-  render: (copyId: string, viewer: Member) => Promise<CopyView | null>,
+  render: (copyId: string, viewer: Member, code: string) => Promise<CopyView | null>,
 ) {
   async function isActive(id: string): Promise<boolean> {
     return (await db.prepare("select 1 as ok from members where id = ? and removed_at is null").bind(id).first()) !== null;
@@ -280,8 +280,8 @@ export function createUnlabelled(
     }
   }
 
-  async function bound(owner: Member, copyId: string): Promise<CopyView> {
-    const v = await render(copyId, owner);
+  async function bound(owner: Member, copyId: string, code: string): Promise<CopyView> {
+    const v = await render(copyId, owner, code);
     if (v === null) throw new Error("a copy just labelled has vanished");
     return v;
   }
@@ -304,7 +304,7 @@ export function createUnlabelled(
     const decision = decide({ ownerId: copy.owner_id, holderMemberId: copy.holder_member_id, labelled: copy.labelled === 1 }, owner, "label");
     if ("rejected" in decision) return decision;
     const refused = await bind(owner, copyId, code, await enrichment(copy.book_isbn, copy.import_isbn));
-    return refused ?? (await bound(owner, copyId));
+    return refused ?? (await bound(owner, copyId, code));
   }
 
   // `add`'s first step: if the adder has an unlabelled copy for this ISBN, the label goes on it. null when there is none.
@@ -313,7 +313,7 @@ export function createUnlabelled(
     if (copy === null) return null;
     const enrich = await enrichment(copy.book.isbn, isbn);
     const refused = await bind(owner, copy.copyId, code, enrich);
-    return refused ?? (await bound(owner, copy.copyId));
+    return refused ?? (await bound(owner, copy.copyId, code));
   }
 
   async function candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection> {

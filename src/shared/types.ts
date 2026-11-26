@@ -35,6 +35,7 @@ export type ImportResult = { added: number; skipped: number };
 export type LabelView =
   | { kind: "unknown" }
   | { kind: "blank"; code: string }
+  | { kind: "retired" }
   | { kind: "public"; code: string; book: { title: string; authors: string[]; coverUrl: string | null } }
   | { kind: "copy"; copy: CopyView };
 export type RejectionReason = "not-found" | "not-allowed" | "label-unknown" | "label-in-use" | "name-taken" | "book-not-found" | "invalid" | "signed-out" | "unavailable";

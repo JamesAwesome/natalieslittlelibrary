@@ -118,6 +118,8 @@ const expectedShape: Record<
       ["minted_at", "INTEGER", 1, 0],
       ["copy_id", "TEXT", 0, 0],
       ["bound_at", "INTEGER", 0, 0],
+      ["sheet_id", "TEXT", 0, 0],
+      ["retired_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [
       ["copy_id", "copies", "id", "NO ACTION", "NO ACTION"],
@@ -125,6 +127,7 @@ const expectedShape: Record<
     ],
     indexes: [
       ["labels_copy_id_idx", 0, "c", 0, ["copy_id"]],
+      ["labels_one_live_per_copy", 1, "c", 1, ["copy_id"]],
       ["sqlite_autoindex_labels_1", 1, "pk", 0, ["code"]],
     ],
   },
@@ -204,6 +207,8 @@ const expectedIndexSql: Record<string, string> = {
   copies_owner_id_idx: "CREATE INDEX `copies_owner_id_idx` ON `copies` (`owner_id`)",
   events_copy_id_id_idx: "CREATE INDEX `events_copy_id_id_idx` ON `events` (`copy_id`,`id`)",
   labels_copy_id_idx: "CREATE INDEX `labels_copy_id_idx` ON `labels` (`copy_id`)",
+  labels_one_live_per_copy:
+    'CREATE UNIQUE INDEX `labels_one_live_per_copy` ON `labels` (`copy_id`) WHERE "labels"."retired_at" is null and "labels"."copy_id" is not null',
 };
 
 test("every created index has exactly this SQL, predicate and uniqueness included", async () => {

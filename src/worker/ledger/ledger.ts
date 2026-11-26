@@ -63,7 +63,7 @@ type CopyRow = {
 const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, c.collection_id, l.code
   from copies c
   join books b on b.id = c.book_id
-  left join labels l on l.copy_id = c.id`;
+  left join labels l on l.copy_id = c.id and l.retired_at is null`;
 type PersonRow = { id: string; name: string; picture_url: string | null };
 
 function person(r: PersonRow): Person {
@@ -88,13 +88,14 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, or scanning an imported copy).
-  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, async (copyId, viewer) => {
-    const v = await renderCopy(copyId, viewer, true);
+  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, async (copyId, viewer, code) => {
+    const v = await renderCopy(copyId, viewer, code);
     return v?.kind === "copy" ? v.copy : null;
   });
 
   async function mintLabels(member: Member, count: number) {
     if (!Number.isInteger(count) || count < 1 || count > MAX_MINT) return { rejected: "invalid" } as const;
+    const sheetId = crypto.randomUUID();
     const minted: string[] = [];
     let needed = count;
     for (let round = 0; needed > 0; round++) {
@@ -103,8 +104,8 @@ export function createLedger(deps: LedgerDeps): Ledger {
       const results = await db.batch(
         codes.map((code) =>
           db
-            .prepare("insert into labels (code, minted_by, minted_at) values (?, ?, ?) on conflict(code) do nothing")
-            .bind(code, member.id, now()),
+            .prepare("insert into labels (code, minted_by, minted_at, sheet_id) values (?, ?, ?, ?) on conflict(code) do nothing")
+            .bind(code, member.id, now(), sheetId),
         ),
       );
       codes.forEach((code, i) => {
@@ -118,15 +119,16 @@ export function createLedger(deps: LedgerDeps): Ledger {
   async function view(rawCode: string, viewer: Member | null): Promise<LabelView> {
     const code = parseLabelLink(rawCode);
     if (code === null) return { kind: "unknown" };
-    const label = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
+    const label = await db.prepare("select copy_id, retired_at from labels where code = ?").bind(code).first<{ copy_id: string | null; retired_at: number | null }>();
     if (!label) return { kind: "unknown" };
+    if (label.retired_at !== null) return { kind: "retired" };
     if (label.copy_id === null) return { kind: "blank", code };
-    return (await renderCopy(label.copy_id, viewer, true)) ?? { kind: "unknown" };
+    return (await renderCopy(label.copy_id, viewer, code)) ?? { kind: "unknown" };
   }
 
   // The copy, its people, and its history are read in one batch, which is one transaction, so a view agrees with itself.
-  // `labelInHand`: the request carried the label, so the view carries its code and offers a claim.
-  async function renderCopy(copyId: string, viewer: Member | null, labelInHand: boolean): Promise<LabelView | null> {
+  // `codeInHand`: the code the request carried, if any. The view carries that code (never the joined row's) and offers a claim.
+  async function renderCopy(copyId: string, viewer: Member | null, codeInHand: string | null): Promise<LabelView | null> {
     const statements = [
       db
         .prepare(
@@ -162,7 +164,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       coverUrl: row.cover_url,
     };
     if (viewer === null) {
-      return { kind: "public", code: row.code!, book: { title: book.title, authors: book.authors, coverUrl: book.coverUrl } };
+      return { kind: "public", code: codeInHand!, book: { title: book.title, authors: book.authors, coverUrl: book.coverUrl } };
     }
     const entries = (history.results as (PersonRow & { at: number; type: HistoryEntry["type"] })[]).map(
       (r): HistoryEntry => ({ at: r.at, type: r.type, actor: person(r) }),
@@ -171,7 +173,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       kind: "copy",
       copy: {
         copyId,
-        code: labelInHand ? row.code : null,
+        code: codeInHand,
         book,
         owner:
           row.owner_id !== null && row.owner_name !== null
@@ -192,7 +194,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
         actions: availableActions(
           { ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null },
           viewer,
-          { labelInHand },
+          { labelInHand: codeInHand !== null },
         ),
       },
     };
@@ -365,7 +367,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     // bound to this copy), so anything that changed in between leaves both of them touching no row.
     const labelGuard = (copyColumn: string): { sql: string; binds: string[] } =>
       type === "claim"
-        ? { sql: ` and exists (select 1 from labels where code = ? and copy_id = ${copyColumn})`, binds: [code!] }
+        ? { sql: ` and exists (select 1 from labels where code = ? and copy_id = ${copyColumn} and retired_at is null)`, binds: [code!] }
         : { sql: "", binds: [] };
     const at = now();
     const onInsert = labelGuard("c.id");
@@ -391,7 +393,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const results = await db.batch([...prelude, insert, update]);
     if (results[results.length - 1].meta.changes === 0) return { rejected: "not-allowed" };
 
-    const v = await renderCopy(row.copy_id, viewer, code !== null);
+    const v = await renderCopy(row.copy_id, viewer, code ?? null);
     if (v?.kind !== "copy") throw new Error("a copy just changed has vanished");
     return v.copy;
   }
@@ -399,7 +401,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
   // A copy reached by id: the request carried no label, so no code and no claim.
   async function viewCopy(copyId: string, viewer: Member): Promise<CopyView | Rejection> {
     if (typeof copyId !== "string") return { rejected: "not-found" };
-    const v = await renderCopy(copyId, viewer, false);
+    const v = await renderCopy(copyId, viewer, null);
     return v?.kind === "copy" ? v.copy : { rejected: "not-found" };
   }
 
@@ -429,7 +431,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       const k = await db.prepare("select owner_id from collections where id = ?").bind(collectionId).first<{ owner_id: string }>();
       return k === null || k.owner_id !== member.id ? { rejected: "not-found" } : { rejected: "not-allowed" };
     }
-    const v = await renderCopy(copyId, member, false);
+    const v = await renderCopy(copyId, member, null);
     if (v?.kind !== "copy") throw new Error("a copy just moved has vanished");
     return v.copy;
   }

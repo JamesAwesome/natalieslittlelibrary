@@ -975,3 +975,46 @@ test("a move is asked of decide: a copy with no owner cannot be moved", async ()
   await env.DB.prepare("update copies set owner_id = null, collection_id = null where id = ?").bind(copyId).run();
   expect(await ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
 });
+
+test("one mint is one sheet: every label shares a sheet id, and the next mint gets another", async () => {
+  const { ledger } = make();
+  await mint(ledger, 3);
+  await mint(ledger, 2);
+  const { results } = await env.DB.prepare("select sheet_id from labels order by rowid").all<{ sheet_id: string }>();
+  expect(results.every((r) => typeof r.sheet_id === "string" && r.sheet_id.length > 0)).toBe(true);
+  expect(new Set(results.slice(0, 3).map((r) => r.sheet_id)).size).toBe(1);
+  expect(results[3].sheet_id).toBe(results[4].sheet_id);
+  expect(results[0].sheet_id).not.toBe(results[3].sheet_id);
+});
+
+test("a retired label views as retired, signed in or not, and claim through it is not-found", async () => {
+  const { ledger } = make();
+  const { code } = await homeCopy(ledger);
+  await env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(code).run();
+  expect(await ledger.view(code, null)).toEqual({ kind: "retired" });
+  expect(await ledger.view(code, sam)).toEqual({ kind: "retired" });
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-found" });
+});
+
+test("a copy reached by a code carries that code, even if the label changed between the read and the render", async () => {
+  const { ledger: setup } = make();
+  const { code: old, copyId } = await homeCopy(setup);
+  const [spare] = await mint(setup);
+  // Between view's label read and renderCopy's batch, the label is swapped by hand (as a replace would).
+  const { ledger } = make({
+    db: racing(() => env.DB.batch([
+      env.DB.prepare("update labels set retired_at = 5 where code = ?").bind(old),
+      env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare),
+    ])),
+  });
+  const copy = asCopy(await ledger.view(old, sam));
+  expect(copy.code).toBe(old);
+  expect(JSON.stringify(copy)).not.toContain(spare);
+});
+
+test("the index allows one live label per copy", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const [spare] = await mint(ledger);
+  await expect(env.DB.prepare("update labels set copy_id = ? where code = ?").bind(copyId, spare).run()).rejects.toThrow(/UNIQUE/);
+});
