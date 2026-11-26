@@ -54,3 +54,5 @@ export type Rejection = { rejected: RejectionReason };
 export type LendTo = { member: string } | { person: string } | { name: string };
 
 export type SheetSummary = { id: string; at: number; total: number; blank: number; mine: number };
+export type PersonSummary = { id: string; name: string; linked: Person | null; holding: ShelfItem[] };
+export type RequestItem = { copyId: string; book: BookInfo; by: Person; at: number };

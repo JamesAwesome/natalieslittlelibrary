@@ -2,10 +2,11 @@ import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/label
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import { cleanPersonName } from "../../shared/name";
-import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, LendTo, Member, Person, Rejection, SheetSummary } from "../../shared/types";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, LendTo, Member, Person, Rejection, PersonSummary, RequestItem, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { stateColumns, stateGuard, stateOf, type StateColumns } from "./copyState";
 import { availableActions, decide, type Change, type Target } from "./rules";
+import { createPeople } from "./people";
 import { createRelabel } from "./relabel";
 import { createSheetReads } from "./sheets";
 import { createShelfReads, holderOf, inCollection, personOf, type HolderColumns } from "./shelves";
@@ -60,6 +61,10 @@ export interface Ledger {
   labelCopy(owner: Member, copyId: string, code: string): Promise<CopyView | Rejection>; // answers with the code the request carried
   // Retires `replacing`, the copy's live label, and binds the blank `code` in its place; answers with the new code in hand.
   replaceLabel(owner: Member, copyId: string, input: { code: string; replacing: string }): Promise<CopyView | Rejection>;
+  people(member: Member): Promise<PersonSummary[]>; // the member's own placeholders, by name
+  renamePerson(member: Member, personId: string, name: string): Promise<PersonSummary | Rejection>;
+  linkPerson(member: Member, personId: string, memberId: string): Promise<PersonSummary | Rejection>;
+  requests(member: Member): Promise<RequestItem[]>; // open requests on copies the member owns, newest first
   candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection>; // never a label code
 }
 
@@ -616,5 +621,5 @@ export function createLedger(deps: LedgerDeps): Ledger {
   }
 
   const { importCopies, labelCopy, candidates } = unlabelled;
-  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createSheetReads(db, deps.siteUrl), ...createRelabel(db, now, renderWithCode), ...createCollectionWrites(db, now) };
+  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createSheetReads(db, deps.siteUrl), ...createRelabel(db, now, renderWithCode), ...createPeople(db, now), ...createCollectionWrites(db, now) };
 }

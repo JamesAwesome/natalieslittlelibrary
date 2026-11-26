@@ -708,6 +708,10 @@ const EVERY_NEW_ROUTE: [string, string][] = [
   ["POST", "/api/copies/x/give"],
   ["POST", "/api/copies/x/approve"],
   ["POST", "/api/copies/x/release"],
+  ["GET", "/api/people"],
+  ["POST", "/api/people/x/rename"],
+  ["POST", "/api/people/x/link"],
+  ["GET", "/api/requests"],
   ["POST", "/api/labels/t7k2q9xzmb/adopt"],
 ];
 
@@ -800,6 +804,32 @@ test("lend answers the copy lent; a malformed target is 400 invalid; a lend by s
   const res = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, { to: { member: other.member.id } });
   expect(res.status).toBe(200);
   expect(await res.json()).toMatchObject({ copyId: f.home, holder: { kind: "member", person: { id: other.member.id } } });
+});
+
+test("people routes: list, rename, link, and open requests; a malformed body is 400", async () => {
+  const f = await writeFixture();
+  const lent = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, { to: { name: "Sarah" } });
+  expect(lent.status).toBe(200);
+  const listed = (await (await send("GET", "/api/people", f.cookie)).json()) as { people: { id: string; name: string }[] };
+  expect(listed.people.map((p) => p.name)).toEqual(["Sarah"]);
+  const id = listed.people[0].id;
+  for (const body of [{}, { name: 5 }, { name: null }]) {
+    expect((await send("POST", `/api/people/${id}/rename`, f.cookie, body)).status).toBe(400);
+  }
+  for (const body of [{}, { member: 5 }, { member: null }]) {
+    expect((await send("POST", `/api/people/${id}/link`, f.cookie, body)).status).toBe(400);
+  }
+  const renamed = await send("POST", `/api/people/${id}/rename`, f.cookie, { name: "Sally" });
+  expect(renamed.status).toBe(200);
+  expect(await renamed.json()).toMatchObject({ id, name: "Sally" });
+  const other = await signInAs(env.DB, sam);
+  expect((await send("POST", `/api/people/${id}/rename`, other.cookie, { name: "X" })).status).toBe(404);
+  expect((await send("POST", `/api/people/${id}/link`, other.cookie, { member: other.member.id })).status).toBe(403);
+  const linked = await send("POST", `/api/people/${id}/link`, f.cookie, { member: other.member.id });
+  expect(linked.status).toBe(200);
+  expect(await linked.json()).toMatchObject({ linked: { id: other.member.id }, holding: [] });
+  const requests = await send("GET", "/api/requests", f.cookie);
+  expect(await requests.json()).toEqual({ requests: [] });
 });
 
 test("request, withdraw and decline answer the copy, with no body needed", async () => {

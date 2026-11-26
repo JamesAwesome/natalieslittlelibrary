@@ -284,6 +284,24 @@ app.post("/api/copies/:id/lend", member(async (c, who) => {
   return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type: "lend", copyId: id, to }));
 }));
 
+app.get("/api/people", member(async (c, who) => c.json({ people: await c.var.services.ledger.people(who) })));
+
+app.post("/api/people/:id/rename", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.name !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.renamePerson(who, id, body.name));
+}));
+
+app.post("/api/people/:id/link", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.member !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.linkPerson(who, id, body.member));
+}));
+
+app.get("/api/requests", member(async (c, who) => c.json({ requests: await c.var.services.ledger.requests(who) })));
+
 app.post("/api/copies/:id/give", member(async (c, who) => {
   const body = await objectBody(c);
   if (!body || typeof body.to !== "string") return invalid(c);
