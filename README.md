@@ -70,11 +70,17 @@ Tags are the release record: never move or reuse one. A bad release is fixed by 
 
 These checks live in the workflow file of the tagged commit, so they stop mistakes, not a person with write access who edits the workflow; GitHub-enforced limits (protected branches, deployment rules, environment secrets) need a public repository or a paid plan.
 
-This repository is public, and three repository settings keep it safe. They are not in the code, so recreate them if the repository is ever moved or rebuilt:
+This repository is public, and these repository settings keep it safe. They are not in the code, so recreate them if the repository is ever moved or rebuilt:
 
 - **A ruleset named "protect main"** on the default branch: changes arrive by pull request, the `app` check must pass on an up-to-date branch, and force-pushes and deletion are blocked, with no bypass for admins.
+- **A ruleset named "protect release tags"** on `refs/tags/v*`: a tag cannot be moved or deleted, with no bypass. Creating one still works.
+- **The `production` environment deploys from `v*.*.*` tags only** (Settings → Environments → production → Deployment branches and tags), so a workflow on any other branch cannot reach the Cloudflare token.
 - **Pull requests from collaborators only** (Settings → General → Pull Requests). Outside pull requests are not accepted.
 - **Actions → "Require approval for all external contributors"**, so no outside code runs in CI without a person approving it first.
+- **Actions → "Require actions to be pinned to a full-length commit SHA"**, as the workflow already does.
+- **Secret scanning and push protection** (Settings → Advanced Security), so a pushed key is refused or reported.
+
+Agents follow `AGENTS.md`: pull requests only, and no merges, tags, deploys or settings changes.
 
 Do not loosen these while the deploy job holds a Cloudflare token. On GitHub Free, rulesets are only available for public repositories.
 

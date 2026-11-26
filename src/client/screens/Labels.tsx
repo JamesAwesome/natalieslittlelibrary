@@ -1,7 +1,7 @@
 import { flushSync } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Member } from "../../shared/types";
-import { ApiError, mintLabels } from "../api";
+import type { Member, SheetSummary } from "../../shared/types";
+import { ApiError, listSheets, mintLabels, sheetLabels } from "../api";
 import { DEFAULT_SHEET_ID, perSheet, SHEETS, Sheet, validate, type Nudge, type SheetLayout } from "../labelsheet";
 import { SignIn } from "./SignIn";
 
@@ -78,6 +78,16 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
   // A run of sheets that stopped part way: the sheets made so far are kept and the rest can be made.
   const [partial, setPartial] = useState<{ made: number; total: number } | null>(null);
   const [aligning, setAligning] = useState(false);
+  // Set when labels are on the page and ready to print; the effect below prints once they are in the DOM.
+  const [printSoon, setPrintSoon] = useState(false);
+  // The labels shown came from a past sheet, not a new run.
+  const [reprint, setReprint] = useState(false);
+  const [reprintNote, setReprintNote] = useState<"empty" | "failed" | null>(null);
+  // The sheet whose reprint had nothing to print, so the note can say whether the checkbox would change that.
+  const [emptySheet, setEmptySheet] = useState<string | null>(null);
+  const [includeMine, setIncludeMine] = useState(false);
+  const [sheets, setSheets] = useState<SheetSummary[]>([]);
+  const [listFailed, setListFailed] = useState(false);
   const inFlight = useRef(false);
   const live = useRef(true);
 
@@ -89,17 +99,42 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
   }, []);
   useEffect(() => writeSettings({ sheetId, nudge, custom }), [sheetId, nudge, custom]);
 
+  async function refreshSheets() {
+    try {
+      const { sheets: list } = await listSheets();
+      if (!live.current) return;
+      setSheets(list);
+      setListFailed(false);
+    } catch (e) {
+      if (!live.current) return;
+      if (e instanceof ApiError && e.status === 401) setLost(true);
+      else setListFailed(true);
+    }
+  }
+  const signedIn = member !== null;
+  useEffect(() => {
+    if (signedIn) void refreshSheets();
+  }, [signedIn]);
+
   const layout = useMemo(
     () => (sheetId === CUSTOM ? customLayout(custom) : SHEETS.find((s) => s.id === sheetId) ?? SHEETS[0]!),
     [sheetId, custom],
   );
   const problems = useMemo(() => validate(layout), [layout]);
+  // Runs after commit, so the labels are in the DOM. A layout that went invalid while the request was out
+  // drops the pending print; the Print button stays.
+  useEffect(() => {
+    if (!printSoon) return;
+    setPrintSoon(false);
+    if (problems.length === 0) window.print();
+  }, [printSoon, problems]);
 
   async function make() {
     if (inFlight.current || problems.length > 0) return;
     inFlight.current = true;
     setBusy(true);
     setFailed(false);
+    setReprintNote(null);
     // After a failure part way, go on from where it stopped; otherwise start a fresh run.
     const resume = partial !== null && partial.total === sheetCount ? partial : null;
     const total = sheetCount;
@@ -108,9 +143,15 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     try {
       for (; made < total; made++) {
         kept = [...kept, ...(await mintLabels(perSheet(layout))).labels];
-        if (live.current) setLabels(kept);
+        if (live.current) {
+          setLabels(kept);
+          setReprint(false);
+        }
       }
-      if (live.current) setPartial(null);
+      if (live.current) {
+        setPartial(null);
+        setPrintSoon(true);
+      }
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) setLost(true);
@@ -118,6 +159,38 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
         setFailed(true);
         setPartial(made > 0 ? { made, total } : null);
       }
+    } finally {
+      inFlight.current = false;
+      if (live.current) {
+        setBusy(false);
+        void refreshSheets();
+      }
+    }
+  }
+
+  async function printAgain(id: string) {
+    if (inFlight.current || problems.length > 0) return;
+    inFlight.current = true;
+    setBusy(true);
+    setFailed(false);
+    setPartial(null);
+    setReprintNote(null);
+    try {
+      const { labels: again } = await sheetLabels(id, includeMine);
+      if (!live.current) return;
+      if (again.length === 0) {
+        setReprintNote("empty");
+        setEmptySheet(id);
+      }
+      else {
+        setLabels(again);
+        setReprint(true);
+        setPrintSoon(true);
+      }
+    } catch (e) {
+      if (!live.current) return;
+      if (e instanceof ApiError && e.status === 401) setLost(true);
+      else setReprintNote("failed");
     } finally {
       inFlight.current = false;
       if (live.current) setBusy(false);
@@ -187,11 +260,38 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
       </p>
       {failed && <p role="alert" className="refusal">Couldn't make labels. Try again.</p>}
       {failed && partial !== null && <p>{partial.made} of {partial.total} sheets {partial.made === 1 ? "was" : "were"} made.</p>}
-      {labels.length > 0 && <p>These labels now exist. If you don't print them, they simply go unused.</p>}
+      {labels.length > 0 && !reprint && <p>These labels now exist. If you don't print them, they simply go unused.</p>}
       <p>Print from a computer, at 100%, not "fit to page", on Letter paper.</p>
       <p>
         <button type="button" disabled={labels.length === 0 || problems.length > 0} onClick={() => window.print()}>Print</button>
       </p>
+      {(sheets.length > 0 || listFailed) && (
+        <section className="previous-sheets">
+          <h2>Previous sheets</h2>
+          {listFailed && <p role="alert" className="refusal">Couldn't load your previous sheets.</p>}
+          {sheets.length > 0 && (
+            <>
+              <p>
+                <input id="labels-mine" type="checkbox" checked={includeMine} onChange={(e) => setIncludeMine(e.target.checked)} />
+                <label htmlFor="labels-mine">Also print labels already on my books</label>
+              </p>
+              <ul>
+                {sheets.map((s) => (
+                  <li key={s.id}>
+                    {new Date(s.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} · {s.total} {s.total === 1 ? "label" : "labels"}, {s.blank} blank, {s.mine} on your books{" "}
+                    <button type="button" disabled={busy || problems.length > 0} onClick={() => void printAgain(s.id)}>Print again</button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {reprintNote === "empty" && <p>Every label on that sheet is already on a book.</p>}
+          {reprintNote === "empty" && !includeMine && (sheets.find((s) => s.id === emptySheet)?.mine ?? 0) > 0 && (
+            <p>Tick 'Also print labels already on my books' to print those.</p>
+          )}
+          {reprintNote === "failed" && <p role="alert" className="refusal">Couldn't load that sheet. Try again.</p>}
+        </section>
+      )}
       <fieldset className="nudge">
         <legend>If the print lands off the sheet</legend>
         <p>

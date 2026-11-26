@@ -52,10 +52,13 @@ test("the migration backfills a default per owner, and leaves the seeded rows as
     { id: "c3", collection_id: defaultOf.sam, import_isbn: null },
     { id: "c4", collection_id: null, import_isbn: null },
   ]);
-  expect(await invariantViolations(db)).toEqual([]);
 
   const after = await dump();
   const strip = (row: Record<string, unknown>) =>
     Object.fromEntries(Object.entries(row).filter(([k]) => k !== "collection_id" && k !== "import_isbn"));
   expect({ ...after, copies: after.copies.map(strip) }).toEqual({ ...before, copies: before.copies.map(strip) });
+
+  // The invariant reads columns later migrations add, so it is checked once the database is fully migrated.
+  await applyD1Migrations(db, migrations);
+  expect(await invariantViolations(db)).toEqual([]);
 });

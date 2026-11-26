@@ -18,7 +18,7 @@ const book = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert", 
 
 function copyView(over: Partial<CopyView> = {}): CopyView {
   return {
-    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
+    copyId: "c1", code: "abc", ownerCode: null, book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
     history: [
       { at: Date.UTC(2026, 10, 3, 12), type: "claimed", actor: bob },
       { at: Date.UTC(2026, 10, 1, 12), type: "labelled", actor: ann },
@@ -140,6 +140,12 @@ test("returned entries read 'marked it returned'", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ history: [{ at: 0, type: "returned", actor: bob }] })));
   show();
   expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Bob marked it returned/.test(el.textContent ?? ""))).toBeInTheDocument();
+});
+
+test("relabelled entries read 'replaced its label'", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ history: [{ at: 0, type: "relabelled", actor: ann }] })));
+  show();
+  expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Ann replaced its label /.test(el.textContent ?? ""))).toBeInTheDocument();
 });
 
 test("home reads 'At home'; away, a named holder shows as 'With <name>'", async () => {
@@ -492,6 +498,20 @@ test("a move on a label page refetches the label so the page keeps what it showe
   expect(screen.getByText("Dune")).toBeInTheDocument();
 });
 
+test("relabel is never an action button", async () => {
+  const names = async (over: Partial<CopyView>) => {
+    vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ...over })));
+    const { unmount } = show();
+    await screen.findByText("Dune");
+    const shown = screen.queryAllByRole("button").map((b) => b.textContent);
+    unmount();
+    return shown;
+  };
+  const without = await names({ actions: ["return"] });
+  expect(await names({ actions: ["return", "relabel"] })).toEqual(without);
+  expect(without).toContain("Mark as returned");
+});
+
 test("Put a label on it links to pairing this copy", async () => {
   vi.mocked(api.getCopy).mockResolvedValue(byId({ actions: ["label"] }));
   showById();
@@ -515,4 +535,64 @@ test("the trouble branch renders inside .copy-page", async () => {
   const { container } = showById();
   expect(await screen.findByRole("alert")).toHaveTextContent("The library is having trouble right now");
   expect(container.querySelector(".copy-page [role=alert]")).not.toBeNull();
+});
+
+test("the owner sees the label code under the book; nobody else does", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ownerCode: "t7k2q9xzmb" })));
+  const { unmount } = show();
+  expect(await screen.findByText(line("Label t7k2q9xzmb"))).toHaveClass("label-code");
+  unmount();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ ownerCode: null })));
+  const { container } = show();
+  await screen.findByText("Dune");
+  expect(container.querySelector(".label-code")).toBeNull();
+});
+
+test("Replace label links to pairing in replace mode, only when offered", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["move", "relabel"] })));
+  const { unmount } = show();
+  const link = await screen.findByRole("link", { name: "Replace label" });
+  expect(link).toHaveAttribute("href", "/pair?copy=c1&replace=1");
+  expect(screen.queryByRole("button", { name: "Replace label" })).toBeNull();
+  unmount();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["move"] })));
+  show();
+  await screen.findByText("Dune");
+  expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
+});
+
+test.each([["signed in", me], ["signed out", null]])("a replaced label says so and shows nothing else (%s)", async (_n, who) => {
+  vi.mocked(api.getLabel).mockResolvedValue({ kind: "retired" });
+  const { container } = show(who);
+  const p = await screen.findByText("This label has been replaced.");
+  expect(p.tagName).toBe("P");
+  expect(p.textContent).toBe("This label has been replaced.");
+  expect(screen.queryByText("Dune")).toBeNull();
+  expect(container.querySelector("img")).toBeNull();
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
+});
+
+test("Replace label stays hidden when Put a label on it is offered", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ownerCode: null, actions: ["move", "label"] })));
+  show();
+  expect(await screen.findByRole("link", { name: "Put a label on it" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
+});
+
+test("an action this page does not know is never a button, and never returns the book", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["return", "release" as never] })));
+  show();
+  await screen.findByText("Dune");
+  expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Mark as returned"]);
+});
+
+test("a claim through a label replaced meanwhile shows only the replaced page", async () => {
+  vi.mocked(api.getLabel).mockResolvedValueOnce(asCopy(copyView())).mockResolvedValue({ kind: "retired" });
+  vi.mocked(api.claim).mockRejectedValue(new api.ApiError(404, "not-found"));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "I have this book" }));
+  expect(await screen.findByText("This label has been replaced.")).toBeInTheDocument();
+  expect(screen.queryByText(/Something went wrong/)).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
 });

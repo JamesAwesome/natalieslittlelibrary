@@ -6,7 +6,7 @@ import { Labels } from "./Labels";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, mintLabels: vi.fn() };
+  return { ...actual, mintLabels: vi.fn(), listSheets: vi.fn(), sheetLabels: vi.fn() };
 });
 
 const me = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
@@ -33,6 +33,7 @@ beforeEach(() => {
   serial = 0;
   vi.resetAllMocks();
   vi.mocked(api.mintLabels).mockImplementation(fakeMint);
+  vi.mocked(api.listSheets).mockResolvedValue({ sheets: [] });
   vi.stubGlobal("print", print);
   vi.stubGlobal("localStorage", memory());
 });
@@ -167,6 +168,8 @@ test("Print calls window.print", async () => {
   show();
   await make();
   await waitFor(() => expect(screen.getByRole("button", { name: "Print" })).toBeEnabled());
+  await waitFor(() => expect(print).toHaveBeenCalledTimes(1)); // Make labels already printed once
+  print.mockClear();
   await userEvent.click(screen.getByRole("button", { name: "Print" }));
   expect(print).toHaveBeenCalledTimes(1);
 });
@@ -271,4 +274,232 @@ test("bad saved values fall back to the defaults", () => {
   show();
   expect(picker().value).toBe("avery-94103");
   expect((screen.getByLabelText("Nudge right/left") as HTMLSelectElement).value).toBe("0");
+});
+
+const dayOf = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const T2 = Date.UTC(2026, 10, 20, 12);
+const T1 = Date.UTC(2026, 10, 10, 12);
+const twoSheets = {
+  sheets: [
+    { id: "s2", at: T2, total: 48, blank: 40, mine: 8 },
+    { id: "s1", at: T1, total: 12, blank: 12, mine: 0 },
+  ],
+};
+const stored = [
+  { code: "r000000001", url: "https://lib.test/b/r000000001" },
+  { code: "r000000002", url: "https://lib.test/b/r000000002" },
+];
+const rows = async () => (await screen.findAllByRole("listitem")).map((li) => li.textContent);
+
+test("Make labels opens the print dialog once, after the labels are on the page", async () => {
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
+  show();
+  await make();
+  await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+  expect(seen).toEqual([48]);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a run of two sheets prints once, after both", async () => {
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+  expect(seen).toEqual([96]);
+  expect(codes()).toHaveLength(96);
+});
+
+test("a run that fails part way does not print; Try again prints once it completes", async () => {
+  vi.mocked(api.mintLabels).mockImplementationOnce(fakeMint).mockRejectedValueOnce(new api.ApiError(500, null));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await screen.findByRole("alert");
+  expect(print).not.toHaveBeenCalled();
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(96));
+  await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+});
+
+test("previous sheets are listed newest first with their counts", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  show();
+  expect(await screen.findByRole("heading", { name: "Previous sheets" })).toBeInTheDocument();
+  expect(await rows()).toEqual([
+    expect.stringContaining(`${dayOf(T2)} · 48 labels, 40 blank, 8 on your books`),
+    expect.stringContaining(`${dayOf(T1)} · 12 labels, 12 blank, 0 on your books`),
+  ]);
+});
+
+test("Print again prints that sheet's blank labels and makes none", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
+  const seen: (string | undefined)[][] = [];
+  print.mockImplementation(() => void seen.push(codes()));
+  show();
+  const [first] = await screen.findAllByRole("button", { name: "Print again" });
+  await userEvent.click(first!);
+  await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+  expect(api.sheetLabels).toHaveBeenCalledWith("s2", false);
+  expect(seen).toEqual([["r000000001", "r000000002"]]);
+  expect(codes()).toEqual(["r000000001", "r000000002"]);
+  expect(api.mintLabels).not.toHaveBeenCalled();
+  expect(screen.queryByText(/These labels now exist/)).not.toBeInTheDocument();
+});
+
+test("the checkbox asks for the labels already on my books", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
+  show();
+  await userEvent.click(await screen.findByLabelText("Also print labels already on my books"));
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(api.sheetLabels).toHaveBeenCalledWith("s2", true));
+});
+
+test("a sheet with nothing to print says so and does not print", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: [] });
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  expect(await screen.findByText("Every label on that sheet is already on a book.")).toBeInTheDocument();
+  expect(print).not.toHaveBeenCalled();
+});
+
+const HINT = "Tick 'Also print labels already on my books' to print those.";
+
+test("an empty reprint of a sheet with labels on books hints at the checkbox, only while it is unticked", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: [] });
+  show();
+  const again = await screen.findAllByRole("button", { name: "Print again" });
+  await userEvent.click(again[1]!); // the older sheet has none on books
+  expect(await screen.findByText("Every label on that sheet is already on a book.")).toBeInTheDocument();
+  expect(screen.queryByText(HINT)).toBeNull();
+  await userEvent.click(again[0]!);
+  expect(await screen.findByText(HINT)).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText("Also print labels already on my books"));
+  expect(screen.queryByText(HINT)).toBeNull();
+});
+
+test("Print again after a failed partial run, then Make labels, starts a fresh run", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
+  vi.mocked(api.mintLabels).mockImplementationOnce(fakeMint).mockRejectedValueOnce(new api.ApiError(500, null));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await screen.findByText("1 of 2 sheets was made.");
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(codes()).toEqual(["r000000001", "r000000002"]));
+  expect(screen.queryByText("1 of 2 sheets was made.")).not.toBeInTheDocument();
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(96));
+  expect(api.mintLabels).toHaveBeenCalledTimes(4); // 1 made, 1 failed, 2 fresh
+  expect(api.mintLabels).toHaveBeenNthCalledWith(3, 48);
+  expect(api.mintLabels).toHaveBeenNthCalledWith(4, 48);
+  expect(codes()).not.toContain("r000000001");
+  expect(screen.getByText(/These labels now exist/)).toBeInTheDocument();
+});
+
+test("making labels refreshes the list of previous sheets", async () => {
+  show();
+  await waitFor(() => expect(api.listSheets).toHaveBeenCalledTimes(1));
+  await make();
+  await waitFor(() => expect(api.listSheets).toHaveBeenCalledTimes(2));
+});
+
+test("a list that fails to load says so and the page still makes labels", async () => {
+  vi.mocked(api.listSheets).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  expect(await screen.findByText("Couldn't load your previous sheets.")).toBeInTheDocument();
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(48));
+});
+
+test("a lost session while loading the list shows the sign-in link", async () => {
+  vi.mocked(api.listSheets).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("a reprint is laid out on the chosen sheet type and paginates", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  const many = Array.from({ length: 30 }, (_, i) => ({ code: `r${String(i).padStart(9, "0")}`, url: `https://lib.test/b/${i}` }));
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: many });
+  show();
+  await userEvent.selectOptions(picker(), "avery-22806"); // 12 to a sheet
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(codes()).toHaveLength(30));
+  expect(document.querySelectorAll(".sheet-page")).toHaveLength(3);
+});
+
+test("a sheet that fails to load says so and does not print", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  expect(await screen.findByText("Couldn't load that sheet. Try again.")).toBeInTheDocument();
+  expect(print).not.toHaveBeenCalled();
+});
+
+test("a lost session while printing again shows the sign-in link", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+});
+
+test("after Print again, a Make labels that fails at once keeps the reprinted codes without the 'now exist' line", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  vi.mocked(api.sheetLabels).mockResolvedValue({ labels: stored });
+  vi.mocked(api.mintLabels).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await waitFor(() => expect(codes()).toEqual(["r000000001", "r000000002"]));
+  await make();
+  await screen.findByText("Couldn't make labels. Try again.");
+  expect(codes()).toEqual(["r000000001", "r000000002"]);
+  expect(screen.queryByText(/These labels now exist/)).not.toBeInTheDocument();
+});
+
+test("each run prints exactly once, with all of that run's codes on the page", async () => {
+  const slow = (n: number) => new Promise<Awaited<ReturnType<typeof fakeMint>>>((r) => setTimeout(() => r(fakeMint(n)), 20));
+  vi.mocked(api.mintLabels).mockImplementation(slow);
+  const seen: number[] = [];
+  print.mockImplementation(() => void seen.push(codes().length));
+  show();
+  await userEvent.selectOptions(screen.getByLabelText("How many sheets?"), "2");
+  await make();
+  await waitFor(() => expect(codes()).toHaveLength(96));
+  await new Promise((r) => setTimeout(r, 60));
+  expect(seen).toEqual([96]);
+  await make();
+  await waitFor(() => expect(seen).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 60));
+  expect(seen).toEqual([96, 96]);
+});
+
+test("a layout that goes invalid while a reprint is loading drops the print, and it never fires later", async () => {
+  vi.mocked(api.listSheets).mockResolvedValue(twoSheets);
+  let release!: () => void;
+  vi.mocked(api.sheetLabels).mockImplementation(async () => {
+    await new Promise<void>((r) => (release = r));
+    return { labels: stored };
+  });
+  show();
+  await userEvent.click((await screen.findAllByRole("button", { name: "Print again" }))[0]!);
+  await userEvent.selectOptions(picker(), "custom");
+  fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "0" } });
+  await act(async () => release());
+  await new Promise((r) => setTimeout(r, 30));
+  expect(print).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Columns"), { target: { value: "2" } });
+  await new Promise((r) => setTimeout(r, 30));
+  expect(print).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Print" }));
+  expect(print).toHaveBeenCalledTimes(1);
 });

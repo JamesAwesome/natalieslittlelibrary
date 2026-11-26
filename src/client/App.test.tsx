@@ -260,7 +260,7 @@ test("a refusal on a label page keeps returnTo at that page", async () => {
 test("a copy reached by id loads with getCopy and never asks for a label", async () => {
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   vi.mocked(api.getCopy).mockResolvedValue({
-    copyId: "c1", code: null, book: { isbn: null, title: "Dune", authors: [], coverUrl: null }, owner: { id: "1", name: "Natalie", pictureUrl: null },
+    copyId: "c1", code: null, ownerCode: null, book: { isbn: null, title: "Dune", authors: [], coverUrl: null }, owner: { id: "1", name: "Natalie", pictureUrl: null },
     holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } }, home: true, collection: null, history: [], actions: [],
   });
   at("/copies/c1");
