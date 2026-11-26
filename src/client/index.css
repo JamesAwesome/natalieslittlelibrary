@@ -272,6 +272,11 @@ a.button {
   display: block;
 }
 
+.copy-page .label-code {
+  font: 6pt/1 ui-monospace, Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+
 .sheet-code {
   position: absolute;
   left: 0;

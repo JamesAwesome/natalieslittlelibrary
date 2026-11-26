@@ -51,6 +51,7 @@ function Copy(props: {
   return (
     <>
       <Book {...copy.book} />
+      {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
       {copy.owner && (
         <p>Owned by <Name>{copy.owner.name}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
       )}
@@ -76,6 +77,9 @@ function Copy(props: {
       {copy.actions.includes("move") && choicesFailed && <p>Couldn't load your collections, so moving isn't available right now.</p>}
       {copy.actions.includes("label") && (
         <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}`}>{actionText.label}</a></p>
+      )}
+      {copy.actions.includes("relabel") && (
+        <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}&replace=1`}>{actionText.relabel}</a></p>
       )}
       <ul className="history">
         {historyKeys(copy.history).map(([key, h]) => (
@@ -237,6 +241,7 @@ function Page(props: Props) {
       {heading}
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
+      {view.kind === "retired" && <p>This label has been replaced.</p>}
       {view.kind === "blank" && (
         <>
           <p>This label isn't on a book yet.</p>

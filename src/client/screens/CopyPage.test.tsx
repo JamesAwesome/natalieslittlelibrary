@@ -536,3 +536,35 @@ test("the trouble branch renders inside .copy-page", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("The library is having trouble right now");
   expect(container.querySelector(".copy-page [role=alert]")).not.toBeNull();
 });
+
+test("the owner sees the label code under the book; nobody else does", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, ownerCode: "t7k2q9xzmb" })));
+  const { unmount } = show();
+  expect(await screen.findByText(line("Label t7k2q9xzmb"))).toHaveClass("label-code");
+  unmount();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ ownerCode: null })));
+  const { container } = show();
+  await screen.findByText("Dune");
+  expect(container.querySelector(".label-code")).toBeNull();
+});
+
+test("Replace label links to pairing in replace mode, only when offered", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["move", "relabel"] })));
+  const { unmount } = show();
+  const link = await screen.findByRole("link", { name: "Replace label" });
+  expect(link).toHaveAttribute("href", "/pair?copy=c1&replace=1");
+  expect(screen.queryByRole("button", { name: "Replace label" })).toBeNull();
+  unmount();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["move"] })));
+  show();
+  await screen.findByText("Dune");
+  expect(screen.queryByRole("link", { name: "Replace label" })).toBeNull();
+});
+
+test("a replaced label says so and shows no book", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue({ kind: "retired" });
+  const { container } = show();
+  expect(await screen.findByText("This label has been replaced.")).toBeInTheDocument();
+  expect(container.querySelector("img")).toBeNull();
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+});
