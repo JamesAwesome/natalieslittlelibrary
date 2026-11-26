@@ -968,3 +968,16 @@ test("GET /api/labels/sheets/:id?include=mine answers labels with urls", async (
   for (const l of labels) expect(l.url).toBe(`${SITE}/b/${l.code}`);
   expect((await get("/api/labels/sheets/nope", cookie)).status).toBe(404);
 });
+
+test("include=mine adds the member's own bound labels; anything else is blanks only", async () => {
+  const { cookie } = await signInAs(env.DB, natalie);
+  const minted = (await (await post("/api/labels", cookie, { count: 2 })).json()) as { labels: { code: string }[] };
+  const [bound, blank] = minted.labels.map((l) => l.code);
+  expect((await post("/api/copies", cookie, { code: bound, title: "T", authors: ["A"] })).ok).toBe(true);
+  const { sheets } = (await (await get("/api/labels/sheets", cookie)).json()) as { sheets: { id: string }[] };
+  const codes = async (query: string) =>
+    ((await (await get(`/api/labels/sheets/${sheets[0].id}${query}`, cookie)).json()) as { labels: { code: string }[] }).labels.map((l) => l.code);
+  expect((await codes("?include=mine")).sort()).toEqual([bound, blank].sort());
+  expect(await codes("")).toEqual([blank]);
+  expect(await codes("?include=yes")).toEqual([blank]);
+});

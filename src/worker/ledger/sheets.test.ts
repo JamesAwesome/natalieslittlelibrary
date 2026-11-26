@@ -68,3 +68,23 @@ test("labels minted before sheet ids existed group by member and minted second",
   const codes = ok(await ledger.sheetCodes(natalie, list[1].id, { includeMine: false }));
   expect(codes.map((l) => l.code)).toEqual(["aaaaaaaaaa", "bbbbbbbbbb"]);
 });
+
+test("codes come back in mint order, not code order", async () => {
+  const fills = [30, 20, 10];
+  let i = 0;
+  const randomBytes = (n: number) => new Uint8Array(n).fill(fills[i++]);
+  const { ledger } = make({ randomBytes });
+  const minted = await mint(ledger, 3);
+  expect([...minted].sort().reverse()).toEqual(minted);
+  const [sheet] = await ledger.sheets(natalie);
+  expect(ok(await ledger.sheetCodes(natalie, sheet.id, { includeMine: false })).map((l) => l.code)).toEqual(minted);
+});
+
+test("counts are numbers when a bound copy has no owner", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set owner_id = null, holder_member_id = null, collection_id = null where id = ?").bind(copyId).run();
+  const [sheet] = await ledger.sheets(natalie);
+  expect([sheet.total, sheet.blank, sheet.mine]).toEqual([1, 0, 0]);
+  expect(sheet.mine).toBe(0);
+});

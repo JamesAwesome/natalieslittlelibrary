@@ -10,8 +10,8 @@ export function createSheetReads(db: D1Database, siteUrl: string) {
     const { results } = await db
       .prepare(
         `select ${SHEET_KEY} as sheet_key, min(l.minted_at) as at, count(*) as total,
-           sum(l.copy_id is null) as blank,
-           sum(l.copy_id is not null and l.retired_at is null and c.owner_id = ?1) as mine
+           coalesce(sum(l.copy_id is null), 0) as blank,
+           coalesce(sum(l.copy_id is not null and l.retired_at is null and c.owner_id = ?1), 0) as mine
          from labels l left join copies c on c.id = l.copy_id
          where l.minted_by = ?1
          group by sheet_key order by at desc, max(l.rowid) desc`,
@@ -30,7 +30,7 @@ export function createSheetReads(db: D1Database, siteUrl: string) {
     const { results } = await db
       .prepare(
         `select l.code as code, l.copy_id is null as blank,
-           (l.copy_id is not null and l.retired_at is null and c.owner_id = ?1) as mine
+           coalesce(l.copy_id is not null and l.retired_at is null and c.owner_id = ?1, 0) as mine
          from labels l left join copies c on c.id = l.copy_id
          where l.minted_by = ?1 and ${SHEET_KEY} = ?2
          order by l.rowid`,
