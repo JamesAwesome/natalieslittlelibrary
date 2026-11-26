@@ -1,20 +1,27 @@
 export type Member = { id: string; name: string; email: string; pictureUrl: string | null; isAdmin: boolean };
 export type RefusalReason = "not-invited" | "removed" | "unverified" | "failed" | "unavailable";
 
-export type Person = { id: string; name: string; pictureUrl: string | null };
+// `removed` is present (true) only for a member who has been removed; it is never false.
+export type Person = { id: string; name: string; pictureUrl: string | null; removed?: true };
 export type BookInfo = { isbn: string | null; title: string; authors: string[]; coverUrl: string | null };
-export type Holder = { kind: "member"; person: Person } | { kind: "named"; name: string };
+export type Holder = { kind: "member"; person: Person } | { kind: "person"; id: string; name: string };
 export type CollectionRef = { id: string; name: string };
 export type CollectionSummary = { id: string; name: string; isDefault: boolean; count: number; unlabelled: number };
 export type ActionType = "claim" | "return" | "move" | "label" | "relabel";
-export type HistoryEntry = { at: number; type: "added" | "labelled" | "relabelled" | "claimed" | "returned"; actor: Person };
+export type HistoryEntry = {
+  at: number;
+  type: "added" | "labelled" | "relabelled" | "claimed" | "returned" | "lent" | "given" | "requested" | "withdrawn" | "approved" | "declined" | "released" | "adopted";
+  actor: Person;
+  subject?: Holder; // who the event was done to or for; a placeholder linked since renders as its member
+};
 export type CopyView = {
   copyId: string;
   code: string | null; // the code the request carried; null when reached by id
   ownerCode: string | null; // the copy's live label code, for its owner only; null for anyone else or an unlabelled copy
   book: BookInfo;
   owner: Person | null;
-  holder: Holder;
+  holder: Holder | null;
+  request: { by: Person; at: number } | null; // null when the asker has been removed
   home: boolean;
   collection: CollectionRef | null;
   history: HistoryEntry[]; // newest first
@@ -25,7 +32,7 @@ export type ShelfItem = {
   book: BookInfo;
   labelled: boolean;
   owner: Person | null;
-  holder: Holder;
+  holder: Holder | null;
   home: boolean;
   collection: CollectionRef | null;
 }; // never a label code

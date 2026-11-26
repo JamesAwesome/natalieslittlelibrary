@@ -74,6 +74,27 @@ export const collections = sqliteTable(
   ],
 );
 
+// A name a member keeps for someone who is not (yet) a member. Matched by name_key, unique per creator.
+export const people = sqliteTable(
+  "people",
+  {
+    id: text("id").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => members.id),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    linkedMemberId: text("linked_member_id").references(() => members.id),
+    createdAt: integer("created_at").notNull(),
+    linkedAt: integer("linked_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("people_creator_name_key_unique").on(t.createdBy, t.nameKey),
+    index("people_linked_member_id_idx").on(t.linkedMemberId),
+  ],
+);
+
 // owner_id and holder_member_id are nullable for good: D1 cannot rebuild a table that has rows.
 export const copies = sqliteTable(
   "copies",
@@ -89,12 +110,18 @@ export const copies = sqliteTable(
     collectionId: text("collection_id").references(() => collections.id),
     // The ISBN a member's StoryGraph file gave for a copy whose book has none on file.
     importIsbn: text("import_isbn"),
+    // A placeholder holding the copy; at most one of this and holder_member_id is set.
+    holderPersonId: text("holder_person_id").references(() => people.id),
+    // An open request to keep the copy: both set or both null.
+    requestedBy: text("requested_by").references(() => members.id),
+    requestedAt: integer("requested_at"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
     index("copies_collection_id_idx").on(t.collectionId),
     index("copies_owner_id_idx").on(t.ownerId),
     index("copies_holder_member_id_idx").on(t.holderMemberId),
+    index("copies_holder_person_id_idx").on(t.holderPersonId),
   ],
 );
 
@@ -134,6 +161,9 @@ export const events = sqliteTable(
       .notNull()
       .references(() => members.id),
     type: text("type").notNull(),
+    // Who the event was done to or for: a member, or a placeholder.
+    subjectMemberId: text("subject_member_id").references(() => members.id),
+    subjectPersonId: text("subject_person_id").references(() => people.id),
   },
   (t) => [index("events_copy_id_id_idx").on(t.copyId, t.id)],
 );

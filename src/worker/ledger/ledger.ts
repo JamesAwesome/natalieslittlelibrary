@@ -1,12 +1,12 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
 import { createRelabel } from "./relabel";
 import { createSheetReads } from "./sheets";
-import { createShelfReads, inCollection } from "./shelves";
+import { createShelfReads, holderOf, inCollection, personOf, type HolderColumns } from "./shelves";
 import { BLANK, cleanText, createUnlabelled, MAX_AUTHOR, MAX_AUTHORS, MAX_TITLE } from "./unlabelled";
 
 export type AddInput = {
@@ -63,17 +63,48 @@ type CopyRow = {
   cover_url: string | null;
   owner_id: string | null;
   holder_member_id: string | null;
+  requested_by: string | null;
+  requested_at: number | null;
   collection_id: string | null;
   code: string | null;
 };
-const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, c.collection_id, l.code
+const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, c.holder_person_id,
+    c.requested_by, c.requested_at, hp.name as holder_person_name, c.collection_id, l.code
   from copies c
   join books b on b.id = c.book_id
+  left join people hp on hp.id = c.holder_person_id
   left join labels l on l.copy_id = c.id and l.retired_at is null`;
-type PersonRow = { id: string; name: string; picture_url: string | null };
+type PersonRow = { id: string; name: string; picture_url: string | null; removed_at: number | null };
 
 function person(r: PersonRow): Person {
-  return { id: r.id, name: r.name, pictureUrl: r.picture_url };
+  return personOf(r.id, r.name, r.picture_url, r.removed_at);
+}
+
+type HistoryRow = PersonRow & {
+  at: number;
+  type: HistoryEntry["type"];
+  subject_member_id: string | null;
+  subject_member_name: string | null;
+  subject_member_picture: string | null;
+  subject_member_removed_at: number | null;
+  subject_person_id: string | null;
+  subject_person_name: string | null;
+  linked_member_id: string | null;
+  linked_name: string | null;
+  linked_picture: string | null;
+  linked_removed_at: number | null;
+};
+
+// An event's subject: its member; else its placeholder, shown as the member the placeholder is now linked to, if any.
+function subjectOf(r: HistoryRow): Holder | null {
+  if (r.subject_member_id !== null && r.subject_member_name !== null) {
+    return { kind: "member", person: personOf(r.subject_member_id, r.subject_member_name, r.subject_member_picture, r.subject_member_removed_at) };
+  }
+  if (r.linked_member_id !== null && r.linked_name !== null) {
+    return { kind: "member", person: personOf(r.linked_member_id, r.linked_name, r.linked_picture, r.linked_removed_at) };
+  }
+  if (r.subject_person_id !== null && r.subject_person_name !== null) return { kind: "person", id: r.subject_person_id, name: r.subject_person_name };
+  return null;
 }
 
 export function createLedger(deps: LedgerDeps): Ledger {
@@ -140,11 +171,14 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const statements = [
       db
         .prepare(
-          `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture,
+          `select x.*, o.name as owner_name, o.picture_url as owner_picture, o.removed_at as owner_removed_at,
+             h.name as holder_name, h.picture_url as holder_picture, h.removed_at as holder_removed_at,
+             a.name as asker_name, a.picture_url as asker_picture, a.removed_at as asker_removed_at,
              ${viewer === null ? "null" : "k.id"} as shown_collection_id, ${viewer === null ? "null" : "k.name"} as shown_collection_name
            from (${COPY_SELECT} where c.id = ?) x
            left join members o on o.id = x.owner_id
            left join members h on h.id = x.holder_member_id
+           left join members a on a.id = x.requested_by
            ${viewer === null ? "" : `left join collections k on ${inCollection("x", "k")}`}`,
         )
         .bind(copyId),
@@ -153,8 +187,15 @@ export function createLedger(deps: LedgerDeps): Ledger {
       statements.push(
         db
           .prepare(
-            `select e.at, e.type, m.id, m.name, m.picture_url
-             from events e join members m on m.id = e.actor_id
+            `select e.at, e.type, m.id, m.name, m.picture_url, m.removed_at,
+               e.subject_member_id, sm.name as subject_member_name, sm.picture_url as subject_member_picture, sm.removed_at as subject_member_removed_at,
+               e.subject_person_id, sp.name as subject_person_name,
+               sp.linked_member_id, lm.name as linked_name, lm.picture_url as linked_picture, lm.removed_at as linked_removed_at
+             from events e
+             join members m on m.id = e.actor_id
+             left join members sm on sm.id = e.subject_member_id
+             left join people sp on sp.id = e.subject_person_id
+             left join members lm on lm.id = sp.linked_member_id
              where e.copy_id = ? order by e.id desc`,
           )
           .bind(copyId),
@@ -162,7 +203,15 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     const [copyResult, history] = await db.batch(statements);
     const row = copyResult.results[0] as
-      | (CopyRow & { owner_name: string | null; owner_picture: string | null; holder_name: string | null; holder_picture: string | null; shown_collection_id: string | null; shown_collection_name: string | null })
+      | (CopyRow & HolderColumns & {
+          owner_name: string | null;
+          owner_picture: string | null;
+          owner_removed_at: number | null;
+          asker_name: string | null;
+          asker_picture: string | null;
+          asker_removed_at: number | null;
+          shown_collection_id: string | null; shown_collection_name: string | null;
+        })
       | undefined;
     if (!row) return null;
     const book: BookInfo = {
@@ -174,9 +223,11 @@ export function createLedger(deps: LedgerDeps): Ledger {
     if (viewer === null) {
       return { kind: "public", code: codeInHand!, book: { title: book.title, authors: book.authors, coverUrl: book.coverUrl } };
     }
-    const entries = (history.results as (PersonRow & { at: number; type: HistoryEntry["type"] })[]).map(
-      (r): HistoryEntry => ({ at: r.at, type: r.type, actor: person(r) }),
-    );
+    const entries = (history.results as HistoryRow[]).map((r): HistoryEntry => {
+      const entry: HistoryEntry = { at: r.at, type: r.type, actor: person(r) };
+      const subject = subjectOf(r);
+      return subject === null ? entry : { ...entry, subject };
+    });
     return {
       kind: "copy",
       copy: {
@@ -186,14 +237,13 @@ export function createLedger(deps: LedgerDeps): Ledger {
         ownerCode: row.owner_id !== null && row.owner_id === viewer.id ? row.code : null,
         book,
         owner:
-          row.owner_id !== null && row.owner_name !== null
-            ? { id: row.owner_id, name: row.owner_name, pictureUrl: row.owner_picture }
+          row.owner_id !== null && row.owner_name !== null ? personOf(row.owner_id, row.owner_name, row.owner_picture, row.owner_removed_at) : null,
+        holder: holderOf(row),
+        // A removed asker's request counts as none.
+        request:
+          row.requested_by !== null && row.requested_at !== null && row.asker_name !== null && row.asker_removed_at === null
+            ? { by: personOf(row.requested_by, row.asker_name, row.asker_picture, null), at: row.requested_at }
             : null,
-        // A copy with no holder row has no member to show; the name is empty rather than invented.
-        holder:
-          row.holder_member_id !== null && row.holder_name !== null
-            ? { kind: "member", person: { id: row.holder_member_id, name: row.holder_name, pictureUrl: row.holder_picture } }
-            : { kind: "named", name: "" },
         home: row.owner_id !== null && row.owner_id === row.holder_member_id,
         // Members see where a copy lives, home or out; the public view (above) has no collection.
         collection:

@@ -18,7 +18,7 @@ const book = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert", 
 
 function copyView(over: Partial<CopyView> = {}): CopyView {
   return {
-    copyId: "c1", code: "abc", ownerCode: null, book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
+    copyId: "c1", code: "abc", ownerCode: null, book, owner: ann, holder: { kind: "member", person: bob }, request: null, home: false, collection: null,
     history: [
       { at: Date.UTC(2026, 10, 3, 12), type: "claimed", actor: bob },
       { at: Date.UTC(2026, 10, 1, 12), type: "labelled", actor: ann },
@@ -148,14 +148,45 @@ test("relabelled entries read 'replaced its label'", async () => {
   expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Ann replaced its label /.test(el.textContent ?? ""))).toBeInTheDocument();
 });
 
-test("home reads 'At home'; away, a named holder shows as 'With <name>'", async () => {
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: true, holder: { kind: "named", name: "Cara" }, actions: [] })));
+test("home reads 'At home'; away, a placeholder holder shows as 'With <name>'", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: true, holder: { kind: "person", id: "p1", name: "Cara" }, actions: [] })));
   const { unmount } = show();
   expect(await screen.findByText(line("At home"))).toBeInTheDocument();
   unmount();
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: false, holder: { kind: "named", name: "Cara" }, actions: [] })));
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: false, holder: { kind: "person", id: "p1", name: "Cara" }, actions: [] })));
   show();
   expect(await screen.findByText(line("With Cara"))).toBeInTheDocument();
+});
+
+test("a copy with no holder and an owner shows neither 'With' nor 'At home'", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: false, holder: null, actions: [] })));
+  show();
+  await screen.findByText(line("Owned by Ann"));
+  expect(screen.queryByText(/^With /)).not.toBeInTheDocument();
+  expect(screen.queryByText("At home")).not.toBeInTheDocument();
+});
+
+test("a copy with an open request renders, and a removed member reads as no longer a member", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(
+    asCopy(copyView({ request: { by: bob, at: 5 }, holder: { kind: "member", person: { ...bob, removed: true } }, actions: [] })),
+  );
+  show();
+  expect(await screen.findByText(line("With Bob (no longer a member)"))).toBeInTheDocument();
+});
+
+test("history says what each new event did, naming its subject", async () => {
+  const cara = { kind: "person", id: "p1", name: "Cara" } as const;
+  vi.mocked(api.getLabel).mockResolvedValue(
+    asCopy(copyView({ actions: [], history: [
+      { at: 3, type: "lent", actor: ann, subject: cara },
+      { at: 2, type: "declined", actor: ann, subject: { kind: "member", person: bob } },
+      { at: 1, type: "adopted", actor: bob },
+    ] })),
+  );
+  show();
+  expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Ann lent this to Cara /.test(el.textContent ?? ""))).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "LI" && /^Ann declined Bob's request /.test(el.textContent ?? ""))).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "LI" && /^Bob took this on /.test(el.textContent ?? ""))).toBeInTheDocument();
 });
 
 test("actions: [] renders no buttons", async () => {

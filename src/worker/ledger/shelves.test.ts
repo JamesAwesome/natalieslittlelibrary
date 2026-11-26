@@ -274,3 +274,14 @@ test("shelf, collection counts and the by-id join are served from copies_collect
   expect(await plan(`${SHELF_SELECT} where k.id = ?`, "x")).toMatch(/copies_collection_id_idx/);
   expect(await plan(`select count(*) from copies c, collections k where k.id = ? and ${inCollection("c", "k")}`, "x")).toMatch(/copies_collection_id_idx/);
 });
+
+test("a shelf item held by a placeholder shows the placeholder; a removed holder is a tombstone", async () => {
+  const { ledger, emma, dune } = await fixture();
+  await env.DB.prepare("insert into people (id, created_by, name, name_key, created_at) values ('p-sarah', ?, 'Sarah', 'sarah', 1)").bind(natalie.id).run();
+  await env.DB.prepare("update copies set holder_member_id = null, holder_person_id = 'p-sarah' where id = ?").bind(emma.copyId).run();
+  const items = ok(await ledger.shelf(ok(await ledger.collectionsOf(natalie.id)).collections[0].id)).items;
+  expect(items.find((i) => i.copyId === emma.copyId)!.holder).toEqual({ kind: "person", id: "p-sarah", name: "Sarah" });
+  await env.DB.prepare("update members set removed_at = 3 where id = ?").bind(sam.id).run();
+  const after = ok(await ledger.shelf(ok(await ledger.collectionsOf(natalie.id)).collections[0].id)).items;
+  expect(after.find((i) => i.copyId === dune.copyId)!.holder).toEqual({ kind: "member", person: { id: sam.id, name: "Sam", pictureUrl: null, removed: true } });
+});

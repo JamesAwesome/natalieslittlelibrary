@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ActionType, CollectionSummary, CopyView, HistoryEntry, LabelView, Member } from "../../shared/types";
 import { ApiError, claim, getCopy, getLabel, moveCopy, myCollections, returnCopy } from "../api";
-import { Book, Name } from "./BookCard";
+import { Book, holderLabel, Name, personLabel } from "./BookCard";
 import { SignIn } from "./SignIn";
 
 const actionText: Record<ActionType, string> = {
@@ -11,12 +11,21 @@ const actionText: Record<ActionType, string> = {
   label: "Put a label on it",
   relabel: "Replace label",
 };
-const historyText: Record<HistoryEntry["type"], string> = {
-  added: "added this book",
-  labelled: "put a label on it",
-  relabelled: "replaced its label",
-  claimed: "took it",
-  returned: "marked it returned",
+// What an entry says after the actor's name; `who` is its subject (Task 6 gives the subject a real place on the page).
+const historyText: Record<HistoryEntry["type"], (who: ReactNode) => ReactNode> = {
+  added: () => "added this book",
+  labelled: () => "put a label on it",
+  relabelled: () => "replaced its label",
+  claimed: () => "took it",
+  returned: () => "marked it returned",
+  lent: (who) => <>lent this to {who}</>,
+  given: (who) => <>gave this to {who}</>,
+  requested: () => "asked to keep this",
+  withdrawn: () => "withdrew their request",
+  approved: (who) => <>let {who} keep this</>,
+  declined: (who) => <>declined {who}&apos;s request</>,
+  released: () => "released this",
+  adopted: () => "took this on",
 };
 
 // A stable key per entry; a counter breaks ties between identical entries.
@@ -39,7 +48,6 @@ function Copy(props: {
   onMove: (collectionId: string) => void;
 }) {
   const { copy, busy, onAction, choices, choicesFailed, onMove } = props;
-  const holder = copy.holder.kind === "member" ? copy.holder.person.name : copy.holder.name;
   // Only other collections are offered; with none, there is nothing to move to.
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const current = copy.collection?.id;
@@ -54,9 +62,9 @@ function Copy(props: {
       <Book {...copy.book} />
       {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
       {copy.owner && (
-        <p>Owned by <Name>{copy.owner.name}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
+        <p>Owned by <Name>{personLabel(copy.owner)}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
       )}
-      <p>{copy.home ? "At home" : <>With <Name>{holder}</Name></>}</p>
+      {copy.home ? <p>At home</p> : copy.holder && <p>With <Name>{holderLabel(copy.holder)}</Name></p>}
       {buttons.length > 0 && (
         <p>
           {buttons.map((a) => (
@@ -84,7 +92,7 @@ function Copy(props: {
       )}
       <ul className="history">
         {historyKeys(copy.history).map(([key, h]) => (
-          <li key={key}><Name>{h.actor.name}</Name> {historyText[h.type]} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
+          <li key={key}><Name>{personLabel(h.actor)}</Name> {historyText[h.type](h.subject ? <Name>{holderLabel(h.subject)}</Name> : "someone")} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
         ))}
       </ul>
     </>

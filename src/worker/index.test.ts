@@ -81,16 +81,22 @@ const expectedShape: Record<
       ["created_at", "INTEGER", 1, 0],
       ["collection_id", "TEXT", 0, 0],
       ["import_isbn", "TEXT", 0, 0],
+      ["holder_person_id", "TEXT", 0, 0],
+      ["requested_by", "TEXT", 0, 0],
+      ["requested_at", "INTEGER", 0, 0],
     ],
     foreignKeys: [
       ["book_id", "books", "id", "NO ACTION", "NO ACTION"],
       ["collection_id", "collections", "id", "NO ACTION", "NO ACTION"],
       ["holder_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["holder_person_id", "people", "id", "NO ACTION", "NO ACTION"],
       ["owner_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["requested_by", "members", "id", "NO ACTION", "NO ACTION"],
     ],
     indexes: [
       ["copies_collection_id_idx", 0, "c", 0, ["collection_id"]],
       ["copies_holder_member_id_idx", 0, "c", 0, ["holder_member_id"]],
+      ["copies_holder_person_id_idx", 0, "c", 0, ["holder_person_id"]],
       ["copies_owner_id_idx", 0, "c", 0, ["owner_id"]],
       ["sqlite_autoindex_copies_1", 1, "pk", 0, ["id"]],
     ],
@@ -139,12 +145,36 @@ const expectedShape: Record<
       ["at", "INTEGER", 1, 0],
       ["actor_id", "TEXT", 1, 0],
       ["type", "TEXT", 1, 0],
+      ["subject_member_id", "TEXT", 0, 0],
+      ["subject_person_id", "TEXT", 0, 0],
     ],
     foreignKeys: [
       ["actor_id", "members", "id", "NO ACTION", "NO ACTION"],
       ["copy_id", "copies", "id", "NO ACTION", "NO ACTION"],
+      ["subject_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+      ["subject_person_id", "people", "id", "NO ACTION", "NO ACTION"],
     ],
     indexes: [["events_copy_id_id_idx", 0, "c", 0, ["copy_id", "id"]]],
+  },
+  people: {
+    columns: [
+      ["id", "TEXT", 1, 1],
+      ["created_by", "TEXT", 1, 0],
+      ["name", "TEXT", 1, 0],
+      ["name_key", "TEXT", 1, 0],
+      ["linked_member_id", "TEXT", 0, 0],
+      ["created_at", "INTEGER", 1, 0],
+      ["linked_at", "INTEGER", 0, 0],
+    ],
+    foreignKeys: [
+      ["created_by", "members", "id", "NO ACTION", "NO ACTION"],
+      ["linked_member_id", "members", "id", "NO ACTION", "NO ACTION"],
+    ],
+    indexes: [
+      ["people_creator_name_key_unique", 1, "c", 0, ["created_by", "name_key"]],
+      ["people_linked_member_id_idx", 0, "c", 0, ["linked_member_id"]],
+      ["sqlite_autoindex_people_1", 1, "pk", 0, ["id"]],
+    ],
   },
   book_lookups: {
     columns: [
@@ -204,8 +234,12 @@ const expectedIndexSql: Record<string, string> = {
     "CREATE UNIQUE INDEX `collections_owner_name_key_unique` ON `collections` (`owner_id`,`name_key`)",
   copies_collection_id_idx: "CREATE INDEX `copies_collection_id_idx` ON `copies` (`collection_id`)",
   copies_holder_member_id_idx: "CREATE INDEX `copies_holder_member_id_idx` ON `copies` (`holder_member_id`)",
+  copies_holder_person_id_idx: "CREATE INDEX `copies_holder_person_id_idx` ON `copies` (`holder_person_id`)",
   copies_owner_id_idx: "CREATE INDEX `copies_owner_id_idx` ON `copies` (`owner_id`)",
   events_copy_id_id_idx: "CREATE INDEX `events_copy_id_id_idx` ON `events` (`copy_id`,`id`)",
+  people_creator_name_key_unique:
+    "CREATE UNIQUE INDEX `people_creator_name_key_unique` ON `people` (`created_by`,`name_key`)",
+  people_linked_member_id_idx: "CREATE INDEX `people_linked_member_id_idx` ON `people` (`linked_member_id`)",
   labels_copy_id_idx: "CREATE INDEX `labels_copy_id_idx` ON `labels` (`copy_id`)",
   labels_one_live_per_copy:
     'CREATE UNIQUE INDEX `labels_one_live_per_copy` ON `labels` (`copy_id`) WHERE "labels"."retired_at" is null and "labels"."copy_id" is not null',

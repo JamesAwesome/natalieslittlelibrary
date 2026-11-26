@@ -1042,3 +1042,99 @@ test("the index refuses a second live label on a copy, but a retired and a live 
   const { results } = await env.DB.prepare("select retired_at from labels where copy_id = ?").bind(copyId).all();
   expect(results).toHaveLength(2);
 });
+
+const insertSarah = () =>
+  env.DB.prepare("insert into people (id, created_by, name, name_key, created_at) values ('p-sarah', ?, 'Sarah', 'sarah', 1)").bind(natalie.id).run();
+
+test("a copy held by a placeholder renders the placeholder, and one held by nobody renders null", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await insertSarah();
+  await env.DB.prepare("update copies set holder_member_id = null, holder_person_id = 'p-sarah' where id = ?").bind(copyId).run();
+  const held = ok(await ledger.viewCopy(copyId, natalie));
+  expect(held.holder).toEqual({ kind: "person", id: "p-sarah", name: "Sarah" });
+  expect(held.home).toBe(false);
+  // Held by nobody: only reachable for a copy with no owner (the invariant's afterEach checks this).
+  await env.DB.prepare("update copies set holder_person_id = null, owner_id = null, collection_id = null where id = ?").bind(copyId).run();
+  expect(ok(await ledger.viewCopy(copyId, natalie)).holder).toBeNull();
+});
+
+test("an open request renders with the asker", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set holder_member_id = ?, requested_by = ?, requested_at = 7 where id = ?").bind(sam.id, sam.id, copyId).run();
+  expect(ok(await ledger.viewCopy(copyId, natalie)).request).toEqual({ by: { id: sam.id, name: sam.name, pictureUrl: sam.pictureUrl }, at: 7 });
+});
+
+test("a history subject renders as the placeholder, or as its linked member once linked", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await insertSarah();
+  await env.DB.prepare("insert into events (copy_id, at, actor_id, type, subject_person_id) values (?, 5, ?, 'lent', 'p-sarah')").bind(copyId, natalie.id).run();
+  const lent = (v: CopyView) => v.history.find((h) => h.type === "lent")!;
+  expect(lent(ok(await ledger.viewCopy(copyId, natalie))).subject).toEqual({ kind: "person", id: "p-sarah", name: "Sarah" });
+  await env.DB.prepare("update people set linked_member_id = ?, linked_at = 9 where id = 'p-sarah'").bind(kim.id).run();
+  expect(lent(ok(await ledger.viewCopy(copyId, natalie))).subject).toEqual({
+    kind: "member",
+    person: { id: kim.id, name: kim.name, pictureUrl: kim.pictureUrl },
+  });
+});
+
+test("a history subject that is a member renders as that member", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("insert into events (copy_id, at, actor_id, type, subject_member_id) values (?, 5, ?, 'given', ?)").bind(copyId, natalie.id, sam.id).run();
+  const given = ok(await ledger.viewCopy(copyId, natalie)).history.find((h) => h.type === "given")!;
+  expect(given.subject).toEqual({ kind: "member", person: { id: sam.id, name: sam.name, pictureUrl: sam.pictureUrl } });
+});
+
+test("a removed member renders as a tombstone, and their request counts as none", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  await env.DB.batch([
+    env.DB.prepare("update copies set requested_by = ?, requested_at = 4 where id = ?").bind(sam.id, copyId),
+    env.DB.prepare("insert into events (copy_id, at, actor_id, type) values (?, 4, ?, 'requested')").bind(copyId, sam.id),
+    env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id),
+  ]);
+  const view = ok(await ledger.viewCopy(copyId, natalie));
+  const gone = { id: sam.id, name: "Sam", pictureUrl: null, removed: true as const };
+  expect(view.holder).toEqual({ kind: "member", person: gone });
+  expect(view.request).toBeNull();
+  expect(view.actions).not.toContain("approve");
+  expect(view.actions).not.toContain("decline");
+  expect(view.history.find((h) => h.type === "requested")!.actor).toEqual(gone);
+  // A member who is not removed carries no removed key at all.
+  expect(view.owner).toEqual({ id: natalie.id, name: natalie.name, pictureUrl: natalie.pictureUrl });
+});
+
+test("the public view carries no holder or request", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await insertSarah();
+  await env.DB.prepare("update copies set holder_member_id = null, holder_person_id = 'p-sarah' where id = ?").bind(copyId).run();
+  const text = JSON.stringify(await ledger.view(code, null));
+  expect(text).not.toContain("Sarah");
+  expect(text).not.toContain("p-sarah");
+  expect(text).not.toContain("holder");
+  expect(text).not.toContain("request");
+});
+
+test.each([
+  ["both holders", "holder_person_id = 'p-sarah'", "held by a member and a placeholder"],
+  ["an owned copy held by no one", "holder_member_id = null", "owned and held by no one"],
+  ["half a request", "requested_by = 'm-sam'", "not both null or both set"],
+  ["a request from the owner", "requested_by = 'm-natalie', requested_at = 1", "its request is on an ownerless copy"],
+  ["a request from a non-holder", "requested_by = 'm-sam', requested_at = 1", "its request is on an ownerless copy"],
+  ["a linked placeholder holding", "holder_member_id = null, holder_person_id = 'p-sarah'", "linked to a member"],
+])("the invariant flags %s", async (_name, set, message) => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await insertSarah();
+  await env.DB.prepare("update people set linked_member_id = ?, linked_at = 1 where id = 'p-sarah'").bind(kim.id).run();
+  await env.DB.prepare(`update copies set ${set} where id = ?`).bind(copyId).run();
+  const found = await invariantViolations(env.DB);
+  expect(found.some((v) => v.includes(message)), found.join("; ")).toBe(true);
+  // Put the copy back so the afterEach invariant holds.
+  await env.DB.prepare("update copies set holder_member_id = owner_id, holder_person_id = null, requested_by = null, requested_at = null where id = ?").bind(copyId).run();
+});
