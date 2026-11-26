@@ -59,6 +59,19 @@ and taking a released book complete the ownership half of the main spec.
 - **Take a released book.** Any member who scans a released copy's label can
   tap "Take this book" and becomes its owner and holder, including whoever is
   holding it. This is the main spec's "adopt".
+- **Tombstones for removed members.** Removing a member keeps their row
+  (`removed_at`), so their name stays in history; this release makes that
+  visible and unsticks their books (James: "a removed user does need a
+  tombstone", and yes to their books becoming takeable).
+  - Wherever a removed member is named (owner, holder, history, a request, a
+    linked placeholder), they show as "Sam (no longer a member)".
+  - A copy whose owner was removed can be taken like a released one: any
+    active member who scans its label taps "Take this book" and becomes owner
+    and holder. Claim is not offered on it.
+  - A request by a removed member counts as no request: it is not shown, it
+    cannot be approved, and the next write to the copy clears it **(call:
+    removal is done by hand in the database today, so there is no removal
+    write to clear it in)**.
 - **Placeholders.**
   - Each member has their own placeholders. Natalie's "Sarah" is hers; if
     James lends to the same Sarah he makes his own **(call: nobody's list of
@@ -84,6 +97,7 @@ and taking a released book complete the ownership half of the main spec.
 - Due dates, borrow requests, removing a copy.
 - A placeholder that can sign in, or a member linking a placeholder to
   themselves.
+- A screen for removing a member (removal stays a database edit).
 
 ## Anti-goals
 
@@ -149,8 +163,8 @@ owner, the subject, and whether the request is cleared.
 | Approve | owner | a request is open | owner and collection are the asker's; request cleared |
 | Decline | owner | a request is open | request cleared |
 | Release | owner | the copy has a label **(call: a released copy is taken by scanning its label, so an unlabelled one could never be taken, labelled or returned again)** | owner and collection null; holder unchanged; request cleared |
-| Take (adopt) | any active member, label in hand | the copy has no owner | owner, holder and collection are theirs |
-| Claim | unchanged: any member neither holder nor owner, label in hand | the copy has an owner | holder is the claimer (a placeholder holder is replaced); request cleared |
+| Take (adopt) | any active member, label in hand | the copy has no owner, or its owner was removed | owner, holder and collection are theirs; request cleared |
+| Claim | unchanged: any member neither holder nor owner, label in hand | the copy has an owner who is not removed | holder is the claimer (a placeholder holder is replaced); request cleared |
 | Mark returned | unchanged: owner, when someone else holds it, member or placeholder | | holder is the owner; request cleared |
 
 Every write that changes owner or holder clears the request in the same
@@ -193,7 +207,9 @@ request; the write refuses with `not-allowed`.
 - `CopyView.holder` gains `{ kind: "person"; id; name }`, the name being the
   linked member's when linked (then it is `kind: "member"`). The `""` named
   holder goes. `CopyView` gains `request: { by: Person; at } | null`.
-  `HistoryEntry` gains the new types and an optional `subject`.
+  `HistoryEntry` gains the new types and an optional `subject`. `Person`
+  gains `removed?: true`, set only for a removed member, so every place that
+  shows a person can show the tombstone.
 
 ### Routes
 
@@ -221,7 +237,10 @@ All member-only, behind the existing same-site and member guards.
   Link to a member (a member list, then "Link Sarah to <member>? The books
   Sarah has will show as theirs.").
 - **A released copy's page:** "No one owns this book." with "Take this book"
-  when the label was read.
+  when the label was read. A removed owner's copy shows "Owned by Sam (no
+  longer a member)" with the same button.
+- **Tombstone:** a person with `removed` renders as "<name> (no longer a
+  member)" everywhere `Name` is used.
 
 ## Carry-overs this release closes
 

@@ -30,6 +30,10 @@
   - Linking to a removed member, to oneself, or linking twice is `not-allowed`.
   - Lending or giving to a removed member, or approving a removed asker, is `not-allowed`.
 - **Release** needs a label. **Take** (`adopt`) and **claim** need the label in hand.
+- **Tombstones:**
+  - A removed member is `Person.removed: true` wherever a person is rendered (owner, holder, actor, subject, asker, linked member), and the client shows "<name> (no longer a member)".
+  - A copy whose owner was removed is taken like an ownerless one, and claim is not offered on it.
+  - A removed asker's request counts as none: `CopyView.request` is null, and it cannot be approved or declined. A new request overwrites it, and any owner or holder change clears it.
 - **Copy as the spec fixes it:**
   - Buttons: "Lend", "Give", "Ask to keep this", "Release", "Take this book", "Approve", "Decline", "Withdraw".
   - Lend suggestion: `Lend to "<typed>"`.
@@ -100,6 +104,7 @@
   - **New `copies` columns:** `holder_person_id` text → people, `requested_by` text → members, `requested_at` integer. Index `copies_holder_person_id_idx`.
   - **New `events` columns:** `subject_member_id` text → members, `subject_person_id` text → people.
   - **Types:**
+    - `Person` gains `removed?: true`, present only for a removed member. It is never `false`, so existing `toEqual` fixtures stay valid.
     - `Holder = { kind: "member"; person: Person } | { kind: "person"; id: string; name: string }`.
     - `CopyView.holder: Holder | null`.
     - `CopyView.request: { by: Person; at: number } | null`.
@@ -143,6 +148,12 @@ test("a history subject renders as the placeholder, or as its linked member once
   // Then set people.linked_member_id = kim.id. The same entry's subject is { kind: "member", person: Kim }.
 });
 
+test("a removed member renders as a tombstone, and their request counts as none", async () => {
+  // Sam holds Natalie's copy and has asked to keep it; then Sam is removed (members.removed_at = 5).
+  // Natalie's view: holder is { kind: "member", person: { id: sam.id, name: "Sam", pictureUrl: null, removed: true } }, request is null,
+  // and actions include neither "approve" nor "decline". The history actor of Sam's 'requested' event has removed: true.
+});
+
 test("the public view carries no holder or request", async () => {
   // A copy held by p-sarah, viewed through its code with viewer null: the serialized view contains neither "Sarah" nor "p-sarah".
 });
@@ -168,6 +179,7 @@ test("the public view carries no holder or request", async () => {
     - the history query left-joins the subject member, the subject person and the person's linked member;
     - `home` stays `owner_id = holder_member_id`.
   - **`shelfItem`** uses the same holder rule. Write the rule once (`holderOf(row)`) and use it in both.
+  - **Tombstones:** every join to `members` for display also selects `removed_at`, and one `personOf(row)` helper sets `removed: true` when it is not null. The view computes `request` as null when the asker is removed.
 - [ ] **Step 6: Extend `invariantViolations`.** One string per violating copy, for each of these:
   - both holder columns set;
   - an owned copy with neither holder;
@@ -194,7 +206,12 @@ test("the public view carries no holder or request", async () => {
 - Produces:
 
 ```ts
-export type CopyState = { ownerId: string | null; holderMemberId: string | null; holderPersonId: string | null; requestedBy: string | null; labelled: boolean };
+export type CopyState = {
+  ownerId: string | null; ownerRemoved: boolean;
+  holderMemberId: string | null; holderPersonId: string | null;
+  requestedBy: string | null; requesterRemoved: boolean;
+  labelled: boolean;
+};
 export type Target = { member: string } | { person: string };
 export type Action =
   | { type: "claim" | "return" | "move" | "label" | "relabel" | "request" | "withdraw" | "approve" | "decline" | "release" | "adopt" }
@@ -222,6 +239,9 @@ export function availableActions(state: CopyState, viewer: Member, opts: { label
     - A third member, book held by a placeholder: `["claim"]`.
     - Any member, copy with no owner, label in hand: `["adopt"]`. With the label not in hand: `[]`.
     - The holder of a copy with no owner: `["adopt"]` (in hand).
+    - A third member, copy whose owner was removed, label in hand: `["adopt"]`. There is no claim.
+    - Owner, with a request from a removed asker: no `approve` or `decline`. The holder (the removed asker) is never a viewer.
+    - A new holder, after a removed asker's stale request: `["request"]`.
   - **A table for `decide`,** one row per Result column of the spec's Rules table, asserting the whole `Change`:
     - lend `{ member: "c" }` from out-with-b: holder `c`, request cleared, event `lent`, subject `{ member: "c" }`;
     - lend `{ person: "p" }`: `holderMemberId: null`, `holderPersonId: "p"`;
@@ -247,6 +267,9 @@ export function availableActions(state: CopyState, viewer: Member, opts: { label
 - [ ] **Step 2: Run to fail:** `pnpm test:worker src/worker/ledger/rules.test.ts`.
 - [ ] **Step 3: Implement.**
   - `allows(state, viewer, type)` holds the "who / when" column.
+    - "A request is open" means `requestedBy !== null && !requesterRemoved`.
+    - "Takeable" means `ownerId === null || ownerRemoved`.
+    - Claim needs an owner who is not removed.
   - `decide` calls it, then checks the target (lend: not the owner, not the current holder; give: not the owner) and builds the Change.
   - Every Change whose owner or either holder differs from the state has `requestedBy: null`.
   - `availableActions` filters `ACTIONS` by `allows`, with claim and adopt needing `labelInHand`.
@@ -379,6 +402,11 @@ export type ActInput =
     - an `adopted` event;
     - it works for the current holder too.
   - **"take through a retired label is not-found".**
+  - **"take a removed owner's copy":**
+    - Natalie is removed;
+    - Sam takes it by its label: he is owner and holder, in his default collection, with an `adopted` event;
+    - claiming it instead is `not-allowed`;
+    - a take that races Natalie being restored (`removed_at = null` between read and write) is `not-allowed`.
   - **In `collections.test.ts`:** "ensureDefault names the default 'Home library 2' when a non-default 'Home library' exists". Also "…'Home library 3'" when both exist. Set these up by SQL.
   - **In `unlabelled.test.ts`:** "re-importing skips a book the importer gave away, had approved away, or released". Three rows, one per event type; `skipped: 3`, and no new copies.
 - [ ] **Step 2: Run to fail.**
@@ -388,7 +416,8 @@ export type ActInput =
     - the update sets `collection_id = DEFAULT_OF(newOwner)`;
     - G adds `exists DEFAULT_OF(newOwner)` and the new owner `ACTIVE`.
   - **Release** sets `collection_id = null`.
-  - **Take** reads the copy by its live label, as claim does.
+  - **Take** reads the copy by its live label, as claim does. When the owner was not null, G adds `exists (select 1 from members where id = <owner as read> and removed_at is not null)`.
+  - **Reading state for `decide`:** `ownerRemoved` and `requesterRemoved` come from the same read as the copy row.
   - **`ensureDefault`'s insert** picks the first free name among "Home library", "Home library 2", "Home library 3", … in SQL, so there's no read-then-write. A recursive CTE or a bounded `case` over the existing `name_key`s both work.
   - **`holding`:** `where c.holder_member_id = ? and (c.owner_id is null or c.owner_id <> ?)`.
   - **Import:** the "already have it" checks (the batch pre-read and the in-write `not exists` guards) also count a book whose copy has a `given`, `approved` or `released` event with `actor_id` = the importer.
@@ -438,7 +467,7 @@ requests(member: Member): Promise<RequestItem[]>;            // open requests on
     - linking to a removed member;
     - linking to oneself;
     - linking another member's placeholder.
-  - **"requests lists open requests on my copies, newest first, and nothing once answered".**
+  - **"requests lists open requests on my copies, newest first, and nothing once answered".** A removed asker's request is not listed.
   - **In `index.test.ts`:** the four routes go in `EVERY_NEW_ROUTE`, and a malformed body is 400.
 - [ ] **Step 2: Run to fail.**
 - [ ] **Step 3: Implement.**
@@ -481,6 +510,8 @@ requests(member: Member): Promise<RequestItem[]>;            // open requests on
     - "Ask to keep this" calls `requestCopy`;
     - an ownerless copy reached by a code shows "No one owns this book." and "Take this book", which calls `adoptCopy(code)`. By id it shows the line and no button;
     - a history entry with a subject reads "Natalie lent this to Sarah";
+    - a person with `removed: true` reads "Sam (no longer a member)" as owner, holder, history actor and subject. Do this in `Name`, once;
+    - a removed owner's copy reached by a code shows "Owned by Natalie (no longer a member)" and "Take this book";
     - a 403 `not-allowed` on any of these shows the existing "That's already changed…" notice and reloads;
     - a 401 drops to sign-in, as act does.
   - **`api.test.ts`:** each new function's method, path and body.
