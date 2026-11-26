@@ -4,6 +4,8 @@
   "main": "./src/worker/index.ts",
   "compatibility_date": "2026-11-16",
   "upload_source_maps": true,
+  // Workers Logs: request URLs, statuses and console output, kept for a few days. The free plan covers this traffic.
+  "observability": { "enabled": true },
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/auth/*"]

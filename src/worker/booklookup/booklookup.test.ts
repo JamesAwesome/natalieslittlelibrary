@@ -610,3 +610,43 @@ test("the map never holds a null key or value, even when the cache holds a bad r
   }
   expect(got.size).toBe(0);
 });
+
+// ---- failure reports ----
+
+test("a Google Books refusal is reported with the source and status, never the key", async () => {
+  const warnings: string[] = [];
+  const lookup = createBookLookup({
+    db: env.DB,
+    sources: lookupSources("secret-test-key"),
+    fetch: byHost(json({}), json({ error: { message: "API key not valid" } }, 400)),
+    warn: (m) => warnings.push(m),
+  });
+  expect(await lookup.lookup(ISBN)).toBeNull();
+  expect(warnings).toEqual(["book lookup: google-books failed: Error: google books answered 400"]);
+});
+
+test("an error message carrying a key parameter has the key blanked", async () => {
+  const warnings: string[] = [];
+  const leaky: BookSource = { name: "leaky", async find() { throw new TypeError("fetch failed for https://x.example/?q=1&key=secret-test-key&a=b"); } };
+  await createBookLookup({ db: env.DB, sources: [leaky], warn: (m) => warnings.push(m) }).lookup(ISBN);
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]).toContain("leaky failed: TypeError");
+  expect(warnings[0]).not.toContain("secret-test-key");
+});
+
+test("a timeout is reported once, as a timeout; a genuine miss reports nothing", async () => {
+  const warnings: string[] = [];
+  const never: BookSource = { name: "never", find: () => new Promise<never>(() => {}) };
+  await createBookLookup({ db: env.DB, sources: [never], timeoutMs: 20, warn: (m) => warnings.push(m) }).lookup(ISBN);
+  expect(warnings).toEqual(["book lookup: never timed out after 20 ms"]);
+  warnings.length = 0;
+  await createBookLookup({ db: env.DB, sources: [returns("miss", null)], warn: (m) => warnings.push(m) }).lookup(ISBN);
+  expect(warnings).toEqual([]);
+});
+
+test("a failed batch is reported as a batch", async () => {
+  const warnings: string[] = [];
+  const bad = manySource("bad", async () => { throw new Error("open library answered 503"); });
+  await createBookLookup({ db: env.DB, sources: [bad], warn: (m) => warnings.push(m) }).lookupMany([ISBN]).catch(() => undefined);
+  expect(warnings).toEqual(["book lookup: bad (batch) failed: Error: open library answered 503"]);
+});
