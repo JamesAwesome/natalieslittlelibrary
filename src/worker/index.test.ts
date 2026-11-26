@@ -661,6 +661,8 @@ const EVERY_NEW_ROUTE: [string, string][] = [
   ["POST", "/api/copies/x/label"],
   ["POST", "/api/copies/x/relabel"],
   ["POST", "/api/imports"],
+  ["GET", "/api/labels/sheets"],
+  ["GET", "/api/labels/sheets/x"],
 ];
 
 test.each(EVERY_NEW_ROUTE)("%s %s signed out is 401", async (method, path) => {
