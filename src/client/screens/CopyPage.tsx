@@ -324,7 +324,9 @@ function Page(props: Props) {
     setNotice(undefined);
     try {
       const next = await dispatch(doing, copy, code);
-      if (live.current) shown(next);
+      // Claim and take go by the code and answer with it; any other answer carries none, so a label page re-reads.
+      if (code !== null && type !== "claim" && type !== "adopt") await load();
+      else if (live.current) shown(next);
     } catch (e) {
       if (!live.current) return;
       if (e instanceof ApiError && e.status === 401) {

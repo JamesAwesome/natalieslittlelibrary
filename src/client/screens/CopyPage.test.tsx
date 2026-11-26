@@ -233,7 +233,9 @@ test("Lend, Give, Release and Take offer no stray plain buttons", async () => {
 });
 
 test("Lend opens the lend box and lendCopy's answer is shown", async () => {
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["lend"] })));
+  vi.mocked(api.getLabel)
+    .mockResolvedValueOnce(asCopy(copyView({ owner: me2, actions: ["lend"] })))
+    .mockResolvedValue(asCopy(copyView({ owner: me2, holder: { kind: "person", id: "p1", name: "Zed" }, actions: [] })));
   vi.mocked(api.listPeople).mockResolvedValue({ people: [] });
   vi.mocked(api.listMembers).mockResolvedValue({ members: [me2, bob] });
   vi.mocked(api.lendCopy).mockResolvedValue(copyView({ owner: me2, holder: { kind: "person", id: "p1", name: "Zed" }, actions: [] }));
@@ -247,7 +249,9 @@ test("Lend opens the lend box and lendCopy's answer is shown", async () => {
 
 test("Give lists members, confirms by name, then gives", async () => {
   const kim = { id: "4", name: "Kim", pictureUrl: null };
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["give"] })));
+  vi.mocked(api.getLabel)
+    .mockResolvedValueOnce(asCopy(copyView({ owner: me2, actions: ["give"] })))
+    .mockResolvedValue(asCopy(copyView({ owner: kim, actions: [] })));
   vi.mocked(api.listMembers).mockResolvedValue({ members: [me2, kim] });
   vi.mocked(api.giveCopy).mockResolvedValue(copyView({ owner: kim, actions: [] }));
   show();
@@ -274,7 +278,9 @@ test("Give can be backed out of without a call", async () => {
 });
 
 test("Release confirms first, then releases", async () => {
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ owner: me2, actions: ["release"] })));
+  vi.mocked(api.getLabel)
+    .mockResolvedValueOnce(asCopy(copyView({ owner: me2, actions: ["release"] })))
+    .mockResolvedValue(asCopy(copyView({ owner: null, holder: null, actions: [] })));
   vi.mocked(api.releaseCopy).mockResolvedValue(copyView({ owner: null, holder: null, actions: [] }));
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Release" }));
@@ -370,7 +376,7 @@ test("a 403 not-allowed on Give and on Lend shows the changed notice and reloads
   expect(await screen.findByText("That's already changed. Here's where the book is now.")).toBeInTheDocument();
   await userEvent.click(await screen.findByRole("button", { name: "Lend" }));
   await userEvent.type(screen.getByRole("textbox"), "ki");
-  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Kim member" }));
   await waitFor(() => expect(api.lendCopy).toHaveBeenCalledWith("c1", { member: "4" }));
   expect(api.getLabel).toHaveBeenCalledTimes(3);
 });
@@ -394,7 +400,9 @@ test("claim calls claim once and shows the returned state", async () => {
 });
 
 test("return calls returnCopy once with the copy id and shows the returned state", async () => {
-  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: ["return"] })));
+  vi.mocked(api.getLabel)
+    .mockResolvedValueOnce(asCopy(copyView({ actions: ["return"] })))
+    .mockResolvedValue(asCopy(copyView({ home: true, holder: { kind: "member", person: ann }, actions: ["claim"] })));
   vi.mocked(api.returnCopy).mockResolvedValue(copyView({ home: true, holder: { kind: "member", person: ann }, actions: ["claim"] }));
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Mark as returned" }));
@@ -806,4 +814,16 @@ test("a claim through a label replaced meanwhile shows only the replaced page", 
   expect(await screen.findByText("This label has been replaced.")).toBeInTheDocument();
   expect(screen.queryByText(/Something went wrong/)).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("on a label page, Release re-reads the page so Take appears", async () => {
+  vi.mocked(api.getLabel)
+    .mockResolvedValueOnce(asCopy(copyView({ owner: me2, actions: ["release"] })))
+    .mockResolvedValueOnce(asCopy(copyView({ owner: null, holder: null, actions: ["adopt"] })));
+  vi.mocked(api.releaseCopy).mockResolvedValue(copyView({ owner: null, holder: null, code: null, actions: [] }));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Release" }));
+  await userEvent.click(screen.getByRole("button", { name: "Release" }));
+  expect(await screen.findByText("No one owns this book.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Take this book" })).toBeInTheDocument();
 });

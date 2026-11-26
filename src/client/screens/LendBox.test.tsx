@@ -32,8 +32,8 @@ async function typed(text: string, onLend = vi.fn()) {
 
 test("typing lists matching members and unlinked placeholders, not linked ones or the owner", async () => {
   await typed("sa");
-  expect(await screen.findByRole("button", { name: "Sam" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Sarah" })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Sam member" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sarah lent before" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Sasha" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Natalie" })).not.toBeInTheDocument();
 });
@@ -45,14 +45,14 @@ test("offers Lend to the typed name when nothing matches exactly, and not when s
 
 test("no typed-name offer when a suggestion matches exactly, ignoring case and spaces at the ends", async () => {
   await typed(" sARAH ");
-  await screen.findByRole("button", { name: "Sarah" });
+  await screen.findByRole("button", { name: "Sarah lent before" });
   expect(screen.queryByRole("button", { name: /^Lend to "/ })).not.toBeInTheDocument();
 });
 
 test("picking each calls onLend with a member, a person or a name", async () => {
   const onLend = await typed("sa");
-  await userEvent.click(await screen.findByRole("button", { name: "Sam" }));
-  await userEvent.click(screen.getByRole("button", { name: "Sarah" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Sam member" }));
+  await userEvent.click(screen.getByRole("button", { name: "Sarah lent before" }));
   await userEvent.click(screen.getByRole("button", { name: 'Lend to "sa"' }));
   expect(onLend.mock.calls).toEqual([[{ member: "2" }], [{ person: "p1" }], [{ name: "sa" }]]);
 });
@@ -60,7 +60,7 @@ test("picking each calls onLend with a member, a person or a name", async () => 
 test("a name that is a linked placeholder offers its member instead of a new name", async () => {
   const onLend = await typed("sasha");
   expect(screen.queryByRole("button", { name: /^Lend to "/ })).not.toBeInTheDocument();
-  await userEvent.click(await screen.findByRole("button", { name: "Kim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Kim member" }));
   expect(onLend).toHaveBeenCalledWith({ member: "3" });
 });
 
@@ -85,4 +85,25 @@ test("busy disables the choices", async () => {
   render(<LendBox ownerId="1" onLend={vi.fn()} busy />);
   await userEvent.type(screen.getByRole("textbox"), "Zed");
   expect(await screen.findByRole("button", { name: 'Lend to "Zed"' })).toBeDisabled();
+});
+
+test("a member and a placeholder with the same name are told apart and lend to their own target", async () => {
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [{ id: "p9", name: "Sam", linked: null, holding: [] }] });
+  const onLend = await typed("sam");
+  await userEvent.click(await screen.findByRole("button", { name: "Sam member" }));
+  await userEvent.click(screen.getByRole("button", { name: "Sam lent before" }));
+  expect(onLend.mock.calls).toEqual([[{ member: "2" }], [{ person: "p9" }]]);
+});
+
+test("a name over 60 characters says so and offers nothing", async () => {
+  await typed("x".repeat(61));
+  expect(await screen.findByText("Names are up to 60 characters.")).toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+test("an NFD member name is suggested when typed as NFC", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [owner, { id: "5", name: "Jose\u0301", pictureUrl: null }] });
+  const onLend = await typed("Jos\u00e9");
+  await userEvent.click(await screen.findByRole("button", { name: /^Jose\u0301 member$/ }));
+  expect(onLend).toHaveBeenCalledWith({ member: "5" });
 });
