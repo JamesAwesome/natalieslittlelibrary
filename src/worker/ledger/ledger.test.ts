@@ -1139,3 +1139,206 @@ test.each([
   // Put the copy back so the afterEach invariant holds.
   await env.DB.prepare("update copies set holder_member_id = owner_id, holder_person_id = null, requested_by = null, requested_at = null where id = ?").bind(copyId).run();
 });
+
+// ---- lend, ask to keep, withdraw, decline ----
+
+const copyRow = async (copyId: string) =>
+  (await env.DB.prepare("select owner_id, holder_member_id, holder_person_id, requested_by, requested_at from copies where id = ?").bind(copyId).first())!;
+const eventsOf = async (copyId: string) =>
+  (await env.DB.prepare("select type, actor_id, subject_member_id, subject_person_id from events where copy_id = ? order by id").bind(copyId).all()).results;
+const tables = async () =>
+  JSON.stringify(await Promise.all(["copies", "events", "people", "collections"].map(async (t) => (await env.DB.prepare(`select * from ${t} order by 1`).all()).results)));
+
+// Sam holds Natalie's Dune and has asked to keep it.
+async function samAsks(ledger: ReturnType<typeof make>["ledger"]) {
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  const asked = ok(await ledger.act(sam, { type: "request", copyId }));
+  return { code, copyId, asked };
+}
+
+test("lend to a member", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const copy = ok(await ledger.act(natalie, { type: "lend", copyId, to: { member: sam.id } }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: sam.id } });
+  expect(copy.home).toBe(false);
+  expect(copy.history[0]).toMatchObject({ type: "lent", actor: { id: natalie.id }, subject: { kind: "member", person: { id: sam.id } } });
+  expect((await eventsOf(copyId)).filter((e) => e.type === "lent")).toEqual([
+    { type: "lent", actor_id: natalie.id, subject_member_id: sam.id, subject_person_id: null },
+  ]);
+  expect((await ledger.holding(sam)).map((i) => i.copyId)).toEqual([copyId]);
+});
+
+test("lend to a new name makes a placeholder, and lending to 'sarah ' later reuses it", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const first = ok(await ledger.act(natalie, { type: "lend", copyId, to: { name: "Sarah" } }));
+  expect(first.holder).toMatchObject({ kind: "person", name: "Sarah" });
+  expect(await count("people")).toBe(1);
+  ok(await ledger.act(natalie, { type: "return", copyId }));
+  const second = ok(await ledger.act(natalie, { type: "lend", copyId, to: { name: "sarah " } }));
+  expect(second.holder).toEqual(first.holder);
+  expect(await count("people")).toBe(1);
+  const lent = (await eventsOf(copyId)).filter((e) => e.type === "lent");
+  expect(lent).toHaveLength(2);
+  expect(lent[0].subject_person_id).not.toBeNull();
+  expect(lent[1].subject_person_id).toBe(lent[0].subject_person_id);
+  expect(lent.map((e) => e.subject_member_id)).toEqual([null, null]);
+});
+
+test("lend to a name whose placeholder is linked lends to the linked member", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await insertSarah();
+  await env.DB.prepare("update people set linked_member_id = ?, linked_at = 1 where id = 'p-sarah'").bind(kim.id).run();
+  const copy = ok(await ledger.act(natalie, { type: "lend", copyId, to: { name: "SARAH" } }));
+  expect(copy.holder).toMatchObject({ kind: "member", person: { id: kim.id } });
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "lent", actor_id: natalie.id, subject_member_id: kim.id, subject_person_id: null });
+  expect(await count("people")).toBe(1);
+});
+
+test("lend to a removed member is not-allowed and changes nothing", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "lend", copyId, to: { member: sam.id } })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("lend to another member's placeholder by id is not-allowed", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("insert into people (id, created_by, name, name_key, created_at) values ('p-kims', ?, 'Jo', 'jo', 1)").bind(kim.id).run();
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "lend", copyId, to: { person: "p-kims" } })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("lend by someone who is not the owner makes no placeholder", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  expect(await ledger.act(sam, { type: "lend", copyId, to: { name: "Sarah" } })).toEqual({ rejected: "not-allowed" });
+  expect(await count("people")).toBe(0);
+  expect(await count("events")).toBe(2);
+});
+
+test("ask to keep, then withdraw", async () => {
+  const { ledger } = make();
+  const { copyId, asked } = await samAsks(ledger);
+  expect(asked.request).toEqual({ by: { id: sam.id, name: sam.name, pictureUrl: sam.pictureUrl }, at: 1000 });
+  expect(asked.actions).toContain("withdraw");
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: sam.id, requested_by: sam.id, requested_at: 1000 });
+  const withdrawn = ok(await ledger.act(sam, { type: "withdraw", copyId }));
+  expect(withdrawn.request).toBeNull();
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: sam.id, requested_by: null, requested_at: null });
+  expect((await eventsOf(copyId)).map((e) => e.type)).toEqual(["added", "labelled", "claimed", "requested", "withdrawn"]);
+});
+
+test("ask to keep, then decline", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  const declined = ok(await ledger.act(natalie, { type: "decline", copyId }));
+  expect(declined.request).toBeNull();
+  expect(declined.history[0]).toMatchObject({ type: "declined", actor: { id: natalie.id }, subject: { kind: "member", person: { id: sam.id } } });
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "declined", actor_id: natalie.id, subject_member_id: sam.id, subject_person_id: null });
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: natalie.id, holder_member_id: sam.id, requested_by: null, requested_at: null });
+});
+
+test("an open request is cleared when the owner lends the book elsewhere", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  ok(await ledger.act(natalie, { type: "lend", copyId, to: { member: kim.id } }));
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: kim.id, requested_by: null, requested_at: null });
+  const asker = ok(await ledger.viewCopy(copyId, sam));
+  expect(asker.request).toBeNull();
+  expect(asker.actions).not.toContain("withdraw");
+});
+
+test("an open request is cleared when a third member claims it", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await samAsks(ledger);
+  ok(await ledger.act(kim, { type: "claim", code }));
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: kim.id, requested_by: null, requested_at: null });
+});
+
+test.each([
+  ["a member", { member: kim.id }],
+  ["a new name", { name: "Sarah" }],
+] as const)("lend to %s racing a claim: one wins", async (_name, to) => {
+  const { code, copyId } = await homeCopy(make().ledger);
+  const db = racing(async () => ok(await make().ledger.act(sam, { type: "claim", code })));
+  expect(await make({ db }).ledger.act(natalie, { type: "lend", copyId, to })).toEqual({ rejected: "not-allowed" });
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: sam.id, holder_person_id: null });
+  expect(await count("events")).toBe(3);
+  if ("name" in to) expect(await count("people")).toBe(0);
+});
+
+test("lend to a name racing the same name", async () => {
+  const { copyId } = await homeCopy(make().ledger);
+  const db = racing(run("insert into people (id, created_by, name, name_key, created_at) values ('p-first', ?, 'Sarah', 'sarah', 1)", natalie.id));
+  expect(await make({ db }).ledger.act(natalie, { type: "lend", copyId, to: { name: "Sarah" } })).toEqual({ rejected: "not-allowed" });
+  expect(await count("people")).toBe(1);
+  expect(await count("events")).toBe(2);
+  const retry = ok(await make().ledger.act(natalie, { type: "lend", copyId, to: { name: "Sarah" } }));
+  expect(retry.holder).toEqual({ kind: "person", id: "p-first", name: "Sarah" });
+  expect(await count("people")).toBe(1);
+});
+
+test("a claim racing the owner's removal records nothing", async () => {
+  const { code, copyId } = await homeCopy(make().ledger);
+  const db = racing(run("update members set removed_at = 5 where id = ?", natalie.id));
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: natalie.id });
+});
+
+test("a claim racing the claimer's removal records nothing", async () => {
+  const { code, copyId } = await homeCopy(make().ledger);
+  const db = racing(run("update members set removed_at = 5 where id = ?", sam.id));
+  expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(2);
+  expect(await copyRow(copyId)).toMatchObject({ holder_member_id: natalie.id });
+});
+
+test("a request racing the asker's removal records nothing", async () => {
+  const setup = make().ledger;
+  const { code, copyId } = await homeCopy(setup);
+  ok(await setup.act(sam, { type: "claim", code }));
+  const db = racing(run("update members set removed_at = 5 where id = ?", sam.id));
+  expect(await make({ db }).ledger.act(sam, { type: "request", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(3);
+  expect(await copyRow(copyId)).toMatchObject({ requested_by: null, requested_at: null });
+});
+
+test("a decline racing the asker's removal records nothing", async () => {
+  const setup = make().ledger;
+  const { copyId } = await samAsks(setup);
+  const db = racing(run("update members set removed_at = 5 where id = ?", sam.id));
+  expect(await make({ db }).ledger.act(natalie, { type: "decline", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await count("events")).toBe(4);
+  expect(await copyRow(copyId)).toMatchObject({ requested_by: sam.id });
+});
+
+test.each([
+  ["a lend with no target", { type: "lend", copyId: "c" }],
+  ["a lend to a number", { type: "lend", copyId: "c", to: 5 }],
+  ["a lend to { member: 5 }", { type: "lend", copyId: "c", to: { member: 5 } }],
+  ["a lend to two targets", { type: "lend", copyId: "c", to: { member: "m-sam", name: "Sam" } }],
+  ["a lend to an empty name", { type: "lend", copyId: "c", to: { name: " " } }],
+  ["a give, which this release does not take yet", { type: "give", copyId: "c", to: "m-sam" }],
+  ["a request with no copy id", { type: "request" }],
+])("%s is invalid", async (_name, action) => {
+  const { ledger } = make();
+  await homeCopy(ledger);
+  expect(await ledger.act(natalie, action as never)).toEqual({ rejected: "invalid" });
+  expect(await count("events")).toBe(2);
+});
+
+test("request, withdraw and decline on an unknown copy are not-found", async () => {
+  const { ledger } = make();
+  for (const type of ["request", "withdraw", "decline"] as const) {
+    expect(await ledger.act(natalie, { type, copyId: "no-such-copy" })).toEqual({ rejected: "not-found" });
+  }
+});

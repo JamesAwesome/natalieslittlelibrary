@@ -1,10 +1,11 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
+import { cleanPersonName } from "../../shared/name";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, LendTo, Member, Person, Rejection, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
-import { stateColumns, stateOf, type StateColumns } from "./copyState";
-import { availableActions, decide } from "./rules";
+import { stateColumns, stateGuard, stateOf, type StateColumns } from "./copyState";
+import { availableActions, decide, type Change, type Target } from "./rules";
 import { createRelabel } from "./relabel";
 import { createSheetReads } from "./sheets";
 import { createShelfReads, holderOf, inCollection, personOf, type HolderColumns } from "./shelves";
@@ -16,7 +17,26 @@ export type AddInput = {
   collectionId?: string | null; // one of the adder's own; absent or null means their default
 };
 
-export type ActInput = { type: "claim"; code: string } | { type: "return"; copyId: string };
+// Give, approve, release and adopt join these with the owner-changing write.
+export type ActInput =
+  | { type: "claim"; code: string }
+  | { type: "return" | "request" | "withdraw" | "decline"; copyId: string }
+  | { type: "lend"; copyId: string; to: LendTo };
+
+// A lend target of exactly one string field, or null. The name is cleaned later, by act.
+export function parseLendTo(raw: unknown): LendTo | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw);
+  if (entries.length !== 1) return null;
+  const [key, value] = entries[0];
+  if (typeof value !== "string") return null;
+  if (key === "member") return { member: value };
+  if (key === "person") return { person: value };
+  if (key === "name") return { name: value };
+  return null;
+}
+
+type Fragment = { sql: string; binds: unknown[] };
 
 export interface Ledger {
   mintLabels(member: Member, count: number): Promise<{ code: string; url: string }[] | Rejection>;
@@ -394,60 +414,131 @@ export function createLedger(deps: LedgerDeps): Ledger {
     return v.copy;
   }
 
+  // Everything a decision was made against, as a where-fragment on `copies`: the copy, its whole state as read, the actor
+  // still active, and the label in hand (for a claim) still bound to it. Any change since leaves the fragment false.
+  function readGuard(row: CopyRow, viewer: Member, code: string | null): Fragment {
+    const state = stateGuard("copies", row);
+    const label =
+      code === null
+        ? { sql: "", binds: [] }
+        : { sql: " and exists (select 1 from labels where code = ? and copy_id = copies.id and retired_at is null)", binds: [code] };
+    return { sql: `copies.id = ? and ${state.sql} and ${ACTIVE}${label.sql}`, binds: [row.copy_id, ...state.binds, viewer.id, ...label.binds] };
+  }
+
+  // The one write behind every action: the prelude, the event, then the copy's next state, all under the read guard (and
+  // the subject guard), so they apply together or not at all. True when they applied.
+  async function applyChange(
+    row: CopyRow,
+    viewer: Member,
+    change: Change,
+    extra: { code?: string; prelude?: D1PreparedStatement[]; subjectGuard?: Fragment },
+  ): Promise<boolean> {
+    // Moving ownership (give, approve, release, take) sets the collection from the new owner; nothing here asks for it yet.
+    if (change.ownerChanged || change.event === null) throw new Error("applyChange takes a change of holder or request, with an event");
+    const read = readGuard(row, viewer, extra.code ?? null);
+    const guard = extra.subjectGuard
+      ? { sql: `${read.sql} and ${extra.subjectGuard.sql}`, binds: [...read.binds, ...extra.subjectGuard.binds] }
+      : read;
+    const at = now();
+    const subject = change.subject;
+    const insert = db
+      .prepare(
+        `insert into events (copy_id, at, actor_id, type, subject_member_id, subject_person_id)
+         select copies.id, ?, ?, ?, ?, ? from copies where ${guard.sql}`,
+      )
+      .bind(
+        at, viewer.id, change.event,
+        subject !== null && "member" in subject ? subject.member : null,
+        subject !== null && "person" in subject ? subject.person : null,
+        ...guard.binds,
+      );
+    // requested_at: null with no request, kept while the same asker's request stands, and now for a new one (including one
+    // over a removed asker's). The owner is unchanged, so the collection is too, except that a copy old code left with none
+    // gets its owner's default.
+    const update = db
+      .prepare(
+        `update copies set owner_id = ?, holder_member_id = ?, holder_person_id = ?, requested_by = ?,
+           requested_at = case when ? is null then null when ? is requested_by then requested_at else ? end,
+           collection_id = coalesce(collection_id, (select id from collections k where k.owner_id = copies.owner_id and k.is_default = 1))
+         where ${guard.sql}`,
+      )
+      .bind(
+        change.ownerId, change.holderMemberId, change.holderPersonId, change.requestedBy,
+        change.requestedBy, change.requestedBy, at,
+        ...guard.binds,
+      );
+    // A copy old code left with no collection, whose owner has no default yet, gets that default first.
+    const defaults = row.owner_id !== null && row.collection_id === null ? ensureDefault(db, row.owner_id, at) : [];
+    // The update is last; its change count says whether the batch applied.
+    const results = await db.batch([...defaults, ...(extra.prelude ?? []), insert, update]);
+    return results[results.length - 1].meta.changes === 1;
+  }
+
+  // The target a lend's `{ name }` means: the lender's placeholder of that name, or the member it is linked to; failing both,
+  // a new placeholder, inserted by the prelude under the read guard so a refused lend leaves none behind. If a racing lend
+  // made the name first, the insert does nothing, the subject guard fails, and the lend is not-allowed.
+  async function lendTarget(row: CopyRow, viewer: Member, to: LendTo): Promise<{ target: Target; prelude: D1PreparedStatement[] }> {
+    if (!("name" in to)) return { target: to, prelude: [] };
+    const { name, key } = cleanPersonName(to.name)!; // act has checked it cleans
+    const found = await db
+      .prepare("select id, linked_member_id from people where created_by = ? and name_key = ?")
+      .bind(viewer.id, key)
+      .first<{ id: string; linked_member_id: string | null }>();
+    if (found !== null) return { target: found.linked_member_id !== null ? { member: found.linked_member_id } : { person: found.id }, prelude: [] };
+    const id = crypto.randomUUID();
+    const read = readGuard(row, viewer, null);
+    const insert = db
+      .prepare(
+        `insert into people (id, created_by, name, name_key, created_at)
+         select ?, ?, ?, ?, ? from copies where ${read.sql}
+         on conflict (created_by, name_key) do nothing`,
+      )
+      .bind(id, viewer.id, name, key, now(), ...read.binds);
+    return { target: { person: id }, prelude: [insert] };
+  }
+
+  // A lend's target must still be lendable when the write runs: an active member, or the lender's own unlinked placeholder.
+  const subjectGuard = (viewer: Member, to: Target): Fragment =>
+    "member" in to
+      ? { sql: "exists (select 1 from members where id = ? and removed_at is null)", binds: [to.member] }
+      : { sql: "exists (select 1 from people where id = ? and created_by = ? and linked_member_id is null)", binds: [to.person, viewer.id] };
+
   async function act(viewer: Member, action: ActInput): Promise<CopyView | Rejection> {
     if (typeof action !== "object" || action === null) return { rejected: "invalid" };
     const type: unknown = action.type;
-    if (type !== "claim" && type !== "return") return { rejected: "invalid" };
 
     let row: CopyRow | null;
     let code: string | null = null;
+    let to: LendTo | null = null;
     if (type === "claim") {
       const raw = (action as { code?: unknown }).code;
       if (typeof raw !== "string") return { rejected: "invalid" };
       code = parseLabelLink(raw);
       if (code === null) return { rejected: "not-found" };
       row = await db.prepare(`${COPY_SELECT} where l.code = ?`).bind(code).first<CopyRow>();
-    } else {
+    } else if (type === "return" || type === "request" || type === "withdraw" || type === "decline" || type === "lend") {
       const copyId = (action as { copyId?: unknown }).copyId;
       if (typeof copyId !== "string") return { rejected: "invalid" };
+      if (type === "lend") {
+        to = parseLendTo((action as { to?: unknown }).to);
+        if (to === null || ("name" in to && cleanPersonName(to.name) === null)) return { rejected: "invalid" };
+      }
       row = await db.prepare(`${COPY_SELECT} where c.id = ?`).bind(copyId).first<CopyRow>();
+    } else {
+      return { rejected: "invalid" };
     }
     if (!row || row.copy_id === null) return { rejected: "not-found" };
 
-    const decision = decide(stateOf(row, row.code !== null), viewer, { type });
+    const lend = type === "lend" ? await lendTarget(row, viewer, to!) : null;
+    const decision = decide(stateOf(row, row.code !== null), viewer, type === "lend" ? { type, to: lend!.target } : { type });
     if ("rejected" in decision) return decision;
+    const applied = await applyChange(row, viewer, decision, {
+      ...(code !== null ? { code } : {}),
+      ...(lend !== null ? { prelude: lend.prelude, subjectGuard: subjectGuard(viewer, lend.target) } : {}),
+    });
+    if (!applied) return { rejected: "not-allowed" };
 
-    // Both statements carry the whole state the decision was made against (and, for a claim, the label still being
-    // bound to this copy), so anything that changed in between leaves both of them touching no row.
-    const labelGuard = (copyColumn: string): { sql: string; binds: string[] } =>
-      type === "claim"
-        ? { sql: ` and exists (select 1 from labels where code = ? and copy_id = ${copyColumn} and retired_at is null)`, binds: [code!] }
-        : { sql: "", binds: [] };
-    const at = now();
-    const onInsert = labelGuard("c.id");
-    const onUpdate = labelGuard("copies.id");
-    const insert = db
-      .prepare(
-        `insert into events (copy_id, at, actor_id, type)
-         select c.id, ?, ?, ? from copies c where c.id = ? and c.owner_id is ? and c.holder_member_id is ?${onInsert.sql}`,
-      )
-      .bind(at, viewer.id, decision.event, row.copy_id, row.owner_id, row.holder_member_id, ...onInsert.binds);
-    // The collection is never changed, except that a copy old code left with none gets its owner's default.
-    const update = db
-      .prepare(
-        `update copies set holder_member_id = ?,
-           collection_id = coalesce(collection_id, (select id from collections k where k.owner_id = copies.owner_id and k.is_default = 1))
-         where id = ? and owner_id is ? and holder_member_id is ?${onUpdate.sql}`,
-      )
-      .bind(decision.holderMemberId, row.copy_id, row.owner_id, row.holder_member_id, ...onUpdate.binds);
-
-    // A copy old code left with no collection, whose owner has no default yet, gets that default first.
-    const prelude = row.owner_id !== null && row.collection_id === null ? ensureDefault(db, row.owner_id, at) : [];
-    // Event first, update last; the update's change count says whether the pair applied.
-    const results = await db.batch([...prelude, insert, update]);
-    if (results[results.length - 1].meta.changes === 0) return { rejected: "not-allowed" };
-
-    const v = await renderCopy(row.copy_id, viewer, code ?? null);
+    const v = await renderCopy(row.copy_id, viewer, code);
     if (v?.kind !== "copy") throw new Error("a copy just changed has vanished");
     return v.copy;
   }

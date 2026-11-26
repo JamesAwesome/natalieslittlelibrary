@@ -697,6 +697,10 @@ const EVERY_NEW_ROUTE: [string, string][] = [
   ["POST", "/api/imports"],
   ["GET", "/api/labels/sheets"],
   ["GET", "/api/labels/sheets/x"],
+  ["POST", "/api/copies/x/lend"],
+  ["POST", "/api/copies/x/request"],
+  ["POST", "/api/copies/x/withdraw"],
+  ["POST", "/api/copies/x/decline"],
 ];
 
 test.each(EVERY_NEW_ROUTE)("%s %s signed out is 401", async (method, path) => {
@@ -754,6 +758,7 @@ const WRITES: Write[] = [
   ["POST /api/copies/:id/relabel", (f) => ({ method: "POST", path: `/api/copies/${f.home}/relabel`, body: { code: f.codes.forHome, replacing: f.codes.labelled } })],
   ["POST /api/copies", (f) => ({ method: "POST", path: "/api/copies", body: { code: f.codes.forNew, title: "Another", authors: ["A"], collectionId: f.spare } })],
   ["POST /api/imports", (f) => ({ method: "POST", path: "/api/imports", body: { collectionId: f.spare, rows: [{ title: "Imported", authors: [], isbn: null }] } })],
+  ["POST /api/copies/:id/lend", (f) => ({ method: "POST", path: `/api/copies/${f.home}/lend`, body: { to: { name: "Sarah" } } })],
 ];
 
 test.each(WRITES)("%s from another site is 403 and changes nothing, where the same request from this site succeeds", async (_name, build) => {
@@ -769,6 +774,41 @@ test.each(WRITES)("%s from another site is 403 and changes nothing, where the sa
   const control = await send(req.method, req.path, f.cookie, req.body, { origin: SITE });
   expect(control.status).toBe(200);
   expect(await snapshot()).not.toBe(before);
+});
+
+test("lend answers the copy lent; a malformed target is 400 invalid; a lend by someone else is 403", async () => {
+  const f = await writeFixture();
+  for (const body of [{}, { to: 5 }, { to: null }, { to: { member: 5 } }, { to: { name: "" } }, { to: { name: "A", member: "B" } }]) {
+    const res = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, body);
+    expect(res.status, JSON.stringify(body)).toBe(400);
+    expect(await res.json()).toEqual({ rejected: "invalid" });
+  }
+  const other = await signInAs(env.DB, sam);
+  const refused = await send("POST", `/api/copies/${f.home}/lend`, other.cookie, { to: { name: "Sarah" } });
+  expect(refused.status).toBe(403);
+  expect(await refused.json()).toEqual({ rejected: "not-allowed" });
+  expect((await send("POST", "/api/copies/nope/lend", f.cookie, { to: { name: "Sarah" } })).status).toBe(404);
+  const res = await send("POST", `/api/copies/${f.home}/lend`, f.cookie, { to: { member: other.member.id } });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ copyId: f.home, holder: { kind: "member", person: { id: other.member.id } } });
+});
+
+test("request, withdraw and decline answer the copy, with no body needed", async () => {
+  const f = await writeFixture();
+  const other = await signInAs(env.DB, sam);
+  expect((await send("POST", `/api/labels/${f.codes.labelled}/claim`, other.cookie)).status).toBe(200);
+  const asked = await send("POST", `/api/copies/${f.home}/request`, other.cookie);
+  expect(asked.status).toBe(200);
+  expect(await asked.json()).toMatchObject({ copyId: f.home, request: { by: { id: other.member.id } } });
+  expect((await send("POST", `/api/copies/${f.home}/decline`, other.cookie)).status).toBe(403);
+  const declined = await send("POST", `/api/copies/${f.home}/decline`, f.cookie);
+  expect(declined.status).toBe(200);
+  expect(await declined.json()).toMatchObject({ request: null });
+  expect((await send("POST", `/api/copies/${f.home}/request`, other.cookie)).status).toBe(200);
+  const withdrawn = await send("POST", `/api/copies/${f.home}/withdraw`, other.cookie);
+  expect(withdrawn.status).toBe(200);
+  expect(await withdrawn.json()).toMatchObject({ request: null });
+  expect((await send("POST", "/api/copies/nope/withdraw", other.cookie)).status).toBe(404);
 });
 
 test("move puts a copy in another of the owner's collections and answers without a code", async () => {

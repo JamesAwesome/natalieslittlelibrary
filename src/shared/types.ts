@@ -50,5 +50,7 @@ export type LabelView =
   | { kind: "copy"; copy: CopyView };
 export type RejectionReason = "not-found" | "not-allowed" | "label-unknown" | "label-in-use" | "name-taken" | "book-not-found" | "invalid" | "signed-out" | "unavailable";
 export type Rejection = { rejected: RejectionReason };
+// Whom a lend goes to: a member, one of the lender's placeholders, or a name to find or make a placeholder for.
+export type LendTo = { member: string } | { person: string } | { name: string };
 
 export type SheetSummary = { id: string; at: number; total: number; blank: number; mine: number };

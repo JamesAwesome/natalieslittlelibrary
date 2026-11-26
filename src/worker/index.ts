@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { ImportRow, Member, Rejection, RejectionReason } from "../shared/types";
 import { createBookLookup, lookupSources, type BookLookup } from "./booklookup";
-import { createLedger, type Ledger } from "./ledger";
+import { createLedger, parseLendTo, type Ledger } from "./ledger";
 import { createMembership, googleProvider, type Identified, type Membership } from "./membership";
 
 type Services = { membership: Membership; ledger: Ledger; lookup: BookLookup["lookup"] };
@@ -273,6 +273,21 @@ app.post("/api/labels/:code/claim", member(async (c, who) =>
 
 app.post("/api/copies/:id/return", member(async (c, who) =>
   answer(c, await c.var.services.ledger.act(who, { type: "return", copyId: c.req.param("id") ?? "" }))));
+
+app.post("/api/copies/:id/lend", member(async (c, who) => {
+  const body = await objectBody(c);
+  const to = body === null ? null : parseLendTo(body.to);
+  if (to === null) return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type: "lend", copyId: id, to }));
+}));
+
+for (const type of ["request", "withdraw", "decline"] as const) {
+  app.post(`/api/copies/:id/${type}`, member(async (c, who) => {
+    const id = idParam(c);
+    return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type, copyId: id }));
+  }));
+}
 
 app.notFound((c) => {
   if (isApi(c.req.path)) return c.json({ rejected: "not-found" }, 404, { "cache-control": "no-store" });
