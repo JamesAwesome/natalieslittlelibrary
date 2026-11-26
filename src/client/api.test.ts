@@ -1,5 +1,9 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { ApiError, addCopy, claim, getLabel, getMe, logout, lookupBook, mintLabels, returnCopy } from "./api";
+import {
+  ApiError, addCopy, claim, createCollection, deleteCollection, getCandidates, getCopy, getHolding, getLabel, getMe, getShelf,
+  importRows, labelCopy, listMembers, logout, lookupBook, makeDefault, memberCollections, mintLabels, moveCopy, myCollections,
+  renameCollection, returnCopy,
+} from "./api";
 
 const member = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -114,4 +118,56 @@ test("a non-JSON error body still throws ApiError with rejected null", async () 
 test("getMe throws ApiError carrying 503", async () => {
   stubFetch(async () => json({ rejected: "unavailable" }, 503));
   await expect(getMe()).rejects.toMatchObject({ status: 503, rejected: "unavailable" });
+});
+
+test("a 200 whose body is not JSON throws an ApiError with the status and no reason", async () => {
+  stubFetch(async () => new Response("<html>", { status: 200 }));
+  const e = await getCopy("c1").catch((x: unknown) => x);
+  expect(e).toBeInstanceOf(ApiError);
+  expect(e).toMatchObject({ status: 200, rejected: null });
+});
+
+test("addCopy carries collectionId", async () => {
+  const f = stubFetch(async () => json({}));
+  await addCopy({ code: "abc", isbn: "9780000000002", collectionId: "k1" });
+  expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ code: "abc", isbn: "9780000000002", collectionId: "k1" });
+});
+
+test.each<[string, () => Promise<unknown>, string, string, unknown]>([
+  ["myCollections", () => myCollections(), "/api/collections/mine", "GET", undefined],
+  ["createCollection", () => createCollection("Cookbooks"), "/api/collections", "POST", { name: "Cookbooks" }],
+  ["renameCollection", () => renameCollection("k1", "New"), "/api/collections/k1", "PATCH", { name: "New" }],
+  ["deleteCollection", () => deleteCollection("k1"), "/api/collections/k1", "DELETE", undefined],
+  ["makeDefault", () => makeDefault("k1"), "/api/collections/k1/default", "POST", undefined],
+  ["getShelf", () => getShelf("k1"), "/api/collections/k1", "GET", undefined],
+  ["listMembers", () => listMembers(), "/api/members", "GET", undefined],
+  ["memberCollections", () => memberCollections("m1"), "/api/members/m1/collections", "GET", undefined],
+  ["getHolding", () => getHolding(), "/api/holding", "GET", undefined],
+  ["getCandidates isbn", () => getCandidates({ isbn: "9780000000002" }), "/api/copies/candidates?isbn=9780000000002", "GET", undefined],
+  ["getCandidates title", () => getCandidates({ title: "Dune & more" }), "/api/copies/candidates?title=Dune+%26+more", "GET", undefined],
+  ["getCopy", () => getCopy("c1"), "/api/copies/c1", "GET", undefined],
+  ["moveCopy", () => moveCopy("c1", "k1"), "/api/copies/c1/move", "POST", { collectionId: "k1" }],
+  ["labelCopy", () => labelCopy("c1", "T7K2Q9XZMB"), "/api/copies/c1/label", "POST", { code: "T7K2Q9XZMB" }],
+  ["importRows null", () => importRows(null, [{ title: "Dune", authors: ["Frank Herbert"], isbn: null }]), "/api/imports", "POST",
+    { collectionId: null, rows: [{ title: "Dune", authors: ["Frank Herbert"], isbn: null }] }],
+  ["importRows id", () => importRows("k1", []), "/api/imports", "POST", { collectionId: "k1", rows: [] }],
+])("%s", async (_name, run, url, method, body) => {
+  const f = stubFetch(async () => json({}));
+  await run();
+  expect(f).toHaveBeenCalledOnce();
+  expect(sent(f)).toEqual({ url, method, body });
+});
+
+test("an imported StoryGraph row travels as title, authors and isbn under collectionId and rows, and nothing else", async () => {
+  const { FIXTURE, REVIEW_SENTINEL, RATING, DATE_READ } = await import("./storygraph/fixture");
+  const { parseExport } = await import("./storygraph");
+  const parsed = parseExport(FIXTURE);
+  if (!parsed.ok) throw new Error("fixture");
+  const f = stubFetch(async () => json({ added: 0, skipped: 0 }));
+  await importRows("k1", parsed.rows);
+  const raw = String((f.mock.calls[0][1] as RequestInit).body);
+  const body = JSON.parse(raw) as { collectionId: string; rows: Record<string, unknown>[] };
+  expect(Object.keys(body).sort()).toEqual(["collectionId", "rows"]);
+  for (const r of body.rows) expect(Object.keys(r).sort()).toEqual(["authors", "isbn", "title"]);
+  for (const s of [REVIEW_SENTINEL, RATING, DATE_READ, "Translator"]) expect(raw).not.toContain(s);
 });

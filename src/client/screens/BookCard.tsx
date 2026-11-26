@@ -2,9 +2,9 @@ import { useState } from "react";
 
 export const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
 
-function Cover({ url }: { url: string | null }) {
+export function Cover({ url }: { url: string | null }) {
   const [broken, setBroken] = useState(false);
-  return url && !broken ? <img className="cover" src={url} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : <div className="cover cover-missing" aria-hidden="true" />;
+  return url && !broken ? <img className="cover" src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : <div className="cover cover-missing" aria-hidden="true" />;
 }
 
 export function Book(props: { title: string; authors: string[]; coverUrl: string | null }) {

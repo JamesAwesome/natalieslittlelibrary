@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import type { Member, Rejection, RejectionReason } from "../shared/types";
+import type { ImportRow, Member, Rejection, RejectionReason } from "../shared/types";
 import { createBookLookup, lookupSources, type BookLookup } from "./booklookup";
 import { createLedger, type Ledger } from "./ledger";
 import { createMembership, googleProvider, type Identified, type Membership } from "./membership";
@@ -20,11 +20,11 @@ function servicesFor(env: Env): Services {
     }),
     config: { siteUrl: env.SITE_URL, allowlist: env.ALLOWLIST_EMAILS, admins: env.ADMIN_EMAILS },
   });
-  const { lookup } = createBookLookup({
+  const { lookup, lookupMany } = createBookLookup({
     db: env.DB,
     sources: lookupSources((env as { GOOGLE_BOOKS_API_KEY?: unknown }).GOOGLE_BOOKS_API_KEY),
   });
-  const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup });
+  const ledger = createLedger({ db: env.DB, siteUrl: env.SITE_URL, lookup, lookupMany });
   return { membership, ledger, lookup };
 }
 
@@ -37,6 +37,7 @@ const STATUS: Record<Rejection["rejected"], 400 | 401 | 403 | 404 | 409 | 503> =
   "label-unknown": 404,
   "book-not-found": 404,
   "label-in-use": 409,
+  "name-taken": 409,
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -165,7 +166,93 @@ app.post("/api/copies", member(async (c, who) => {
   const body = await objectBody(c);
   if (!body) return invalid(c);
   const book = body.isbn !== undefined ? { isbn: body.isbn } : { title: body.title, authors: body.authors };
-  return answer(c, await c.var.services.ledger.add(who, { code: body.code, book } as Parameters<Ledger["add"]>[1]));
+  return answer(c, await c.var.services.ledger.add(who, { code: body.code, book, collectionId: body.collectionId } as Parameters<Ledger["add"]>[1]));
+}));
+
+// Collection ids are 32 hex (backfilled) or a 36-character UUID; copy ids are UUIDs. Anything else cannot exist.
+const ID_SHAPE = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const notFound = (c: AppContext) => c.json({ rejected: "not-found" satisfies RejectionReason }, STATUS["not-found"]);
+const idParam = (c: AppContext): string | null => {
+  const id = c.req.param("id") ?? "";
+  return ID_SHAPE.test(id) ? id : null;
+};
+
+// Registered before /api/collections/:id, which would take "mine" for an id.
+app.get("/api/collections/mine", member(async (c, who) => answer(c, await c.var.services.ledger.collectionsOf(who.id))));
+
+app.post("/api/collections", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.name !== "string") return invalid(c);
+  return answer(c, await c.var.services.ledger.createCollection(who, body.name));
+}));
+
+app.patch("/api/collections/:id", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.name !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.renameCollection(who, id, body.name));
+}));
+
+app.delete("/api/collections/:id", member(async (c, who) => {
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.deleteCollection(who, id));
+}));
+
+app.post("/api/collections/:id/default", member(async (c, who) => {
+  const id = idParam(c);
+  if (id === null) return notFound(c);
+  const result = await c.var.services.ledger.makeDefault(who, id);
+  return Array.isArray(result) ? c.json({ collections: result }) : answer(c, result);
+}));
+
+// A removed member's collections are hidden from everyone, as /api/members hides them.
+async function ownedByActive(c: AppContext, result: { rejected: string } | { owner: { id: string } }): Promise<Response> {
+  if ("rejected" in result) return answer(c, result as Rejection);
+  const active = await c.var.services.membership.members();
+  return active.some((p) => p.id === result.owner.id) ? c.json(result) : notFound(c);
+}
+
+app.get("/api/collections/:id", member(async (c) => {
+  const id = idParam(c);
+  return id === null ? notFound(c) : ownedByActive(c, await c.var.services.ledger.shelf(id));
+}));
+
+app.get("/api/members", member(async (c) => c.json({ members: await c.var.services.membership.members() })));
+
+app.get("/api/members/:id/collections", member(async (c) => ownedByActive(c, await c.var.services.ledger.collectionsOf(c.req.param("id") ?? ""))));
+
+app.get("/api/holding", member(async (c, who) => c.json({ items: await c.var.services.ledger.holding(who) })));
+
+// Registered before /api/copies/:id, which would take "candidates" for an id.
+app.get("/api/copies/candidates", member(async (c, who) =>
+  answer(c, await c.var.services.ledger.candidates(who, { isbn: c.req.query("isbn"), title: c.req.query("title") }))));
+
+app.get("/api/copies/:id", member(async (c, who) => {
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.viewCopy(id, who));
+}));
+
+app.post("/api/copies/:id/move", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.collectionId !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.moveCopy(who, id, body.collectionId));
+}));
+
+app.post("/api/copies/:id/label", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.code !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.labelCopy(who, id, body.code));
+}));
+
+app.post("/api/imports", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body) return invalid(c);
+  // Omitted or null means the importer's default, as for ledger.add; anything else must be an id.
+  const collectionId = body.collectionId ?? null;
+  if (collectionId !== null && typeof collectionId !== "string") return invalid(c);
+  return answer(c, await c.var.services.ledger.importCopies(who, { collectionId, rows: body.rows as ImportRow[] }));
 }));
 
 app.post("/api/labels/:code/claim", member(async (c, who) =>

@@ -1,10 +1,17 @@
 import { LABEL_ALPHABET, LABEL_LENGTH, parseLabelLink } from "../../shared/labelCode";
 import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
-import type { BookInfo, CopyView, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import type { BookInfo, Candidates, CollectionSummary, CopyView, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection } from "../../shared/types";
+import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
 import { availableActions, decide } from "./rules";
+import { createShelfReads, inCollection } from "./shelves";
+import { BLANK, cleanText, createUnlabelled, MAX_AUTHOR, MAX_AUTHORS, MAX_TITLE } from "./unlabelled";
 
-export type AddInput = { code: string; book: { isbn: string } | { title: string; authors: string[] } };
+export type AddInput = {
+  code: string;
+  book: { isbn: string } | { title: string; authors: string[] };
+  collectionId?: string | null; // one of the adder's own; absent or null means their default
+};
 
 export type ActInput = { type: "claim"; code: string } | { type: "return"; copyId: string };
 
@@ -13,25 +20,34 @@ export interface Ledger {
   add(owner: Member, input: AddInput): Promise<CopyView | Rejection>;
   view(code: string, viewer: Member | null): Promise<LabelView>;
   act(viewer: Member, action: ActInput): Promise<CopyView | Rejection>;
+  viewCopy(copyId: string, viewer: Member): Promise<CopyView | Rejection>; // code null, no claim
+  collectionsOf(ownerId: string): Promise<{ owner: Person; collections: CollectionSummary[] } | Rejection>;
+  shelf(collectionId: string): Promise<Shelf | Rejection>;
+  holding(member: Member): Promise<ShelfItem[]>;
+  moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection>; // answers with no code
+  createCollection(member: Member, name: string): Promise<CollectionSummary | Rejection>;
+  renameCollection(member: Member, id: string, name: string): Promise<CollectionSummary | Rejection>;
+  deleteCollection(member: Member, id: string): Promise<{ deleted: true } | Rejection>;
+  makeDefault(member: Member, id: string): Promise<CollectionSummary[] | Rejection>; // the member's collections after
+  // 1 to 20 rows, unlabelled copies owned and held by the importer; rows they already have are skipped inside the write.
+  importCopies(owner: Member, input: { collectionId: string | null; rows: ImportRow[] }): Promise<ImportResult | Rejection>;
+  labelCopy(owner: Member, copyId: string, code: string): Promise<CopyView | Rejection>; // answers with the code the request carried
+  candidates(owner: Member, query: { isbn?: string; title?: string }): Promise<Candidates | Rejection>; // never a label code
 }
 
 export type LedgerDeps = {
   db: D1Database;
   siteUrl: string;
   lookup: (isbn: string) => Promise<BookInfo | null>;
+  lookupMany: (isbns: string[]) => Promise<Map<string, BookInfo>>;
   now?: () => number;
   randomBytes?: (n: number) => Uint8Array;
 };
 
 const MAX_MINT = 100;
 const MAX_MINT_ROUNDS = 10;
-const MAX_TITLE = 300;
-const MAX_AUTHORS = 10;
-const MAX_AUTHOR = 200;
 // The largest multiple of the alphabet size that fits in a byte; bytes at or above it would bias the draw.
 const BYTE_LIMIT = 248;
-
-const BLANK = "(select 1 from labels where code = ? and copy_id is null)";
 
 type CopyRow = {
   copy_id: string | null;
@@ -41,9 +57,10 @@ type CopyRow = {
   cover_url: string | null;
   owner_id: string | null;
   holder_member_id: string | null;
+  collection_id: string | null;
   code: string | null;
 };
-const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, l.code
+const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, c.collection_id, l.code
   from copies c
   join books b on b.id = c.book_id
   left join labels l on l.copy_id = c.id`;
@@ -53,15 +70,8 @@ function person(r: PersonRow): Person {
   return { id: r.id, name: r.name, pictureUrl: r.picture_url };
 }
 
-function cleanText(s: unknown, max: number): string | null {
-  if (typeof s !== "string") return null;
-  const t = s.trim();
-  const length = Array.from(t).length;
-  return length >= 1 && length <= max ? t : null;
-}
-
 export function createLedger(deps: LedgerDeps): Ledger {
-  const { db, lookup } = deps;
+  const { db, lookup, lookupMany } = deps;
   const now = deps.now ?? Date.now;
   const randomBytes = deps.randomBytes ?? ((n: number) => crypto.getRandomValues(new Uint8Array(n)));
 
@@ -76,6 +86,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     return code;
   }
+
+  // A copy as its owner sees it with a label of the request's in hand (labelling from a shelf, or scanning an imported copy).
+  const unlabelled = createUnlabelled(db, now, lookup, lookupMany, async (copyId, viewer) => {
+    const v = await renderCopy(copyId, viewer, true);
+    return v?.kind === "copy" ? v.copy : null;
+  });
 
   async function mintLabels(member: Member, count: number) {
     if (!Number.isInteger(count) || count < 1 || count > MAX_MINT) return { rejected: "invalid" } as const;
@@ -105,18 +121,21 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const label = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
     if (!label) return { kind: "unknown" };
     if (label.copy_id === null) return { kind: "blank", code };
-    return (await renderCopy(label.copy_id, viewer)) ?? { kind: "unknown" };
+    return (await renderCopy(label.copy_id, viewer, true)) ?? { kind: "unknown" };
   }
 
   // The copy, its people, and its history are read in one batch, which is one transaction, so a view agrees with itself.
-  async function renderCopy(copyId: string, viewer: Member | null): Promise<LabelView | null> {
+  // `labelInHand`: the request carried the label, so the view carries its code and offers a claim.
+  async function renderCopy(copyId: string, viewer: Member | null, labelInHand: boolean): Promise<LabelView | null> {
     const statements = [
       db
         .prepare(
-          `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture
+          `select x.*, o.name as owner_name, o.picture_url as owner_picture, h.name as holder_name, h.picture_url as holder_picture,
+             ${viewer === null ? "null" : "k.id"} as shown_collection_id, ${viewer === null ? "null" : "k.name"} as shown_collection_name
            from (${COPY_SELECT} where c.id = ?) x
            left join members o on o.id = x.owner_id
-           left join members h on h.id = x.holder_member_id`,
+           left join members h on h.id = x.holder_member_id
+           ${viewer === null ? "" : `left join collections k on ${inCollection("x", "k")}`}`,
         )
         .bind(copyId),
     ];
@@ -133,7 +152,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     const [copyResult, history] = await db.batch(statements);
     const row = copyResult.results[0] as
-      | (CopyRow & { owner_name: string | null; owner_picture: string | null; holder_name: string | null; holder_picture: string | null })
+      | (CopyRow & { owner_name: string | null; owner_picture: string | null; holder_name: string | null; holder_picture: string | null; shown_collection_id: string | null; shown_collection_name: string | null })
       | undefined;
     if (!row) return null;
     const book: BookInfo = {
@@ -152,7 +171,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
       kind: "copy",
       copy: {
         copyId,
-        code: row.code,
+        code: labelInHand ? row.code : null,
         book,
         owner:
           row.owner_id !== null && row.owner_name !== null
@@ -164,8 +183,17 @@ export function createLedger(deps: LedgerDeps): Ledger {
             ? { kind: "member", person: { id: row.holder_member_id, name: row.holder_name, pictureUrl: row.holder_picture } }
             : { kind: "named", name: "" },
         home: row.owner_id !== null && row.owner_id === row.holder_member_id,
+        // Members see where a copy lives, home or out; the public view (above) has no collection.
+        collection:
+          row.shown_collection_id !== null && row.shown_collection_name !== null
+            ? { id: row.shown_collection_id, name: row.shown_collection_name }
+            : null,
         history: entries,
-        actions: availableActions({ ownerId: row.owner_id, holderMemberId: row.holder_member_id }, viewer),
+        actions: availableActions(
+          { ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null },
+          viewer,
+          { labelInHand },
+        ),
       },
     };
   }
@@ -173,6 +201,8 @@ export function createLedger(deps: LedgerDeps): Ledger {
   async function add(owner: Member, input: AddInput): Promise<CopyView | Rejection> {
     if (typeof input !== "object" || input === null || typeof input.code !== "string") return { rejected: "invalid" };
     const code = parseLabelLink(input.code);
+    const collectionId = input.collectionId ?? null;
+    if (collectionId !== null && typeof collectionId !== "string") return { rejected: "invalid" };
     const form = input.book as unknown as Record<string, unknown> | null;
     if (typeof form !== "object" || form === null) return { rejected: "invalid" };
     let isbn: string | null = null;
@@ -197,6 +227,12 @@ export function createLedger(deps: LedgerDeps): Ledger {
     if (!label) return { rejected: "label-unknown" };
     if (label.copy_id !== null) return { rejected: "label-in-use" };
 
+    // A scan of an ISBN the adder already has an unlabelled copy of (imported, say) labels that copy: no lookup, no new copy, and the picked collection does not apply to a copy that exists.
+    if (isbn !== null) {
+      const bound = await unlabelled.bindToUnlabelled(owner, code, isbn);
+      if (bound !== null) return bound;
+    }
+
     let newBook: BookInfo | null = null; // set when a books row has to be written
     if (isbn !== null) {
       const existing = await db.prepare("select 1 as found from books where isbn = ?").bind(isbn).first();
@@ -217,57 +253,85 @@ export function createLedger(deps: LedgerDeps): Ledger {
     const at = now();
     const copyId = crypto.randomUUID();
     const bookId = crypto.randomUUID();
+    // The whole write runs only while the label is blank, the adder is active and the destination is theirs, all decided
+    // inside each statement. The destination is the persisted default row or the chosen collection, never an id the
+    // request made up. A book is written only with the copy, so a refused add leaves no orphan.
+    const dest =
+      collectionId === null
+        ? { sql: `exists ${DEFAULT_OF}`, binds: [owner.id], column: DEFAULT_OF }
+        : { sql: "exists (select 1 from collections where id = ? and owner_id = ?)", binds: [collectionId, owner.id], column: "?" };
+    // An ISBN add also requires that the adder has no unlabelled copy of it: one an import wrote since the bind path looked
+    // belongs to the label instead (see the retry below).
+    const hasNone =
+      isbn === null
+        ? { sql: "", binds: [] as string[] }
+        : {
+            sql: ` and not exists (select 1 from copies c join books b on b.id = c.book_id
+                     where c.owner_id = ? and not exists (select 1 from labels where copy_id = c.id) and (b.isbn = ? or c.import_isbn = ?))`,
+            binds: [owner.id, isbn, isbn],
+          };
+    const baseGuard = `exists ${BLANK} and ${ACTIVE} and ${dest.sql}`;
+    const baseBinds = [code, owner.id, ...dest.binds];
+    // The book and the copy carry the no-unlabelled-copy guard; the events follow the copy, which is itself unlabelled until
+    // the last statement, so they carry the base guard and the copy-exists check only.
+    const guard = baseGuard + hasNone.sql;
+    const guardBinds = [...baseBinds, ...hasNone.binds];
     const statements: D1PreparedStatement[] = [];
-    // Every write below runs only while the label is still blank; the label update is last, so it is the one that closes the door.
+    // Without a chosen collection, the adder's default exists first (and old code's null-collection copies are pinned to it).
+    if (collectionId === null) statements.push(...ensureDefault(db, owner.id, at));
     if (newBook) {
       statements.push(
         db
           .prepare(
             `insert into books (id, isbn, title, authors, cover_url, created_at)
-             select ?, ?, ?, ?, ?, ? where exists ${BLANK}
+             select ?, ?, ?, ?, ?, ? where ${guard}
              on conflict(isbn) do nothing`,
           )
-          .bind(
-            bookId,
-            isbn,
-            newBook.title,
-            JSON.stringify(newBook.authors),
-            newBook.coverUrl,
-            at,
-            code,
-          ),
+          .bind(bookId, isbn, newBook.title, JSON.stringify(newBook.authors), newBook.coverUrl, at, ...guardBinds),
       );
     }
+    const bookRef = isbn !== null ? "(select id from books where isbn = ?)" : "?";
     statements.push(
-      isbn !== null
-        ? db
-            .prepare(
-              `insert into copies (id, book_id, owner_id, holder_member_id, created_at)
-               select ?, (select id from books where isbn = ?), ?, ?, ? where exists ${BLANK}`,
-            )
-            .bind(copyId, isbn, owner.id, owner.id, at, code)
-        : db
-            .prepare(
-              `insert into copies (id, book_id, owner_id, holder_member_id, created_at)
-               select ?, ?, ?, ?, ? where exists ${BLANK}`,
-            )
-            .bind(copyId, bookId, owner.id, owner.id, at, code),
+      db
+        .prepare(
+          `insert into copies (id, book_id, owner_id, holder_member_id, collection_id, created_at)
+           select ?, ${bookRef}, ?, ?, ${dest.column}, ? where ${guard}`,
+        )
+        .bind(copyId, isbn ?? bookId, owner.id, owner.id, ...(collectionId === null ? [owner.id] : [collectionId]), at, ...guardBinds),
     );
+    const copyExists = "exists (select 1 from copies where id = ?)";
     for (const type of ["added", "labelled"]) {
       statements.push(
         db
-          .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, ? where exists ${BLANK}`)
-          .bind(copyId, at, owner.id, type, code),
+          .prepare(`insert into events (copy_id, at, actor_id, type) select ?, ?, ?, ? where ${copyExists} and ${baseGuard}`)
+          // Binds in order: the inserted values (copy id, at, actor, type), then the copy-exists check's copy id, then the guard.
+          .bind(copyId, at, owner.id, type, copyId, ...baseBinds),
       );
     }
+    // Last, and guarded on the copy row existing, so its change count says whether everything applied.
     statements.push(
       db
-        .prepare("update labels set copy_id = ?, bound_at = ? where code = ? and copy_id is null")
-        .bind(copyId, at, code),
+        .prepare(
+          `update labels set copy_id = ?, bound_at = ? where code = ? and copy_id is null and ${copyExists} and ${ACTIVE}`,
+        )
+        .bind(copyId, at, code, copyId, owner.id),
     );
 
     const results = await db.batch(statements);
-    if (results[results.length - 1].meta.changes === 0) return { rejected: "label-in-use" };
+    if (results[results.length - 1].meta.changes === 0) {
+      const bound = await db.prepare("select copy_id from labels where code = ?").bind(code).first<{ copy_id: string | null }>();
+      if (bound?.copy_id != null) return { rejected: "label-in-use" };
+      // An import landed after the bind path looked: the label belongs on that copy. Once, so this cannot loop.
+      if (isbn !== null) {
+        const late = await unlabelled.bindToUnlabelled(owner, code, isbn);
+        if (late !== null) return late;
+      }
+      if (collectionId !== null) {
+        const k = await db.prepare("select owner_id from collections where id = ?").bind(collectionId).first<{ owner_id: string }>();
+        if (k === null || k.owner_id !== owner.id) return { rejected: "not-found" };
+      }
+      return { rejected: "not-allowed" };
+    }
 
     const v = await view(code, owner);
     if (v.kind !== "copy") throw new Error("a label just bound has no copy");
@@ -294,7 +358,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     if (!row || row.copy_id === null) return { rejected: "not-found" };
 
-    const decision = decide({ ownerId: row.owner_id, holderMemberId: row.holder_member_id }, viewer, type);
+    const decision = decide({ ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null }, viewer, type);
     if ("rejected" in decision) return decision;
 
     // Both statements carry the whole state the decision was made against (and, for a claim, the label still being
@@ -312,18 +376,64 @@ export function createLedger(deps: LedgerDeps): Ledger {
          select c.id, ?, ?, ? from copies c where c.id = ? and c.owner_id is ? and c.holder_member_id is ?${onInsert.sql}`,
       )
       .bind(at, viewer.id, decision.event, row.copy_id, row.owner_id, row.holder_member_id, ...onInsert.binds);
+    // The collection is never changed, except that a copy old code left with none gets its owner's default.
     const update = db
-      .prepare(`update copies set holder_member_id = ? where id = ? and owner_id is ? and holder_member_id is ?${onUpdate.sql}`)
+      .prepare(
+        `update copies set holder_member_id = ?,
+           collection_id = coalesce(collection_id, (select id from collections k where k.owner_id = copies.owner_id and k.is_default = 1))
+         where id = ? and owner_id is ? and holder_member_id is ?${onUpdate.sql}`,
+      )
       .bind(decision.holderMemberId, row.copy_id, row.owner_id, row.holder_member_id, ...onUpdate.binds);
 
+    // A copy old code left with no collection, whose owner has no default yet, gets that default first.
+    const prelude = row.owner_id !== null && row.collection_id === null ? ensureDefault(db, row.owner_id, at) : [];
     // Event first, update last; the update's change count says whether the pair applied.
-    const results = await db.batch([insert, update]);
-    if (results[1].meta.changes === 0) return { rejected: "not-allowed" };
+    const results = await db.batch([...prelude, insert, update]);
+    if (results[results.length - 1].meta.changes === 0) return { rejected: "not-allowed" };
 
-    const v = await renderCopy(row.copy_id, viewer);
+    const v = await renderCopy(row.copy_id, viewer, code !== null);
     if (v?.kind !== "copy") throw new Error("a copy just changed has vanished");
     return v.copy;
   }
 
-  return { mintLabels, add, view, act };
+  // A copy reached by id: the request carried no label, so no code and no claim.
+  async function viewCopy(copyId: string, viewer: Member): Promise<CopyView | Rejection> {
+    if (typeof copyId !== "string") return { rejected: "not-found" };
+    const v = await renderCopy(copyId, viewer, false);
+    return v?.kind === "copy" ? v.copy : { rejected: "not-found" };
+  }
+
+  async function moveCopy(member: Member, copyId: string, collectionId: string): Promise<CopyView | Rejection> {
+    if (typeof copyId !== "string" || typeof collectionId !== "string") return { rejected: "invalid" };
+    // decide() says whether the owner may move this copy; the write then re-checks the copy, the destination and the
+    // actor inside the statement, against anything that changed since.
+    const row = await db.prepare(`${COPY_SELECT} where c.id = ?`).bind(copyId).first<CopyRow>();
+    if (!row || row.copy_id === null) return { rejected: "not-found" };
+    const decision = decide({ ownerId: row.owner_id, holderMemberId: row.holder_member_id, labelled: row.code !== null }, member, "move");
+    if ("rejected" in decision) return decision;
+    const [r] = await db.batch([
+      db
+        .prepare(
+          `update copies set collection_id = ?
+           where id = ? and owner_id = ? and ${ACTIVE}
+             and exists (select 1 from collections where id = ? and owner_id = ?)`,
+        )
+        .bind(collectionId, copyId, member.id, member.id, collectionId, member.id),
+    ]);
+    if (r.meta.changes === 0) {
+      const active = await db.prepare("select 1 as ok from members where id = ? and removed_at is null").bind(member.id).first();
+      if (active === null) return { rejected: "not-allowed" };
+      const copy = await db.prepare("select owner_id from copies where id = ?").bind(copyId).first<{ owner_id: string | null }>();
+      if (copy === null) return { rejected: "not-found" };
+      if (copy.owner_id !== member.id) return { rejected: "not-allowed" };
+      const k = await db.prepare("select owner_id from collections where id = ?").bind(collectionId).first<{ owner_id: string }>();
+      return k === null || k.owner_id !== member.id ? { rejected: "not-found" } : { rejected: "not-allowed" };
+    }
+    const v = await renderCopy(copyId, member, false);
+    if (v?.kind !== "copy") throw new Error("a copy just moved has vanished");
+    return v.copy;
+  }
+
+  const { importCopies, labelCopy, candidates } = unlabelled;
+  return { mintLabels, add, view, act, viewCopy, moveCopy, importCopies, labelCopy, candidates, ...createShelfReads(db), ...createCollectionWrites(db, now) };
 }

@@ -7,7 +7,7 @@ import { CopyPage } from "./CopyPage";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, getLabel: vi.fn(), claim: vi.fn(), returnCopy: vi.fn() };
+  return { ...actual, getLabel: vi.fn(), claim: vi.fn(), returnCopy: vi.fn(), getCopy: vi.fn(), moveCopy: vi.fn(), myCollections: vi.fn() };
 });
 
 const me = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
@@ -18,7 +18,7 @@ const book = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert", 
 
 function copyView(over: Partial<CopyView> = {}): CopyView {
   return {
-    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false,
+    copyId: "c1", code: "abc", book, owner: ann, holder: { kind: "member", person: bob }, home: false, collection: null,
     history: [
       { at: Date.UTC(2026, 10, 3, 12), type: "claimed", actor: bob },
       { at: Date.UTC(2026, 10, 1, 12), type: "labelled", actor: ann },
@@ -142,10 +142,14 @@ test("returned entries read 'marked it returned'", async () => {
   expect(await screen.findByText((_, el) => el?.tagName === "LI" && /^Bob marked it returned/.test(el.textContent ?? ""))).toBeInTheDocument();
 });
 
-test("home reads 'At home with'; a named holder shows their name", async () => {
+test("home reads 'At home'; away, a named holder shows as 'With <name>'", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: true, holder: { kind: "named", name: "Cara" }, actions: [] })));
+  const { unmount } = show();
+  expect(await screen.findByText(line("At home"))).toBeInTheDocument();
+  unmount();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ home: false, holder: { kind: "named", name: "Cara" }, actions: [] })));
   show();
-  expect(await screen.findByText(line("At home with Cara"))).toBeInTheDocument();
+  expect(await screen.findByText(line("With Cara"))).toBeInTheDocument();
 });
 
 test("actions: [] renders no buttons", async () => {
@@ -178,7 +182,7 @@ test("return calls returnCopy once with the copy id and shows the returned state
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Mark as returned" }));
   expect(api.returnCopy).toHaveBeenCalledExactlyOnceWith("c1");
-  expect(await screen.findByText(line("At home with Ann"))).toBeInTheDocument();
+  expect(await screen.findByText(line("At home"))).toBeInTheDocument();
 });
 
 test("a double click sends one request and the button is disabled meanwhile", async () => {
@@ -357,4 +361,158 @@ test("a failed initial load shows the trouble row; Try again reloads", async () 
   expect(await screen.findByText("The library is having trouble right now. Please try again later.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("This label isn't one of ours.")).toBeInTheDocument();
+});
+
+const k1 = { id: "k1", name: "Home library", isDefault: true, count: 2, unlabelled: 0 };
+const k2 = { id: "k2", name: "Cookbooks", isDefault: false, count: 1, unlabelled: 0 };
+const mine = { owner: me2, collections: [k1, k2] };
+const byId = (over: Partial<CopyView> = {}) =>
+  copyView({ code: null, owner: me2, holder: { kind: "member", person: me2 }, home: true, collection: { id: "k1", name: "Home library" }, actions: ["move", "label"], ...over });
+const showById = (member: typeof me | null = me) => render(<CopyPage copyId="c1" member={member} returnTo="/copies/c1" />);
+
+test("the owner line names the collection inside bdi, and omits it when there is none", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ collection: { id: "k1", name: "Cook \u202Ebooks" }, actions: [] })));
+  const { container } = show();
+  expect(await screen.findByText(line("Owned by Ann \u00B7 Cook \u202Ebooks"))).toBeInTheDocument();
+  const bdis = [...container.querySelectorAll("p bdi")].map((b) => b.textContent);
+  expect(bdis).toContain("Cook \u202Ebooks");
+  expect(bdis).toContain("Ann");
+});
+
+test("a copy with no collection says only who owns it", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView({ actions: [] })));
+  show();
+  expect(await screen.findByText(line("Owned by Ann"))).toBeInTheDocument();
+});
+
+test("a copy reached by id loads with getCopy, never getLabel, and offers no claim even when listed", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId({ owner: ann, holder: { kind: "member", person: bob }, home: false, actions: ["claim"] }));
+  showById();
+  expect(await screen.findByText(line("Owned by Ann \u00B7 Home library"))).toBeInTheDocument();
+  expect(screen.getByText(line("With Bob"))).toBeInTheDocument();
+  expect(api.getCopy).toHaveBeenCalledWith("c1");
+  expect(api.getLabel).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "I have this book" })).not.toBeInTheDocument();
+});
+
+test("move offers the owner's collections, calls moveCopy once, and shows the returned view", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockResolvedValue(byId({ collection: { id: "k2", name: "Cookbooks" } }));
+  showById();
+  const select = await screen.findByRole("combobox", { name: "Move to" });
+  expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Cookbooks"]);
+  await userEvent.click(screen.getByRole("button", { name: "Move" }));
+  expect(api.moveCopy).toHaveBeenCalledExactlyOnceWith("c1", "k2");
+  expect(await screen.findByText(line("Owned by Natalie \u00B7 Cookbooks"))).toBeInTheDocument();
+});
+
+const k3 = { id: "k3", name: "Travel", isDefault: false, count: 0, unlabelled: 0 };
+
+test("a move refused not-found says the collection is gone and refreshes the choices", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValueOnce({ owner: me2, collections: [k1, k2, k3] }).mockResolvedValue({ owner: me2, collections: [k1, k3] });
+  vi.mocked(api.moveCopy).mockRejectedValue(new api.ApiError(404, "not-found"));
+  showById();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("That collection is gone. Pick another.");
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Move to" }).querySelectorAll("option")).toHaveLength(1));
+  expect(screen.getByRole("option", { name: "Travel" })).toBeInTheDocument();
+  expect(api.myCollections).toHaveBeenCalledTimes(2);
+});
+
+test("a move refused not-allowed says you can't move it and re-reads the copy", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockRejectedValue(new api.ApiError(403, "not-allowed"));
+  showById();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("You can't move this book.");
+  expect(api.getCopy).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("option", { name: "Cookbooks" })).toHaveAttribute("dir", "auto");
+});
+
+test("a move refused not-found while the collection still exists says the book is gone", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockRejectedValue(new api.ApiError(404, "not-found"));
+  showById();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("That book isn't here any more.");
+});
+
+test("with only one collection there is no Move control", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: me2, collections: [k1] });
+  showById();
+  await screen.findByText(line("Owned by Natalie \u00B7 Home library"));
+  await waitFor(() => expect(api.myCollections).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+});
+
+test("with several, the current one is left out and the first other is preselected", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId({ collection: { id: "k2", name: "Cookbooks" } }));
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: me2, collections: [k1, k2, k3] });
+  showById();
+  const select = await screen.findByRole("combobox", { name: "Move to" });
+  expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Home library", "Travel"]);
+  expect(select).toHaveValue("k1");
+});
+
+test("if the collections cannot be loaded, a line says moving is unavailable", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId());
+  vi.mocked(api.myCollections).mockRejectedValue(new Error("offline"));
+  showById();
+  expect(await screen.findByText(/Couldn't load your collections/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+});
+
+test("by id, losing the session after load leaves sign-in and no stale buttons", async () => {
+  vi.mocked(api.getCopy).mockResolvedValueOnce(byId()).mockRejectedValue(new api.ApiError(401, "signed-out"));
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockRejectedValue(new api.ApiError(401, "signed-out"));
+  showById();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Fcopies%2Fc1");
+  expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Put a label on it" })).not.toBeInTheDocument();
+});
+
+test("a move on a label page refetches the label so the page keeps what it showed", async () => {
+  const before = copyView({ owner: me2, collection: { id: "k1", name: "Home library" }, actions: ["move"] });
+  const after = copyView({ owner: me2, collection: { id: "k2", name: "Cookbooks" }, actions: ["move"] });
+  vi.mocked(api.getLabel).mockResolvedValueOnce(asCopy(before)).mockResolvedValue(asCopy(after));
+  vi.mocked(api.myCollections).mockResolvedValue(mine);
+  vi.mocked(api.moveCopy).mockResolvedValue({ ...after, code: null });
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Move" }));
+  expect(await screen.findByText(line("Owned by Natalie \u00B7 Cookbooks"))).toBeInTheDocument();
+  expect(api.getLabel).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Dune")).toBeInTheDocument();
+});
+
+test("Put a label on it links to pairing this copy", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue(byId({ actions: ["label"] }));
+  showById();
+  expect(await screen.findByRole("link", { name: "Put a label on it" })).toHaveAttribute("href", "/pair?copy=c1");
+});
+
+test("by id, a 401 shows sign-in back to the page", async () => {
+  vi.mocked(api.getCopy).mockRejectedValue(new api.ApiError(401, "signed-out"));
+  showById(null);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Fcopies%2Fc1");
+});
+
+test("by id, a copy that is not there says so", async () => {
+  vi.mocked(api.getCopy).mockRejectedValue(new api.ApiError(404, "not-found"));
+  showById();
+  expect(await screen.findByText("That book isn't here.")).toBeInTheDocument();
+});
+
+test("the trouble branch renders inside .copy-page", async () => {
+  vi.mocked(api.getCopy).mockRejectedValue(new Error("offline"));
+  const { container } = showById();
+  expect(await screen.findByRole("alert")).toHaveTextContent("The library is having trouble right now");
+  expect(container.querySelector(".copy-page [role=alert]")).not.toBeNull();
 });

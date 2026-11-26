@@ -17,6 +17,6 @@ export function parseLabelLink(raw: string): string | null {
   } catch {
     return null;
   }
-  const m = /^\/b\/([^/]+)$/.exec(path);
+  const m = /^\/b\/([^/]+)\/?$/.exec(path);
   return m && isLabelCode(m[1]) ? m[1] : null;
 }

@@ -246,3 +246,55 @@ test.each(["constructor", "toString"])("refused=%s falls back to the generic ref
   render(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in didn't finish. Please try again.");
 });
+
+test("a refusal on a label page keeps returnTo at that page", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue({
+    kind: "public", code: "abc", book: { title: "Dune", authors: [], coverUrl: null },
+  });
+  at("/b/abc?refused=removed");
+  render(<App />);
+  const link = await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2Fb%2Fabc");
+});
+
+test("a copy reached by id loads with getCopy and never asks for a label", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getCopy).mockResolvedValue({
+    copyId: "c1", code: null, book: { isbn: null, title: "Dune", authors: [], coverUrl: null }, owner: { id: "1", name: "Natalie", pictureUrl: null },
+    holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } }, home: true, collection: null, history: [], actions: [],
+  });
+  at("/copies/c1");
+  render(<App />);
+  expect(await screen.findByText("Dune")).toBeInTheDocument();
+  expect(api.getCopy).toHaveBeenCalledWith("c1");
+  expect(api.getLabel).not.toHaveBeenCalled();
+});
+
+test("the shelf screens are routed", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [] });
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: { id: "2", name: "Ann", pictureUrl: null }, collections: [] });
+  vi.mocked(api.getShelf).mockRejectedValue(Object.assign(new api.ApiError(404, null), { status: 404 }));
+  for (const [path, text] of [
+    ["/mine", "My books"],
+    ["/holding", "You're not holding anyone else's books."],
+    ["/members", "No one else is here yet."],
+    ["/members/2", "No collections yet."],
+    ["/collections/k1", "That collection isn't here."],
+  ] as const) {
+    at(path);
+    const { unmount } = render(<App />);
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    unmount();
+  }
+});
+
+test("the import screen is routed", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  at("/import");
+  render(<App />);
+  expect(await screen.findByLabelText(/StoryGraph export/)).toBeInTheDocument();
+});

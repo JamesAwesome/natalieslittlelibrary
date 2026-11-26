@@ -2,7 +2,7 @@
 
 A shared lending record for Natalie's books: scan the label inside a book on your phone, sign in with Google, and the record of who has it updates itself. It is a React app served by a Cloudflare Worker, with a D1 database.
 
-Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). Step 1 (the skeleton) is live at https://books.waffle.haus as v0.1.0. Step 2 (the core loop) is built but not released.
+Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superpowers/specs/2026-11-16-little-library-design.md). Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md). Step 1 (the skeleton) is live at https://books.waffle.haus as v0.1.0. Step 2 (the core loop) is released as v0.2.0. Step 3 (collections, shelves, and the StoryGraph import) is built but not released; it ships as the next free version tag after the PR merges.
 
 ## How it works
 
@@ -11,6 +11,14 @@ Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superp
 3. **Scan.** Anyone who scans the label with their phone camera lands on the book's page.
 4. **Claim.** Signed in, they tap "I have this book". Everyone sees who holds it.
 5. **Return.** The owner taps "Mark as returned". The page keeps the history.
+
+## Collections, shelves and the import
+
+- **Collections.** Every owner has one default collection, "Home library", made for them when they first add a book. With one collection there is nothing to pick. Once someone has two or more, a picker appears when pairing, and a copy's page shows a Move control for its owner. The import's "Into" select always shows (with "New collection…"). My books has "New collection"; rename, make default and delete are on a collection's own page, reached from My books.
+- **Shelves.** My books lists each of your collections. What I'm holding lists what you have borrowed. Friends' shelves shows other members' collections: titles and holders, never label codes. A removed member's shelves are hidden.
+- **Put a label on it.** A book you own with no label (from the import) shows "Put a label on it" on your shelf. It opens Pair for that copy: scan or type the label code and the label is bound to that very copy, never a duplicate. Scanning a fresh label for an imported book works too.
+- **Import.** Open Import from StoryGraph on the home page and choose `storygraph_export.csv` (export it from StoryGraph; never commit it). The file is read in the browser. Only title, authors and ISBN of the rows you own as physical books leave it, in chunks; the format and everything else stay on the device. Rows not marked owned and digital or audio rows are counted and shown as skipped. Books go into the collection you pick. Books are looked up in Open Library in batches (Google Books is not asked during an import, only on a later scan of an imported book). If a chunk fails or the lookup source is down, the import retries and, if it still cannot, stops with a count: import the same file again to carry on. Books already added are skipped, so re-running is safe. The spec expects 248 books to import and 42 digital or audio rows skipped from Natalie's export; check these counts on the first real run.
+- **Owed by James: the CSV header check.** The import's column names (`COLUMNS` and `OWNED_VALUE` in `src/client/storygraph/parse.ts`) are taken from StoryGraph's public export format, not from the real file. Paste the header line of the export (the first line only, not any book data) to confirm them; if one differs, the error names the missing column and the fix is a one-line change.
 
 No new commands: `pnpm dev`, `pnpm test` and the rest are as below.
 
@@ -54,7 +62,7 @@ git tag -a vX.Y.Z -m "What this release is"
 git push origin vX.Y.Z
 ```
 
-Replace `vX.Y.Z` with the next version, higher than every existing tag (v0.1.0 exists; step 2 is v0.2.0).
+Replace `vX.Y.Z` with the next version, higher than every existing tag (v0.1.0 and v0.2.0 exist; step 3 takes the next free version).
 
 CI runs the checks, then the `deploy` job refuses a lightweight tag or a tag whose commit is not on `main`, applies migrations, and deploys. The first deploy was done locally from a terminal (see the last setup step) because of the DNS takeover described there; later ones go through CI.
 

@@ -19,6 +19,12 @@ export function Home(props: {
             <a className="button" href="/pair">Pair a book</a>{" "}
             <a className="button" href="/labels">Print labels</a>
           </p>
+          <p>
+            <a className="button" href="/mine">My books</a>{" "}
+            <a className="button" href="/holding">What I'm holding</a>{" "}
+            <a className="button" href="/members">Friends' shelves</a>{" "}
+            <a className="button" href="/import">Import from StoryGraph</a>
+          </p>
           <button type="button" onClick={onLogout}>Sign out</button>
         </>
       ) : (

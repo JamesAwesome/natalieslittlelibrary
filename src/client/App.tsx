@@ -3,7 +3,12 @@ import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
 import { CopyPage } from "./screens/CopyPage";
+import { Holding } from "./screens/Holding";
+import { Import } from "./screens/Import";
 import { Home } from "./screens/Home";
+import { Members } from "./screens/Members";
+import { Mine } from "./screens/Mine";
+import { Shelf } from "./screens/Shelf";
 import { NotFound } from "./screens/NotFound";
 
 // Pairing and label printing carry the barcode decoder and the QR drawer; the other pages need neither.
@@ -98,10 +103,24 @@ export function App() {
       />
     ) : route.name === "copy" ? (
       <CopyPage code={route.code} member={member} returnTo={returnTo} />
+    ) : route.name === "copy-by-id" ? (
+      <CopyPage copyId={route.id} member={member} returnTo={returnTo} />
     ) : route.name === "pair" ? (
       <Pair member={member} returnTo={returnTo} />
     ) : route.name === "labels" ? (
       <Labels member={member} returnTo={returnTo} />
+    ) : route.name === "mine" ? (
+      <Mine member={member} returnTo={returnTo} />
+    ) : route.name === "shelf" ? (
+      <Shelf id={route.id} member={member} returnTo={returnTo} />
+    ) : route.name === "holding" ? (
+      <Holding member={member} returnTo={returnTo} />
+    ) : route.name === "import" ? (
+      <Import member={member} returnTo={returnTo} />
+    ) : route.name === "members" ? (
+      <Members member={member} returnTo={returnTo} />
+    ) : route.name === "member" ? (
+      <Members id={route.id} member={member} returnTo={returnTo} />
     ) : (
       <NotFound />
     );

@@ -1,51 +1,20 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { isLabelCode } from "../../shared/labelCode";
-import type { BookInfo, CopyView, LabelView, Member, Rejection } from "../../shared/types";
+import type { BookInfo, CopyView, Rejection } from "../../shared/types";
 import { resetDatabase } from "../../../test/reset";
-import { createLedger, type Ledger } from "./index";
-
-const natalie: Member = { id: "m-natalie", name: "Natalie", email: "natalie@example.com", pictureUrl: "https://p.test/n.jpg", isAdmin: true };
-const sam: Member = { id: "m-sam", name: "Sam", email: "sam@example.com", pictureUrl: null, isAdmin: false };
-const kim: Member = { id: "m-kim", name: "Kim", email: "kim@example.com", pictureUrl: null, isAdmin: false };
-
-const DUNE: BookInfo = { isbn: "9780441172719", title: "Dune", authors: ["Frank Herbert"], coverUrl: "https://covers.openlibrary.org/b/id/1-L.jpg" };
-const EMMA: BookInfo = { isbn: "9780141439587", title: "Emma", authors: ["Jane Austen"], coverUrl: null };
-
-type Deps = Partial<Parameters<typeof createLedger>[0]>;
-
-function make(deps: Deps = {}) {
-  const lookup = vi.fn(async (isbn: string): Promise<BookInfo | null> => (isbn === DUNE.isbn ? DUNE : isbn === EMMA.isbn ? EMMA : null));
-  const ledger = createLedger({ db: env.DB, siteUrl: "https://books.test", lookup, now: () => 1000, ...deps });
-  return { ledger, lookup };
-}
-
-async function count(table: string): Promise<number> {
-  return (await env.DB.prepare(`select count(*) as n from ${table}`).first<{ n: number }>())!.n;
-}
-
-async function mint(ledger: Ledger, n = 1): Promise<string[]> {
-  const r = await ledger.mintLabels(natalie, n);
-  if ("rejected" in r) throw new Error(r.rejected);
-  return r.map((l) => l.code);
-}
-
-function ok<T>(r: T | Rejection): T {
-  if (r && typeof r === "object" && "rejected" in r) throw new Error(`rejected: ${(r as Rejection).rejected}`);
-  return r as T;
-}
-
-function asCopy(v: LabelView): CopyView {
-  if (v.kind !== "copy") throw new Error(`expected copy, got ${v.kind}`);
-  return v.copy;
-}
+import { invariantViolations } from "../../../test/invariant";
+import { gated, racing, run } from "../../../test/racing";
+import { DUNE, EMMA, asCopy, count, homeCopy, insertMembers, kim, make, mint, natalie, ok, sam } from "../../../test/ledger-fixtures";
 
 beforeEach(async () => {
   await resetDatabase(env.DB);
-  for (const m of [natalie, sam, kim]) {
-    await env.DB.prepare("insert into members (id, name, email, picture_url, created_at) values (?, ?, ?, ?, 0)")
-      .bind(m.id, m.name, m.email, m.pictureUrl).run();
-  }
+  await insertMembers();
+});
+
+// Every ledger test leaves the collections invariant holding.
+afterEach(async () => {
+  expect(await invariantViolations(env.DB)).toEqual([]);
 });
 
 test("minting gives distinct blank labels with links on the site", async () => {
@@ -112,7 +81,7 @@ test("adding by ISBN makes a copy owned and held by the adder", async () => {
     owner: { id: natalie.id, name: "Natalie", pictureUrl: "https://p.test/n.jpg" },
     holder: { kind: "member", person: { id: natalie.id, name: "Natalie" } },
     home: true,
-    actions: [],
+    actions: ["move"],
   });
   expect(copy.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(copy.history[0]).toEqual({
@@ -287,7 +256,7 @@ test("a member sees owner, holder, history newest first, and their actions", asy
   expect(view.home).toBe(true);
   expect(view.history.map((h) => h.type)).toEqual(["labelled", "added"]);
   expect(view.actions).toEqual(["claim"]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual([]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["move"]);
 });
 
 test("a blank label is blank; an unknown or malformed code is unknown", async () => {
@@ -385,30 +354,8 @@ test.each([
   for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
 });
 
-// Natalie's copy of Dune, labelled and at home.
-async function homeCopy(ledger: Ledger): Promise<{ code: string; copyId: string }> {
-  const [code] = await mint(ledger);
-  const copy = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
-  return { code, copyId: copy.copyId };
-}
-
 async function eventRows(): Promise<Record<string, unknown>[]> {
   return (await env.DB.prepare("select * from events order by id").all()).results;
-}
-
-// A database whose batches wait until `n` of them have arrived, so n acts have all read state before any writes.
-function gated(n: number): D1Database {
-  let arrived = 0;
-  let release!: () => void;
-  const gate = new Promise<void>((r) => (release = r));
-  return {
-    prepare: (q: string) => env.DB.prepare(q),
-    batch: async (stmts: D1PreparedStatement[]) => {
-      if (++arrived >= n) release();
-      await gate;
-      return env.DB.batch(stmts);
-    },
-  } as unknown as D1Database;
 }
 
 const rejections = (rs: (CopyView | Rejection)[]) => rs.filter((r): r is Rejection => "rejected" in r);
@@ -494,7 +441,7 @@ test("the owner marks it returned", async () => {
   expect(copy.holder).toMatchObject({ kind: "member", person: { id: natalie.id } });
   expect(copy.home).toBe(true);
   expect(copy.history[0]).toMatchObject({ type: "returned", actor: { id: natalie.id } });
-  expect(copy.code).toBe(code);
+  expect(copy.code).toBeNull();
 });
 
 test("only the owner can mark a return", async () => {
@@ -522,7 +469,7 @@ test("claiming your own book is refused", async () => {
 test("a copy with no owner cannot be claimed", async () => {
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
-  await env.DB.prepare("update copies set owner_id = null where id = ?").bind(copyId).run();
+  await env.DB.prepare("update copies set owner_id = null, collection_id = null where id = ?").bind(copyId).run();
   expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
   expect(await count("events")).toBe(2);
 });
@@ -577,27 +524,24 @@ test("the acting viewer's actions reflect the new state", async () => {
   const { ledger } = make();
   const { code, copyId } = await homeCopy(ledger);
   expect(ok(await ledger.act(sam, { type: "claim", code })).actions).toEqual([]);
-  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return"]);
+  expect(asCopy(await ledger.view(code, natalie)).actions).toEqual(["return", "move"]);
   expect(asCopy(await ledger.view(code, kim)).actions).toEqual(["claim"]);
-  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual([]);
+  expect(ok(await ledger.act(natalie, { type: "return", copyId })).actions).toEqual(["move"]);
 });
 
-// A database that runs `beforeBatch` once, just before the first batch: a change that lands between act's read and its write.
-function racing(beforeBatch: () => Promise<unknown>): D1Database {
-  let fired = false;
-  return {
-    prepare: (q: string) => env.DB.prepare(q),
-    batch: async (stmts: D1PreparedStatement[]) => {
-      if (!fired) {
-        fired = true;
-        await beforeBatch();
-      }
-      return env.DB.batch(stmts);
-    },
-  } as unknown as D1Database;
-}
+// A raw owner change that keeps the invariant, as a step 4 owner change will: Kim's default first, then both columns at once.
+const giveAllCopiesTo = (memberId: string) => async () => {
+  await env.DB.batch([
+    env.DB.prepare(
+      `insert into collections (id, owner_id, name, name_key, is_default, created_at)
+       select ?, ?, 'Home library', 'home library', 1, 0 where not exists (select 1 from collections where owner_id = ? and is_default = 1)`,
+    ).bind(`k-${memberId}`, memberId, memberId),
+    env.DB.prepare(
+      "update copies set owner_id = ?, collection_id = (select id from collections where owner_id = ? and is_default = 1)",
+    ).bind(memberId, memberId),
+  ]);
+};
 
-const run = (sql: string, ...binds: unknown[]) => () => env.DB.prepare(sql).bind(...binds).run();
 const holders = async () =>
   (await env.DB.prepare("select id, owner_id, holder_member_id from copies order by id").all()).results;
 
@@ -611,7 +555,7 @@ test("a claim made stale by a change of holder after the read records nothing", 
 
 test("a claim made stale by a change of owner after the read records nothing", async () => {
   const { code } = await homeCopy(make().ledger);
-  const db = racing(run("update copies set owner_id = ?", kim.id));
+  const db = racing(giveAllCopiesTo(kim.id));
   expect(await make({ db }).ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
   expect(await count("events")).toBe(2);
   expect((await holders())[0]).toMatchObject({ owner_id: kim.id, holder_member_id: natalie.id });
@@ -621,7 +565,7 @@ test("a return made stale by a change of owner after the read records nothing", 
   const setup = make().ledger;
   const { code, copyId } = await homeCopy(setup);
   ok(await setup.act(sam, { type: "claim", code }));
-  const db = racing(run("update copies set owner_id = ?", kim.id));
+  const db = racing(giveAllCopiesTo(kim.id));
   expect(await make({ db }).ledger.act(natalie, { type: "return", copyId })).toEqual({ rejected: "not-allowed" });
   expect(await count("events")).toBe(3);
   expect((await holders())[0]).toMatchObject({ owner_id: kim.id, holder_member_id: sam.id });
@@ -694,4 +638,340 @@ test.each([
   await homeCopy(ledger);
   expect(await ledger.act(sam, raw as never)).toEqual({ rejected: "invalid" });
   expect(await count("events")).toBe(2);
+});
+
+// ---- collections: adding into one, moving between them, lending keeps them ----
+
+const collectionOf = async (copyId: string) =>
+  (await env.DB.prepare("select collection_id as c from copies where id = ?").bind(copyId).first<{ c: string | null }>())!.c;
+const collectionRows = async () =>
+  (await env.DB.prepare("select id, owner_id, name, is_default from collections order by created_at, id").all()).results;
+const defaultOf = async (ownerId: string) =>
+  (await env.DB.prepare("select id from collections where owner_id = ? and is_default = 1").bind(ownerId).first<{ id: string }>())!.id;
+
+test("a first add creates Home library as the default and puts the copy in it", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  expect(await collectionRows()).toEqual([]);
+  const copy = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }));
+  expect(await collectionRows()).toEqual([
+    { id: expect.any(String), owner_id: natalie.id, name: "Home library", is_default: 1 },
+  ]);
+  expect(await collectionOf(copy.copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("an add with a collection puts the copy there", async () => {
+  const { ledger } = make();
+  const [a, b] = await mint(ledger, 2);
+  ok(await ledger.createCollection(natalie, "Beach house"));
+  const shed = ok(await ledger.createCollection(natalie, "Shed"));
+  const copy = ok(await ledger.add(natalie, { code: a, book: { isbn: DUNE.isbn! }, collectionId: shed.id }));
+  expect(await collectionOf(copy.copyId)).toBe(shed.id);
+  const home = ok(await ledger.add(natalie, { code: b, book: { isbn: EMMA.isbn! }, collectionId: null }));
+  expect(await collectionOf(home.copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("an add into someone else's collection is not-found and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  const theirs = ok(await ledger.createCollection(sam, "Sam's shelf"));
+  const before = await collectionRows();
+  for (const book of [{ isbn: DUNE.isbn! }, { title: "Home Made", authors: ["A"] }]) {
+    expect(await ledger.add(natalie, { code, book, collectionId: theirs.id })).toEqual({ rejected: "not-found" });
+  }
+  expect(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: "no-such" })).toEqual({ rejected: "not-found" });
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await collectionRows()).toEqual(before);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("an add with a collection id that is not a string is invalid", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  expect(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: 5 as never })).toEqual({ rejected: "invalid" });
+  expect(await count("copies")).toBe(0);
+});
+
+test("an add into a collection deleted after the read is not-found and the label stays blank", async () => {
+  const setup = make().ledger;
+  const [code] = await mint(setup);
+  ok(await setup.createCollection(natalie, "Home"));
+  const shed = ok(await setup.createCollection(natalie, "Shed"));
+  const db = racing(run("delete from collections where id = ?", shed.id));
+  // A title book, so an orphan books row from a half-applied batch would show.
+  expect(await make({ db }).ledger.add(natalie, { code, book: { title: "T", authors: [] }, collectionId: shed.id })).toEqual({ rejected: "not-found" });
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await setup.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("two first adds at once by one member: one default, both copies in it", async () => {
+  const { ledger } = make({ db: gated(2) });
+  const [a, b] = await mint(make().ledger, 2);
+  const results = await Promise.all([
+    ledger.add(natalie, { code: a, book: { isbn: DUNE.isbn! } }),
+    ledger.add(natalie, { code: b, book: { isbn: EMMA.isbn! } }),
+  ]);
+  const copies = results.map((r) => ok(r));
+  expect(await collectionRows()).toHaveLength(1);
+  const home = await defaultOf(natalie.id);
+  for (const c of copies) expect(await collectionOf(c.copyId)).toBe(home);
+});
+
+test("a first add racing the member's first createCollection: one default, and the copy is in it", async () => {
+  const { ledger } = make({ db: gated(2) });
+  const [code] = await mint(make().ledger);
+  const [added, created] = await Promise.all([
+    ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } }),
+    ledger.createCollection(natalie, "Beach house"),
+  ]);
+  const copy = ok(added);
+  ok(created);
+  const rows = await collectionRows();
+  expect(rows.filter((r) => r.is_default === 1)).toHaveLength(1);
+  expect(await collectionOf(copy.copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("a removed member's add is not-allowed and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(sam.id).run();
+  expect(await ledger.add(sam, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "not-allowed" });
+  expect(await ledger.add(sam, { code, book: { title: "T", authors: [] } })).toEqual({ rejected: "not-allowed" });
+  for (const t of ["books", "copies", "events", "collections"]) expect(await count(t)).toBe(0);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("claim then return leave the copy in its collection", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  ok(await ledger.createCollection(natalie, "Home"));
+  const shed = ok(await ledger.createCollection(natalie, "Shed"));
+  const { copyId } = ok(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: shed.id }));
+  ok(await ledger.act(sam, { type: "claim", code }));
+  expect(await collectionOf(copyId)).toBe(shed.id);
+  ok(await ledger.act(natalie, { type: "return", copyId }));
+  expect(await collectionOf(copyId)).toBe(shed.id);
+});
+
+test("a claim on a copy with no collection_id fills in its owner's default", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set collection_id = null where id = ?").bind(copyId).run();
+  ok(await ledger.act(sam, { type: "claim", code }));
+  expect(await collectionOf(copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("an owned copy with no collection_id and an owner with no default row comes out correct after a claim, a return and an add", async () => {
+  const { ledger } = make();
+  const first = await homeCopy(ledger);
+  const second = await homeCopy(ledger);
+  // What the old Worker leaves behind: owned copies with no collection, and the owner with no collections at all.
+  await env.DB.batch([env.DB.prepare("update copies set collection_id = null"), env.DB.prepare("delete from collections")]);
+  ok(await ledger.act(sam, { type: "claim", code: first.code }));
+  expect(await collectionOf(first.copyId)).toBe(await defaultOf(natalie.id));
+  expect(await collectionOf(second.copyId)).toBe(await defaultOf(natalie.id));
+  await env.DB.batch([env.DB.prepare("update copies set collection_id = null"), env.DB.prepare("delete from collections")]);
+  ok(await ledger.act(natalie, { type: "return", copyId: first.copyId }));
+  expect(await collectionOf(first.copyId)).toBe(await defaultOf(natalie.id));
+  await env.DB.batch([env.DB.prepare("update copies set collection_id = null"), env.DB.prepare("delete from collections")]);
+  const [code] = await mint(ledger);
+  const added = ok(await ledger.add(natalie, { code, book: { isbn: EMMA.isbn! } }));
+  expect(await collectionOf(added.copyId)).toBe(await defaultOf(natalie.id));
+  expect(await collectionOf(second.copyId)).toBe(await defaultOf(natalie.id));
+});
+
+async function twoCollections() {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  const home = await defaultOf(natalie.id);
+  const shed = ok(await ledger.createCollection(natalie, "Shed"));
+  return { ledger, code, copyId, home, shed };
+}
+
+test("the owner moves a copy between their collections; holder and history are unchanged", async () => {
+  const { ledger, code, copyId, home, shed } = await twoCollections();
+  const events = await eventRows();
+  const moved = ok(await ledger.moveCopy(natalie, copyId, shed.id));
+  expect(moved.copyId).toBe(copyId);
+  expect(moved.code).toBeNull();
+  expect(JSON.stringify(moved)).not.toContain(code);
+  expect(moved.home).toBe(true);
+  expect(moved.actions).toEqual(["move"]);
+  expect(await collectionOf(copyId)).toBe(shed.id);
+  expect(await eventRows()).toEqual(events);
+  expect((await holders())[0]).toMatchObject({ owner_id: natalie.id, holder_member_id: natalie.id });
+  ok(await ledger.moveCopy(natalie, copyId, home));
+  expect(await collectionOf(copyId)).toBe(home);
+});
+
+test("moving a lent-out copy works and does not bring it home", async () => {
+  const { ledger, code, copyId, shed } = await twoCollections();
+  ok(await ledger.act(sam, { type: "claim", code }));
+  const moved = ok(await ledger.moveCopy(natalie, copyId, shed.id));
+  expect(moved.home).toBe(false);
+  expect(moved.holder).toMatchObject({ kind: "member", person: { id: sam.id } });
+  expect(await collectionOf(copyId)).toBe(shed.id);
+  expect((await holders())[0]).toMatchObject({ holder_member_id: sam.id });
+  expect(await count("events")).toBe(3);
+});
+
+test("moving someone else's copy is not-allowed; into someone else's collection is not-found", async () => {
+  const { ledger, copyId, home, shed } = await twoCollections();
+  const theirs = ok(await ledger.createCollection(sam, "Sam's shelf"));
+  expect(await ledger.moveCopy(sam, copyId, theirs.id)).toEqual({ rejected: "not-allowed" });
+  expect(await ledger.moveCopy(sam, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
+  expect(await ledger.moveCopy(natalie, copyId, theirs.id)).toEqual({ rejected: "not-found" });
+  expect(await ledger.moveCopy(natalie, copyId, "no-such")).toEqual({ rejected: "not-found" });
+  expect(await ledger.moveCopy(natalie, "no-such", shed.id)).toEqual({ rejected: "not-found" });
+  expect(await ledger.moveCopy(natalie, 5 as never, shed.id)).toEqual({ rejected: "invalid" });
+  expect(await ledger.moveCopy(natalie, copyId, 5 as never)).toEqual({ rejected: "invalid" });
+  expect(await collectionOf(copyId)).toBe(home);
+});
+
+test("a removed owner cannot move a copy", async () => {
+  const { ledger, copyId, home, shed } = await twoCollections();
+  await env.DB.prepare("update members set removed_at = 5 where id = ?").bind(natalie.id).run();
+  expect(await ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
+  expect(await collectionOf(copyId)).toBe(home);
+});
+
+test("a move racing a delete of the destination never leaves the copy in a deleted collection", async () => {
+  const { copyId, home, shed } = await twoCollections();
+  const db = racing(run("delete from collections where id = ?", shed.id));
+  expect(await make({ db }).ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-found" });
+  expect(await collectionOf(copyId)).toBe(home);
+  expect(await count("collections")).toBe(1);
+});
+
+const dangling = async () =>
+  (await env.DB.prepare("select count(*) as n from copies where collection_id is not null and collection_id not in (select id from collections)").first<{ n: number }>())!.n;
+
+test("a delete of an empty collection racing an add into it: one wins, nothing dangles", async () => {
+  const setup = make().ledger;
+  const [code] = await mint(setup);
+  ok(await setup.createCollection(natalie, "Home"));
+  const shed = ok(await setup.createCollection(natalie, "Shed"));
+  // The delete lands first, between the add's read and its write.
+  const lost = await make({ db: racing(run("delete from collections where id = ?", shed.id)) }).ledger.add(natalie, {
+    code, book: { isbn: DUNE.isbn! }, collectionId: shed.id,
+  });
+  expect(lost).toEqual({ rejected: "not-found" });
+  expect(await dangling()).toBe(0);
+  expect(await count("copies")).toBe(0);
+
+  // The add lands first, between the delete's read and its write.
+  const shed2 = ok(await setup.createCollection(natalie, "Shed 2"));
+  const db = racing(async () => {
+    ok(await make().ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: shed2.id }));
+  });
+  expect(await make({ db }).ledger.deleteCollection(natalie, shed2.id)).toEqual({ rejected: "not-allowed" });
+  expect(await dangling()).toBe(0);
+  expect(await count("copies")).toBe(1);
+});
+
+test("a delete of an empty collection racing a move into it: one wins, nothing dangles", async () => {
+  const { ledger, copyId, home, shed } = await twoCollections();
+  // The delete lands first.
+  const lost = await make({ db: racing(run("delete from collections where id = ?", shed.id)) }).ledger.moveCopy(natalie, copyId, shed.id);
+  expect(lost).toEqual({ rejected: "not-found" });
+  expect(await collectionOf(copyId)).toBe(home);
+  // The move lands first.
+  const shed2 = ok(await ledger.createCollection(natalie, "Shed 2"));
+  const db = racing(async () => {
+    ok(await make().ledger.moveCopy(natalie, copyId, shed2.id));
+  });
+  expect(await make({ db }).ledger.deleteCollection(natalie, shed2.id)).toEqual({ rejected: "not-allowed" });
+  expect(await collectionOf(copyId)).toBe(shed2.id);
+  expect(await dangling()).toBe(0);
+});
+
+test("a delete and an add into the same collection at once: one wins, nothing dangles", async () => {
+  const setup = make().ledger;
+  const [code] = await mint(setup);
+  ok(await setup.createCollection(natalie, "Home"));
+  const shed = ok(await setup.createCollection(natalie, "Shed"));
+  const { ledger } = make({ db: gated(2) });
+  const [added, deleted] = await Promise.all([
+    ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: shed.id }),
+    ledger.deleteCollection(natalie, shed.id),
+  ]);
+  expect("rejected" in added !== "rejected" in deleted).toBe(true);
+  expect(await dangling()).toBe(0);
+  expect(await count("copies")).toBe("rejected" in added ? 0 : 1);
+});
+
+// ---- fix round 1: guards that other statements or the prelude used to mask ----
+
+const removed = (id: string) => env.DB.prepare("update members set removed_at = 5 where id = ?").bind(id).run();
+
+test("a removed member adding into their own existing collection is not-allowed and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  const shed = ok(await ledger.createCollection(sam, "Shed"));
+  await removed(sam.id);
+  for (const book of [{ isbn: DUNE.isbn! }, { title: "T", authors: [] }]) {
+    expect(await ledger.add(sam, { code, book, collectionId: shed.id })).toEqual({ rejected: "not-allowed" });
+  }
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("a removed member who already has a default adding with no collection is not-allowed and writes nothing", async () => {
+  const { ledger } = make();
+  const [code] = await mint(ledger);
+  ok(await ledger.createCollection(sam, "Shed")); // their default
+  await removed(sam.id);
+  expect(await ledger.add(sam, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "not-allowed" });
+  for (const t of ["books", "copies", "events"]) expect(await count(t)).toBe(0);
+  expect(await count("collections")).toBe(1);
+});
+
+test("a claim fills in a null collection_id from the owner's default even when the owner is removed", async () => {
+  // A removed owner's ensureDefault writes nothing, so only the update's own coalesce can fill the column.
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await env.DB.prepare("update copies set collection_id = null").run();
+  await removed(natalie.id);
+  ok(await ledger.act(sam, { type: "claim", code }));
+  expect(await collectionOf(copyId)).toBe(await defaultOf(natalie.id));
+});
+
+test("an add of an existing book into someone else's collection is not-found and makes no copy", async () => {
+  const { ledger } = make();
+  await homeCopy(ledger); // the Dune book row now exists
+  const [code] = await mint(ledger);
+  const theirs = ok(await ledger.createCollection(sam, "Sam's"));
+  expect(await ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: theirs.id })).toEqual({ rejected: "not-found" });
+  expect(await count("copies")).toBe(1);
+  expect(await count("events")).toBe(2);
+  expect(await ledger.view(code, null)).toEqual({ kind: "blank", code });
+});
+
+test("an add of an existing book into a collection deleted after the read makes no copy", async () => {
+  const setup = make().ledger;
+  await homeCopy(setup);
+  const [code] = await mint(setup);
+  const shed = ok(await setup.createCollection(natalie, "Shed"));
+  const db = racing(run("delete from collections where id = ?", shed.id));
+  expect(await make({ db }).ledger.add(natalie, { code, book: { isbn: DUNE.isbn! }, collectionId: shed.id })).toEqual({ rejected: "not-found" });
+  expect(await count("copies")).toBe(1);
+});
+
+test("two adds of an existing book to one label at once commit exactly one copy", async () => {
+  const setup = make().ledger;
+  await homeCopy(setup);
+  const [code] = await mint(setup);
+  // The other add lands between this add's read and its write.
+  const db = racing(async () => {
+    ok(await make().ledger.add(sam, { code, book: { isbn: DUNE.isbn! } }));
+  });
+  expect(await make({ db }).ledger.add(natalie, { code, book: { isbn: DUNE.isbn! } })).toEqual({ rejected: "label-in-use" });
+  expect(await count("copies")).toBe(2);
+  expect(await count("events")).toBe(4);
+});
+
+test("a move is asked of decide: a copy with no owner cannot be moved", async () => {
+  const { ledger, copyId, shed } = await twoCollections();
+  await env.DB.prepare("update copies set owner_id = null, collection_id = null where id = ?").bind(copyId).run();
+  expect(await ledger.moveCopy(natalie, copyId, shed.id)).toEqual({ rejected: "not-allowed" });
 });

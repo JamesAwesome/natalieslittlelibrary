@@ -1,6 +1,6 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import type { Member, RefusalReason } from "../../shared/types";
+import type { Member, Person, RefusalReason } from "../../shared/types";
 import { identities, members, sessions } from "../db/schema";
 
 export type Identity = {
@@ -23,6 +23,7 @@ export type Identified = { status: "member"; member: Member } | { status: "signe
 
 export interface Membership {
   identify(request: Request): Promise<Identified>;
+  members(): Promise<Person[]>; // active members by name, no email
   beginLogin(returnTo: string | null): Promise<Response>;
   completeLogin(request: Request): Promise<Response>;
   logout(request: Request): Promise<Response>;
@@ -286,5 +287,15 @@ export function createMembership(deps: {
     return new Response(null, { status: 204, headers: { "set-cookie": clearSession() } });
   }
 
-  return { identify, beginLogin, completeLogin, logout };
+  async function listMembers(): Promise<Person[]> {
+    const rows = await db
+      .select({ id: members.id, name: members.name, pictureUrl: members.pictureUrl })
+      .from(members)
+      .where(isNull(members.removedAt))
+      // `collate nocase` folds ASCII only: "Émile" sorts after "Zed".
+      .orderBy(sql`${members.name} collate nocase`, members.id);
+    return rows;
+  }
+
+  return { identify, members: listMembers, beginLogin, completeLogin, logout };
 }

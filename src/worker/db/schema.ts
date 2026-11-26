@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Primary keys are declared at table level on notNull columns: a column-level
@@ -53,6 +54,26 @@ export const books = sqliteTable(
   (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("books_isbn_unique").on(t.isbn)],
 );
 
+// A member's named place for their books. Written only by the ledger, which keeps the collections invariant.
+export const collections = sqliteTable(
+  "collections",
+  {
+    id: text("id").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => members.id),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    isDefault: integer("is_default").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("collections_owner_name_key_unique").on(t.ownerId, t.nameKey),
+    uniqueIndex("collections_one_default").on(t.ownerId).where(sql`${t.isDefault} = 1`),
+  ],
+);
+
 // owner_id and holder_member_id are nullable for good: D1 cannot rebuild a table that has rows.
 export const copies = sqliteTable(
   "copies",
@@ -64,9 +85,14 @@ export const copies = sqliteTable(
     ownerId: text("owner_id").references(() => members.id),
     holderMemberId: text("holder_member_id").references(() => members.id),
     createdAt: integer("created_at").notNull(),
+    // Null exactly when owner_id is null. Added after the table had rows, so nullable for good.
+    collectionId: text("collection_id").references(() => collections.id),
+    // The ISBN a member's StoryGraph file gave for a copy whose book has none on file.
+    importIsbn: text("import_isbn"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
+    index("copies_collection_id_idx").on(t.collectionId),
     index("copies_owner_id_idx").on(t.ownerId),
     index("copies_holder_member_id_idx").on(t.holderMemberId),
   ],

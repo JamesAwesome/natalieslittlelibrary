@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import found from "./fixtures/found.json";
+import many from "./fixtures/many.json";
 import miss from "./fixtures/miss.json";
 import googleFound from "./fixtures/google-found.json";
 import googleMiss from "./fixtures/google-miss.json";
@@ -66,9 +67,9 @@ test("a book with no cover and no authors is found with a null cover and no auth
   });
 });
 
-test("a non-200 answer is not found", async () => {
+test("a non-200 answer is a failure, not a miss", async () => {
   const fetch500 = (async () => new Response(JSON.stringify(found), { status: 500 })) as typeof fetch;
-  expect(await openLibrary.find(FOUND_ISBN, fetch500, new AbortController().signal)).toBeNull();
+  await expect(openLibrary.find(FOUND_ISBN, fetch500, new AbortController().signal)).rejects.toThrow("500");
 });
 
 test("a body of the wrong shape is not found", async () => {
@@ -182,4 +183,54 @@ test("a thumbnail on another host is dropped, the book is kept", async () => {
     imageLinks: { thumbnail: "http://evil.test/x.jpg" },
   });
   expect(await googleBooks("test-key").find(FOUND_ISBN, serve(body), signal())).toMatchObject({ title: "T", coverUrl: null });
+});
+
+// fixtures/many.json is a live response for these three keys (the last one is a miss).
+const MANY = ["9798855427974", "9780441172719", "9783141592658"];
+
+test("findMany asks once with every ISBN as a bibkey and the User-Agent", async () => {
+  const calls: Call[] = [];
+  await openLibrary.findMany!(MANY, serve(many, calls), signal());
+  expect(calls).toHaveLength(1);
+  expect(calls[0].url).toBe(
+    `https://openlibrary.org/api/books?bibkeys=${MANY.map((i) => `ISBN:${i}`).join(",")}&format=json&jscmd=data`,
+  );
+  expect(new Headers(calls[0].init?.headers).get("user-agent")).toBe(
+    "NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)",
+  );
+});
+
+test("findMany passes the abort signal to the request", async () => {
+  const calls: Call[] = [];
+  const controller = new AbortController();
+  await openLibrary.findMany!(MANY, serve(many, calls), controller.signal);
+  expect(calls[0].init?.signal).toBe(controller.signal);
+});
+
+test("findMany returns the found books from the fixture and nothing for the missing one", async () => {
+  const books = await openLibrary.findMany!(MANY, serve(many), signal());
+  expect([...books.keys()]).toEqual(["9798855427974", "9780441172719"]);
+  expect(books.get("9780441172719")).toEqual({
+    isbn: "9780441172719",
+    title: "Dune",
+    authors: ["Frank Herbert"],
+    coverUrl: "https://covers.openlibrary.org/b/id/15110282-M.jpg",
+  });
+  expect(books.get("9798855427974")?.authors).toEqual(["Sumiko Arai", "Ajani Oloye", "Brandon Bovia"]);
+  expect(books.has("9783141592658")).toBe(false);
+});
+
+test("findMany: a non-200 answer is a failure; a body of the wrong shape finds nothing", async () => {
+  for (const status of [429, 500, 503]) {
+    const failing = (async () => new Response(JSON.stringify(many), { status })) as typeof fetch;
+    await expect(openLibrary.findMany!(MANY, failing, signal())).rejects.toThrow(String(status));
+  }
+  for (const body of [[], "text", null, { "ISBN:9798855427974": "x" }, { "ISBN:9798855427974": { title: 5 } }]) {
+    expect((await openLibrary.findMany!(MANY, serve(body), signal())).size).toBe(0);
+  }
+});
+
+test("findMany ignores keys it did not ask for", async () => {
+  const books = await openLibrary.findMany!(["9798855427974"], serve(many), signal());
+  expect([...books.keys()]).toEqual(["9798855427974"]);
 });
