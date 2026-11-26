@@ -134,10 +134,10 @@ export function createShelfReads(db: D1Database) {
     };
   }
 
-  // What the member holds that someone else owns.
+  // What the member holds that someone else owns, or no one does.
   async function holding(member: Member): Promise<ShelfItem[]> {
     const { results } = await db
-      .prepare(`${SHELF_SELECT} where c.holder_member_id = ? and c.owner_id is not null and c.owner_id <> ?`)
+      .prepare(`${SHELF_SELECT} where c.holder_member_id = ? and (c.owner_id is null or c.owner_id <> ?)`)
       .bind(member.id, member.id)
       .all<ShelfRow>();
     return results.map(shelfItem).sort(byTitle);

@@ -162,6 +162,15 @@ test("holding lists what Sam holds of Natalie's, with owner and collection, and 
   expect(await ledger.holding(kim)).toEqual([]);
 });
 
+test("holding lists an ownerless copy the member holds", async () => {
+  const { ledger, dune } = await fixture();
+  ok(await ledger.act(natalie, { type: "release", copyId: dune.copyId }));
+  const held = await ledger.holding(sam);
+  expect(held.map((i) => i.copyId)).toEqual([dune.copyId]);
+  expect(held[0]).toMatchObject({ owner: null, collection: null, home: false, holder: { kind: "member", person: { id: sam.id } } });
+  expect(await ledger.holding(natalie)).toEqual([]);
+});
+
 test("viewCopy has the collection, no code, and offers return and move to the owner but never claim", async () => {
   const { ledger, dune } = await fixture();
   const v = ok(await ledger.viewCopy(dune.copyId, natalie));

@@ -1125,8 +1125,9 @@ test.each([
   ["both holders", "holder_person_id = 'p-sarah'", "held by a member and a placeholder"],
   ["an owned copy held by no one", "holder_member_id = null", "owned and held by no one"],
   ["half a request", "requested_by = 'm-sam'", "not both null or both set"],
-  ["a request from the owner", "requested_by = 'm-natalie', requested_at = 1", "its request is on an ownerless copy"],
-  ["a request from a non-holder", "requested_by = 'm-sam', requested_at = 1", "its request is on an ownerless copy"],
+  ["a request from the owner", "requested_by = 'm-natalie', requested_at = 1", "its requester is the owner"],
+  ["a request from a non-holder", "requested_by = 'm-sam', requested_at = 1", "its requester is not the holder"],
+  ["a request on an ownerless copy", "owner_id = null, collection_id = null, requested_by = holder_member_id, requested_at = 1", "its request is on an ownerless copy"],
   ["a linked placeholder holding", "holder_member_id = null, holder_person_id = 'p-sarah'", "linked to a member"],
 ])("the invariant flags %s", async (_name, set, message) => {
   const { ledger } = make();
@@ -1380,7 +1381,9 @@ test.each([
   ["a lend to { member: 5 }", { type: "lend", copyId: "c", to: { member: 5 } }],
   ["a lend to two targets", { type: "lend", copyId: "c", to: { member: "m-sam", name: "Sam" } }],
   ["a lend to an empty name", { type: "lend", copyId: "c", to: { name: " " } }],
-  ["a give, which this release does not take yet", { type: "give", copyId: "c", to: "m-sam" }],
+  ["a give to a number", { type: "give", copyId: "c", to: 5 }],
+  ["a give with no target", { type: "give", copyId: "c" }],
+  ["an adopt with no code", { type: "adopt" }],
   ["a request with no copy id", { type: "request" }],
 ])("%s is invalid", async (_name, action) => {
   const { ledger } = make();
@@ -1389,9 +1392,231 @@ test.each([
   expect(await count("events")).toBe(2);
 });
 
-test("request, withdraw and decline on an unknown copy are not-found", async () => {
+test("request, withdraw, decline, approve, release and give on an unknown copy are not-found", async () => {
   const { ledger } = make();
-  for (const type of ["request", "withdraw", "decline"] as const) {
+  expect(await ledger.act(natalie, { type: "give", copyId: "no-such-copy", to: sam.id })).toEqual({ rejected: "not-found" });
+  for (const type of ["request", "withdraw", "decline", "approve", "release"] as const) {
     expect(await ledger.act(natalie, { type, copyId: "no-such-copy" })).toEqual({ rejected: "not-found" });
   }
+});
+
+// ---- give, approve, release, take ----
+
+const collectionsOf = async (ownerId: string) =>
+  (await env.DB.prepare("select id, name, is_default from collections where owner_id = ? order by name").bind(ownerId).all()).results;
+const removeMember = (id: string) => env.DB.prepare("update members set removed_at = 5 where id = ?").bind(id).run();
+
+test("give when home: the new owner holds it, in a default made in the same batch", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  expect(await collectionsOf(kim.id)).toEqual([]);
+  const copy = ok(await ledger.act(natalie, { type: "give", copyId, to: kim.id }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: kim.id, holder_member_id: kim.id, holder_person_id: null });
+  expect(await collectionsOf(kim.id)).toEqual([{ id: expect.any(String), name: "Home library", is_default: 1 }]);
+  expect(await collectionOf(copyId)).toBe(await defaultOf(kim.id));
+  expect(copy.owner).toMatchObject({ id: kim.id });
+  expect(copy.collection).toMatchObject({ name: "Home library" });
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "given", actor_id: natalie.id, subject_member_id: kim.id, subject_person_id: null });
+  expect(copy.history[0]).toMatchObject({ type: "given", subject: { kind: "member", person: { id: kim.id } } });
+});
+
+test("give to a member who has a non-default 'Home library' puts the copy in their new default, 'Home library 2'", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  await env.DB.prepare("insert into collections (id, owner_id, name, name_key, is_default, created_at) values ('k-kim', ?, 'Home library', 'home library', 0, 0)").bind(kim.id).run();
+  ok(await ledger.act(natalie, { type: "give", copyId, to: kim.id }));
+  expect(await collectionsOf(kim.id)).toEqual([
+    { id: "k-kim", name: "Home library", is_default: 0 },
+    { id: expect.any(String), name: "Home library 2", is_default: 1 },
+  ]);
+  expect(await collectionOf(copyId)).toBe(await defaultOf(kim.id));
+});
+
+test("give when out: the new owner owns it, the borrower still holds it, and the request is cleared", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  ok(await ledger.act(natalie, { type: "give", copyId, to: kim.id }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: kim.id, holder_member_id: sam.id, requested_by: null, requested_at: null });
+  expect(await collectionOf(copyId)).toBe(await defaultOf(kim.id));
+  expect((await ledger.holding(sam)).map((i) => i.copyId)).toEqual([copyId]);
+});
+
+test("give to a removed member is not-allowed and changes nothing", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  // Kim has a default already, so only her being removed can refuse the give.
+  await env.DB.prepare("insert into collections (id, owner_id, name, name_key, is_default, created_at) values ('k-kim', ?, 'Home library', 'home library', 1, 0)").bind(kim.id).run();
+  await removeMember(kim.id);
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "give", copyId, to: kim.id })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("give to oneself, to no such member, or by someone who is not the owner is not-allowed", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "give", copyId, to: natalie.id })).toEqual({ rejected: "not-allowed" });
+  expect(await ledger.act(natalie, { type: "give", copyId, to: "m-nobody" })).toEqual({ rejected: "not-allowed" });
+  expect(await ledger.act(sam, { type: "give", copyId, to: kim.id })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("a give racing a claim is not-allowed, and leaves the recipient no collection", async () => {
+  const { code, copyId } = await homeCopy(make().ledger);
+  let before = "";
+  const db = racing(async () => {
+    ok(await make().ledger.act(sam, { type: "claim", code }));
+    before = await tables();
+  });
+  expect(await make({ db }).ledger.act(natalie, { type: "give", copyId, to: kim.id })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+  expect(await collectionsOf(kim.id)).toEqual([]);
+});
+
+test("a give racing the recipient's removal is not-allowed", async () => {
+  const { copyId } = await homeCopy(make().ledger);
+  // Kim has a default already, so only her removal can refuse the give.
+  await env.DB.prepare("insert into collections (id, owner_id, name, name_key, is_default, created_at) values ('k-kim', ?, 'Home library', 'home library', 1, 0)").bind(kim.id).run();
+  const db = racing(run("update members set removed_at = 5 where id = ?", kim.id));
+  expect(await make({ db }).ledger.act(natalie, { type: "give", copyId, to: kim.id })).toEqual({ rejected: "not-allowed" });
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: natalie.id });
+  expect(await count("events")).toBe(2);
+});
+
+test("approve: the asker owns it, in their default, with an approved event", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  const copy = ok(await ledger.act(natalie, { type: "approve", copyId }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: sam.id, holder_member_id: sam.id, requested_by: null, requested_at: null });
+  expect(await collectionOf(copyId)).toBe(await defaultOf(sam.id));
+  expect(copy.request).toBeNull();
+  expect(copy.home).toBe(true);
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "approved", actor_id: natalie.id, subject_member_id: sam.id, subject_person_id: null });
+  expect(await ledger.holding(sam)).toEqual([]);
+});
+
+test("approve when the asker was removed meanwhile is not-allowed and changes nothing", async () => {
+  const { copyId } = await samAsks(make().ledger);
+  let before = "";
+  const db = racing(async () => {
+    await removeMember(sam.id);
+    before = await tables();
+  });
+  expect(await make({ db }).ledger.act(natalie, { type: "approve", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("approve of a removed asker's request is not-allowed", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  await removeMember(sam.id);
+  expect(await ledger.act(natalie, { type: "approve", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: natalie.id });
+});
+
+test("release: no owner and no collection, the holder unchanged, off the shelf and on the holder's holding list", async () => {
+  const { ledger } = make();
+  const { copyId } = await homeCopy(ledger);
+  const shelfId = (await collectionOf(copyId))!;
+  const copy = ok(await ledger.act(natalie, { type: "release", copyId }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: null, holder_member_id: natalie.id, holder_person_id: null });
+  expect(await collectionOf(copyId)).toBeNull();
+  expect(copy.owner).toBeNull();
+  expect(copy.collection).toBeNull();
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "released", actor_id: natalie.id, subject_member_id: null, subject_person_id: null });
+  expect(ok(await ledger.shelf(shelfId)).items).toEqual([]);
+  expect((await ledger.holding(natalie)).map((i) => i.copyId)).toEqual([copyId]);
+});
+
+test("release with a request open clears it; the asker holds it, ownerless", async () => {
+  const { ledger } = make();
+  const { copyId } = await samAsks(ledger);
+  ok(await ledger.act(natalie, { type: "release", copyId }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: null, holder_member_id: sam.id, requested_by: null, requested_at: null });
+  expect((await ledger.holding(sam)).map((i) => i.copyId)).toEqual([copyId]);
+});
+
+test("release of an unlabelled copy is not-allowed", async () => {
+  const { ledger } = make();
+  ok(await ledger.importCopies(natalie, { collectionId: null, rows: [{ title: "Loose", authors: [], isbn: null }] }));
+  const copyId = (await env.DB.prepare("select id from copies").first<{ id: string }>())!.id;
+  const before = await tables();
+  expect(await ledger.act(natalie, { type: "release", copyId })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+});
+
+test("take a released copy by its label: the taker owns and holds it, in their default", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(natalie, { type: "release", copyId }));
+  const copy = ok(await ledger.act(sam, { type: "adopt", code }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: sam.id, holder_member_id: sam.id, holder_person_id: null });
+  expect(await collectionOf(copyId)).toBe(await defaultOf(sam.id));
+  expect(copy.code).toBe(code);
+  expect(copy.home).toBe(true);
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "adopted", actor_id: sam.id, subject_member_id: null, subject_person_id: null });
+});
+
+test("take a released copy works for its current holder too", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  ok(await ledger.act(natalie, { type: "lend", copyId, to: { member: sam.id } }));
+  ok(await ledger.act(natalie, { type: "release", copyId }));
+  ok(await ledger.act(sam, { type: "adopt", code }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: sam.id, holder_member_id: sam.id });
+  expect(await collectionOf(copyId)).toBe(await defaultOf(sam.id));
+});
+
+test("take of a copy someone active owns is not-allowed", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  expect(await ledger.act(sam, { type: "adopt", code })).toEqual({ rejected: "not-allowed" });
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: natalie.id });
+});
+
+test("take through a retired label, or an unknown one, is not-found", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  const [fresh] = await mint(ledger);
+  ok(await ledger.replaceLabel(natalie, copyId, { code: fresh, replacing: code }));
+  ok(await ledger.act(natalie, { type: "release", copyId }));
+  expect(await ledger.act(sam, { type: "adopt", code })).toEqual({ rejected: "not-found" });
+  expect(await ledger.act(sam, { type: "adopt", code: "2222222222" })).toEqual({ rejected: "not-found" });
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: null });
+});
+
+test("take a removed owner's copy by its label; claiming it instead is not-allowed", async () => {
+  const { ledger } = make();
+  const { code, copyId } = await homeCopy(ledger);
+  await removeMember(natalie.id);
+  expect(await ledger.act(sam, { type: "claim", code })).toEqual({ rejected: "not-allowed" });
+  const copy = ok(await ledger.act(sam, { type: "adopt", code }));
+  expect(await copyRow(copyId)).toMatchObject({ owner_id: sam.id, holder_member_id: sam.id });
+  expect(await collectionOf(copyId)).toBe(await defaultOf(sam.id));
+  expect(copy.owner).toMatchObject({ id: sam.id });
+  expect((await eventsOf(copyId)).at(-1)).toEqual({ type: "adopted", actor_id: sam.id, subject_member_id: null, subject_person_id: null });
+});
+
+test("a take racing the removed owner being restored is not-allowed and changes nothing", async () => {
+  const { code } = await homeCopy(make().ledger);
+  await removeMember(natalie.id);
+  let before = "";
+  const db = racing(async () => {
+    await env.DB.prepare("update members set removed_at = null where id = ?").bind(natalie.id).run();
+    before = await tables();
+  });
+  expect(await make({ db }).ledger.act(sam, { type: "adopt", code })).toEqual({ rejected: "not-allowed" });
+  expect(await tables()).toBe(before);
+  expect(await collectionsOf(sam.id)).toEqual([]);
+});
+
+test("two takes of a released copy at once: one wins", async () => {
+  const setup = make().ledger;
+  const { code, copyId } = await homeCopy(setup);
+  ok(await setup.act(natalie, { type: "release", copyId }));
+  const db = gated(2);
+  const results = await Promise.all([sam, kim].map((m) => make({ db }).ledger.act(m, { type: "adopt", code })));
+  expect(results.filter((r) => "rejected" in r)).toEqual([{ rejected: "not-allowed" }]);
+  expect((await eventsOf(copyId)).filter((e) => e.type === "adopted")).toHaveLength(1);
 });

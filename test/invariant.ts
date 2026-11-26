@@ -1,6 +1,6 @@
-// The collections, holder and request invariant, as ten queries; one string per violating copy or member. Empty means it holds.
+// The collections, holder and request invariant, as twelve queries; one string per violating copy or member. Empty means it holds.
 export async function invariantViolations(db: D1Database): Promise<string[]> {
-  const [mismatch, wrongOwner, defaults, orphanRetired, noLive, twoHolders, noHolder, halfRequest, badRequest, linkedHolder] = await db.batch<{ id: string; n?: number }>([
+  const [mismatch, wrongOwner, defaults, orphanRetired, noLive, twoHolders, noHolder, halfRequest, ownerlessRequest, nonHolderRequest, ownerRequest, linkedHolder] = await db.batch<{ id: string; n?: number }>([
     db.prepare(
       "select id from copies where (owner_id is null) <> (collection_id is null)",
     ),
@@ -22,11 +22,9 @@ export async function invariantViolations(db: D1Database): Promise<string[]> {
     db.prepare("select id from copies where holder_member_id is not null and holder_person_id is not null"),
     db.prepare("select id from copies where owner_id is not null and holder_member_id is null and holder_person_id is null"),
     db.prepare("select id from copies where (requested_by is null) <> (requested_at is null)"),
-    db.prepare(
-      `select id from copies
-       where requested_by is not null
-         and (owner_id is null or requested_by is not holder_member_id or requested_by = owner_id)`,
-    ),
+    db.prepare("select id from copies where requested_by is not null and owner_id is null"),
+    db.prepare("select id from copies where requested_by is not null and requested_by is not holder_member_id"),
+    db.prepare("select id from copies where requested_by is not null and requested_by = owner_id"),
     db.prepare(
       "select c.id from copies c join people p on p.id = c.holder_person_id where p.linked_member_id is not null",
     ),
@@ -40,7 +38,9 @@ export async function invariantViolations(db: D1Database): Promise<string[]> {
     ...twoHolders.results.map((r) => `copy ${r.id}: is held by a member and a placeholder`),
     ...noHolder.results.map((r) => `copy ${r.id}: is owned and held by no one`),
     ...halfRequest.results.map((r) => `copy ${r.id}: requested_by and requested_at are not both null or both set`),
-    ...badRequest.results.map((r) => `copy ${r.id}: its request is on an ownerless copy, from a non-holder, or from its owner`),
+    ...ownerlessRequest.results.map((r) => `copy ${r.id}: its request is on an ownerless copy`),
+    ...nonHolderRequest.results.map((r) => `copy ${r.id}: its requester is not the holder`),
+    ...ownerRequest.results.map((r) => `copy ${r.id}: its requester is the owner`),
     ...linkedHolder.results.map((r) => `copy ${r.id}: is held by a placeholder that is linked to a member`),
   ];
 }

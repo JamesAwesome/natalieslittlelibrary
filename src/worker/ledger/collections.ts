@@ -13,27 +13,39 @@ export const DEFAULT_NAME = "Home library";
 // with a null collection_id to that default (so a later change of default cannot silently move them). Spread the two
 // statements first into any batch that gives the member a copy, then select the persisted default; never use an id this
 // call proposed. It works for a member who owns such copies and has no collection row at all.
-export function ensureDefault(db: D1Database, ownerId: string, at: number): D1PreparedStatement[] {
+// The default is named "Home library", or the first of "Home library 2", "Home library 3", … the member has no
+// collection called, picked inside the insert. Of n collections at most n names are taken, so one of the first n + 1 is free.
+// `onlyIf`: a where-fragment both statements also need, so a batch its guard refuses leaves no default behind.
+export function ensureDefault(db: D1Database, ownerId: string, at: number, onlyIf?: { sql: string; binds: unknown[] }): D1PreparedStatement[] {
+  const extra = onlyIf ? { sql: ` and ${onlyIf.sql}`, binds: onlyIf.binds } : { sql: "", binds: [] };
   return [
     db
       .prepare(
-        `insert into collections (id, owner_id, name, name_key, is_default, created_at)
-         select ?, ?, ?, ?, 1, ? where ${ACTIVE} and not exists (select 1 from collections where owner_id = ? and is_default = 1)
+        `with recursive n(i) as (
+           select 1 union all select i + 1 from n where i <= (select count(*) from collections where owner_id = ?)
+         ), names(i, name) as (
+           select i, case when i = 1 then '${DEFAULT_NAME}' else '${DEFAULT_NAME} ' || i end from n
+         )
+         insert into collections (id, owner_id, name, name_key, is_default, created_at)
+         select ?, ?, name, lower(name), 1, ? from names
+         where not exists (select 1 from collections where owner_id = ? and name_key = lower(names.name))
+           and ${ACTIVE} and not exists (select 1 from collections where owner_id = ? and is_default = 1)${extra.sql}
+         order by i limit 1
          on conflict do nothing`,
       )
-      .bind(crypto.randomUUID(), ownerId, DEFAULT_NAME, DEFAULT_NAME.toLowerCase(), at, ownerId, ownerId),
-    pinNullCopies(db, ownerId),
+      .bind(ownerId, crypto.randomUUID(), ownerId, at, ownerId, ownerId, ownerId, ...extra.binds),
+    pinNullCopies(db, ownerId, extra),
   ];
 }
 
 // Owned copies with no collection (old code) belong to the owner's current default; this makes it so.
-function pinNullCopies(db: D1Database, ownerId: string): D1PreparedStatement {
+function pinNullCopies(db: D1Database, ownerId: string, extra: { sql: string; binds: unknown[] } = { sql: "", binds: [] }): D1PreparedStatement {
   return db
     .prepare(
       `update copies set collection_id = ${DEFAULT_OF}
-       where owner_id = ? and collection_id is null and ${ACTIVE} and exists ${DEFAULT_OF}`,
+       where owner_id = ? and collection_id is null and ${ACTIVE} and exists ${DEFAULT_OF}${extra.sql}`,
     )
-    .bind(ownerId, ownerId, ownerId, ownerId);
+    .bind(ownerId, ownerId, ownerId, ownerId, ...extra.binds);
 }
 
 const isUnique = (e: unknown) => e instanceof Error && /UNIQUE constraint failed/i.test(e.message);

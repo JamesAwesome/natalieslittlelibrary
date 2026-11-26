@@ -211,6 +211,36 @@ test("ensureDefault makes one default, once, and never for a removed member", as
   ]);
 });
 
+const insertCollection = (id: string, ownerId: string, name: string) =>
+  env.DB.prepare("insert into collections (id, owner_id, name, name_key, is_default, created_at) values (?, ?, ?, ?, 0, 0)")
+    .bind(id, ownerId, name, name.toLowerCase()).run();
+const defaultName = async (ownerId: string) =>
+  (await env.DB.prepare("select name from collections where owner_id = ? and is_default = 1").bind(ownerId).first<{ name: string }>())?.name ?? null;
+
+test("ensureDefault names the default 'Home library 2' when a non-default 'Home library' exists", async () => {
+  await insertCollection("k-1", kim.id, "Home library");
+  await env.DB.batch(ensureDefault(env.DB, kim.id, 10));
+  expect(await defaultName(kim.id)).toBe("Home library 2");
+  expect(await defaultsOf(kim.id)).toBe(1);
+});
+
+test("ensureDefault names the default 'Home library 3' when 'Home library' and 'Home library 2' both exist", async () => {
+  await insertCollection("k-1", kim.id, "Home library");
+  await insertCollection("k-2", kim.id, "Home library 2");
+  await env.DB.batch(ensureDefault(env.DB, kim.id, 10));
+  expect(await defaultName(kim.id)).toBe("Home library 3");
+});
+
+test("ensureDefault takes the first free name, and matches names ignoring case", async () => {
+  await insertCollection("k-1", kim.id, "HOME LIBRARY");
+  await insertCollection("k-3", kim.id, "Home library 3");
+  await env.DB.batch(ensureDefault(env.DB, kim.id, 10));
+  expect(await defaultName(kim.id)).toBe("Home library 2");
+  await insertCollection("k-s", sam.id, "Home library 2");
+  await env.DB.batch(ensureDefault(env.DB, sam.id, 10));
+  expect(await defaultName(sam.id)).toBe("Home library");
+});
+
 test("a member with a copy but no collection row (old code) gets a default, and a first collection becomes it", async () => {
   // What an old Worker, or a rollback, leaves: an owned copy with a null collection_id and no default for the owner.
   const { copyId } = await homeCopy(make().ledger);

@@ -268,8 +268,10 @@ app.post("/api/imports", member(async (c, who) => {
   return answer(c, await c.var.services.ledger.importCopies(who, { collectionId, rows: body.rows as ImportRow[] }));
 }));
 
-app.post("/api/labels/:code/claim", member(async (c, who) =>
-  answer(c, await c.var.services.ledger.act(who, { type: "claim", code: c.req.param("code") ?? "" }))));
+for (const type of ["claim", "adopt"] as const) {
+  app.post(`/api/labels/:code/${type}`, member(async (c, who) =>
+    answer(c, await c.var.services.ledger.act(who, { type, code: c.req.param("code") ?? "" }))));
+}
 
 app.post("/api/copies/:id/return", member(async (c, who) =>
   answer(c, await c.var.services.ledger.act(who, { type: "return", copyId: c.req.param("id") ?? "" }))));
@@ -282,7 +284,14 @@ app.post("/api/copies/:id/lend", member(async (c, who) => {
   return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type: "lend", copyId: id, to }));
 }));
 
-for (const type of ["request", "withdraw", "decline"] as const) {
+app.post("/api/copies/:id/give", member(async (c, who) => {
+  const body = await objectBody(c);
+  if (!body || typeof body.to !== "string") return invalid(c);
+  const id = idParam(c);
+  return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type: "give", copyId: id, to: body.to }));
+}));
+
+for (const type of ["request", "withdraw", "decline", "approve", "release"] as const) {
   app.post(`/api/copies/:id/${type}`, member(async (c, who) => {
     const id = idParam(c);
     return id === null ? notFound(c) : answer(c, await c.var.services.ledger.act(who, { type, copyId: id }));
