@@ -124,6 +124,9 @@ approve ownership. Release. Replace a label.
 
 Carry-overs from step 3:
 
+- Retiring a label without binding its successor in the same batch breaks the
+  any-label checks and lets a stale relabel bind through relabel.ts statement 3.
+  Re-check both before release 2 adds a writer that retires.
 - Give, adopt and approve-request must ensure the new owner's default in the
   same batch and set both `owner_id` and `collection_id` in one statement;
   release must null both.
