@@ -4,6 +4,7 @@ import { parseLabelLink } from "../../shared/labelCode";
 import type { BookInfo, Candidates, CopyView, ImportResult, ImportRow, Member, Rejection, ShelfItem } from "../../shared/types";
 import { MAX_BATCH } from "../booklookup";
 import { ACTIVE, DEFAULT_OF, ensureDefault } from "./collections";
+import { stateColumns, stateOf, type StateColumns } from "./copyState";
 import { decide } from "./rules";
 import { SHELF_SELECT, shelfItem, type ShelfRow } from "./shelves";
 
@@ -295,38 +296,13 @@ export function createUnlabelled(
     if (label.copy_id !== null) return { rejected: "label-in-use" };
     const copy = await db
       .prepare(
-        `select owner_id, holder_member_id, holder_person_id, requested_by, import_isbn,
-           coalesce((select removed_at is not null from members where id = copies.owner_id), 0) as owner_removed,
-           coalesce((select removed_at is not null from members where id = copies.requested_by), 0) as requester_removed,
-           (select isbn from books where id = copies.book_id) as book_isbn,
+        `select ${stateColumns("copies")}, import_isbn, (select isbn from books where id = copies.book_id) as book_isbn,
            exists (select 1 from labels where copy_id = copies.id) as labelled from copies where id = ?`,
       )
       .bind(copyId)
-      .first<{
-        owner_id: string | null;
-        holder_member_id: string | null;
-        holder_person_id: string | null;
-        requested_by: string | null;
-        owner_removed: number;
-        requester_removed: number;
-        import_isbn: string | null;
-        book_isbn: string | null;
-        labelled: number;
-      }>();
+      .first<StateColumns & { import_isbn: string | null; book_isbn: string | null; labelled: number }>();
     if (!copy) return { rejected: "not-found" };
-    const decision = decide(
-      {
-        ownerId: copy.owner_id,
-        ownerRemoved: copy.owner_removed === 1,
-        holderMemberId: copy.holder_member_id,
-        holderPersonId: copy.holder_person_id,
-        requestedBy: copy.requested_by,
-        requesterRemoved: copy.requester_removed === 1,
-        labelled: copy.labelled === 1,
-      },
-      owner,
-      { type: "label" },
-    );
+    const decision = decide(stateOf(copy, copy.labelled === 1), owner, { type: "label" });
     if ("rejected" in decision) return decision;
     const refused = await bind(owner, copyId, code, await enrichment(copy.book_isbn, copy.import_isbn));
     return refused ?? (await bound(owner, copyId, code));

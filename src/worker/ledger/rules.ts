@@ -18,8 +18,8 @@ export type Action =
 export type EventType =
   | "claimed" | "returned" | "labelled" | "relabelled" | "lent" | "given"
   | "requested" | "withdrawn" | "approved" | "declined" | "released" | "adopted";
-// The copy's whole next state. `ownerChanged`: the owner becomes a member who needs a collection (give, approve, adopt);
-// a release also changes the owner but its write nulls the collection itself.
+// The copy's whole next state. `ownerChanged`: ownership moved, to a member (give, approve, adopt) or to nobody (release);
+// the write sets the collection from the new owner, null for none.
 export type Change = {
   ownerId: string | null;
   holderMemberId: string | null;
@@ -66,11 +66,12 @@ export function decide(state: CopyState, viewer: Member, action: Action): Change
     subject: null,
     ownerChanged: false,
   } satisfies Change;
-  // A change of owner or either holder clears the open request.
+  // A change of owner or either holder clears the open request; a removed asker's stale request is cleared by any write.
   const next = (c: Partial<Change>): Change => {
     const n = { ...keep, ...c };
     const moved = n.ownerId !== state.ownerId || n.holderMemberId !== state.holderMemberId || n.holderPersonId !== state.holderPersonId;
-    return moved ? { ...n, requestedBy: null } : n;
+    // A request the action itself sets (a new one over a stale one) stands.
+    return (moved || state.requesterRemoved) && !("requestedBy" in c) ? { ...n, requestedBy: null } : n;
   };
   const asker = state.requestedBy;
   switch (action.type) {
@@ -106,7 +107,7 @@ export function decide(state: CopyState, viewer: Member, action: Action): Change
     // allows() has checked that a request is open, so `asker` is set.
     case "approve": return next({ ownerId: asker, requestedBy: null, event: "approved", subject: { member: asker! }, ownerChanged: true });
     case "decline": return next({ requestedBy: null, event: "declined", subject: { member: asker! } });
-    case "release": return next({ ownerId: null, requestedBy: null, event: "released" });
+    case "release": return next({ ownerId: null, event: "released", ownerChanged: true });
     case "adopt": return next({ ownerId: viewer.id, holderMemberId: viewer.id, holderPersonId: null, event: "adopted", ownerChanged: true });
   }
 }

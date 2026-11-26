@@ -3,7 +3,8 @@ import { cleanBookFacts } from "../../shared/bookFacts";
 import { toIsbn13 } from "../../shared/isbn";
 import type { BookInfo, Candidates, CollectionSummary, CopyView, Holder, ImportResult, ImportRow, Shelf, ShelfItem, HistoryEntry, LabelView, Member, Person, Rejection, SheetSummary } from "../../shared/types";
 import { ACTIVE, createCollectionWrites, DEFAULT_OF, ensureDefault } from "./collections";
-import { availableActions, decide, type CopyState } from "./rules";
+import { stateColumns, stateOf, type StateColumns } from "./copyState";
+import { availableActions, decide } from "./rules";
 import { createRelabel } from "./relabel";
 import { createSheetReads } from "./sheets";
 import { createShelfReads, holderOf, inCollection, personOf, type HolderColumns } from "./shelves";
@@ -55,39 +56,18 @@ const MAX_MINT_ROUNDS = 10;
 // The largest multiple of the alphabet size that fits in a byte; bytes at or above it would bias the draw.
 const BYTE_LIMIT = 248;
 
-type CopyRow = {
+type CopyRow = StateColumns & {
   copy_id: string | null;
   isbn: string | null;
   title: string | null;
   authors: string | null;
   cover_url: string | null;
-  owner_id: string | null;
-  holder_member_id: string | null;
-  holder_person_id: string | null;
-  requested_by: string | null;
   requested_at: number | null;
-  // Whether the owner and the asker are removed members, from the same read as the row.
-  owner_removed: number;
-  requester_removed: number;
   collection_id: string | null;
   code: string | null;
 };
-// What the rules need to know of a copy.
-function stateOf(row: CopyRow): CopyState {
-  return {
-    ownerId: row.owner_id,
-    ownerRemoved: row.owner_removed === 1,
-    holderMemberId: row.holder_member_id,
-    holderPersonId: row.holder_person_id,
-    requestedBy: row.requested_by,
-    requesterRemoved: row.requester_removed === 1,
-    labelled: row.code !== null,
-  };
-}
-const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, c.owner_id, c.holder_member_id, c.holder_person_id,
-    c.requested_by, c.requested_at, hp.name as holder_person_name, c.collection_id, l.code,
-    coalesce((select removed_at is not null from members where id = c.owner_id), 0) as owner_removed,
-    coalesce((select removed_at is not null from members where id = c.requested_by), 0) as requester_removed
+const COPY_SELECT = `select c.id as copy_id, b.isbn, b.title, b.authors, b.cover_url, ${stateColumns("c")},
+    c.requested_at, hp.name as holder_person_name, c.collection_id, l.code
   from copies c
   join books b on b.id = c.book_id
   left join people hp on hp.id = c.holder_person_id
@@ -269,7 +249,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
             ? { id: row.shown_collection_id, name: row.shown_collection_name }
             : null,
         history: entries,
-        actions: availableActions(stateOf(row), viewer, { labelInHand: codeInHand !== null }),
+        actions: availableActions(stateOf(row, row.code !== null), viewer, { labelInHand: codeInHand !== null }),
       },
     };
   }
@@ -434,7 +414,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     }
     if (!row || row.copy_id === null) return { rejected: "not-found" };
 
-    const decision = decide(stateOf(row), viewer, { type });
+    const decision = decide(stateOf(row, row.code !== null), viewer, { type });
     if ("rejected" in decision) return decision;
 
     // Both statements carry the whole state the decision was made against (and, for a claim, the label still being
@@ -485,7 +465,7 @@ export function createLedger(deps: LedgerDeps): Ledger {
     // actor inside the statement, against anything that changed since.
     const row = await db.prepare(`${COPY_SELECT} where c.id = ?`).bind(copyId).first<CopyRow>();
     if (!row || row.copy_id === null) return { rejected: "not-found" };
-    const decision = decide(stateOf(row), member, { type: "move" });
+    const decision = decide(stateOf(row, row.code !== null), member, { type: "move" });
     if ("rejected" in decision) return decision;
     const [r] = await db.batch([
       db

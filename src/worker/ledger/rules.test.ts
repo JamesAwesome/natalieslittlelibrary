@@ -113,7 +113,21 @@ test.each([
     { type: "decline" },
     { ...noChange, holderMemberId: "b", event: "declined", subject: { member: "b" } },
   ],
-  ["release", st({ holderMemberId: "b", requestedBy: "b" }), "a", { type: "release" }, { ...noChange, ownerId: null, holderMemberId: "b", event: "released" }],
+  ["release", st({ holderMemberId: "b", requestedBy: "b" }), "a", { type: "release" }, { ...noChange, ownerId: null, holderMemberId: "b", event: "released", ownerChanged: true }],
+  ...(["move", "label", "relabel"] as const).map((type) => [
+    `${type} clears a removed asker's request`,
+    st({ holderMemberId: "c", requestedBy: "c", requesterRemoved: true, labelled: type === "relabel" }),
+    "a",
+    { type },
+    { ...noChange, holderMemberId: "c", event: type === "move" ? null : type === "label" ? "labelled" : "relabelled" },
+  ] as [string, CopyState, string, Action, Change]),
+  [
+    "request overwrites a removed asker's",
+    st({ holderMemberId: "d", requestedBy: "b", requesterRemoved: true }),
+    "d",
+    { type: "request" },
+    { ...noChange, holderMemberId: "d", requestedBy: "d", event: "requested" },
+  ],
   [
     "adopt an ownerless copy",
     st({ ownerId: null, holderMemberId: "b", holderPersonId: null, requestedBy: "b" }),
