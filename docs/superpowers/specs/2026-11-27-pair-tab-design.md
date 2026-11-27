@@ -84,7 +84,7 @@ For back to top:
   by the letter headings, and the next point gives everyone a second way back.
 - **Tapping the tab you're already on scrolls to the top (call).** This holds
   only when you're on that tab's own page (`location.pathname` equals its
-  href). It is the common phone-app habit, and it means a short wall without
+  href and there is no query string). It is the common phone-app habit, and it means a short wall without
   a rail still has a way back up. Without it, a full reload restores your
   scroll place, which feels like nothing happened.
 

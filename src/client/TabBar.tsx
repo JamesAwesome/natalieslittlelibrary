@@ -38,7 +38,7 @@ const order: [Tab, string][] = [["books", "Books"], ["holding", "Holding"], ["pa
 
 // Tapping the tab you're on, on that tab's own page, scrolls to the top instead of reloading.
 function scrollToTop(tab: Tab, active: Tab | null, e: MouseEvent<HTMLAnchorElement>) {
-  if (tab !== active || location.pathname !== tabRoot[tab].href) return;
+  if (tab !== active || location.pathname !== tabRoot[tab].href || location.search !== "") return;
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;

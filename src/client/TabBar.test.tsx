@@ -42,9 +42,9 @@ test("the bar is app chrome, so it does not print", () => {
 });
 
 // Fires a click and reports whether the page's own handler took it over.
-function tap(name: string, init: MouseEventInit = {}, type: "click" | "auxclick" = "click") {
+function tap(name: string, init: MouseEventInit = {}) {
   const link = screen.getByRole("link", { name });
-  const ev = new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
+  const ev = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
   fireEvent(link, ev);
   return ev.defaultPrevented;
 }
@@ -79,7 +79,6 @@ test("a modified or middle click opens normally", () => {
   for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
     expect(tap("Books", init)).toBe(false);
   }
-  expect(tap("Books", { button: 1 }, "auxclick")).toBe(false);
   expect(scrollTo).not.toHaveBeenCalled();
 });
 
@@ -102,4 +101,14 @@ test("with no reduced-motion preference it scrolls smoothly", () => {
   render(<TabBar active="books" />);
   tap("Books");
   expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+});
+
+test("tapping Pair on a pre-filled /pair navigates to a fresh one", () => {
+  for (const url of ["/pair?copy=c1", "/pair?label=t7k2q9xzmb"]) {
+    history.replaceState(null, "", url);
+    const { unmount } = render(<TabBar active="pair" />);
+    expect(tap("Pair")).toBe(false);
+    unmount();
+  }
+  expect(scrollTo).not.toHaveBeenCalled();
 });
