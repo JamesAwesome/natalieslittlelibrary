@@ -652,7 +652,7 @@ test.each([
   arrange();
   show("?copy=c1");
   await screen.findByText("That book can't take a label here.");
-  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/");
   expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
   expect(api.labelCopy).not.toHaveBeenCalled();
 });
@@ -780,7 +780,7 @@ test("without replace=1, a copy that can't take a label keeps the My books wordi
   vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, ownerCode: "t7k2q9xzmb", book, actions: ["move"] } as CopyView);
   show("?copy=c1");
   await screen.findByText("That book can't take a label here.");
-  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/");
 });
 
 const OWN = "That's the label already on this book. Scan a new blank one.";

@@ -129,7 +129,7 @@ test("confirmed delete sends once, then says it is gone with a way back", async 
   const yes = screen.getByRole("button", { name: "Yes, delete it" });
   await act(async () => { yes.click(); yes.click(); });
   expect(api.deleteCollection).toHaveBeenCalledExactlyOnceWith("k2");
-  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/");
 });
 
 test("delete refused (not empty any more) says so and re-reads the truth", async () => {
@@ -272,6 +272,20 @@ test("while loading, the app name and no controls", () => {
   show();
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+test("the collection's name, once known, stays the h1 through a failed read and Try again", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(full, [out()]));
+  vi.mocked(api.makeDefault).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(500, null));
+  await userEvent.click(screen.getByRole("button", { name: "Make this the default" }));
+  expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Beach house" })).toBeInTheDocument();
+  vi.mocked(api.getShelf).mockReturnValue(new Promise(() => {}));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Beach house" })).toBeInTheDocument();
 });
 
 test("coming back to a collection restores the scroll once it has loaded", async () => {

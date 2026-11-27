@@ -67,15 +67,22 @@ function Page({ id, member, returnTo }: Props) {
     change(() => renameCollection(id, clean.name), { "name-taken": "You already have a collection called that." }, () => { setRenaming(false); setRenamed((n) => n + 1); });
   }
 
-  // Not the wall: the page as it was, under the app name.
-  const page = (children: React.ReactNode) => (
+  // The collection's name once known, kept through a failed read and Try again, so the h1 never flickers back.
+  // Until it is known, the app name, as before.
+  const shelfName = state.status === "ok" ? state.data.collection.name : null;
+  const [known, setKnown] = useState<string | null>(null);
+  if (shelfName !== null && shelfName !== known) setKnown(shelfName);
+  const title = shelfName ?? known ?? APP_NAME;
+
+  // Not the wall: the page as it was, under the collection's name (or the app name when signed out).
+  const page = (children: React.ReactNode, heading = title) => (
     <div className="shelf-page">
-      <h1>{APP_NAME}</h1>
+      <h1><Name>{heading}</Name></h1>
       {children}
     </div>
   );
-  if (member === null || state.status === "lost") return page(<SignIn returnTo={returnTo} />);
-  if (state.status === "gone") return page(deleted ? <p ref={(el) => el?.focus()} tabIndex={-1}>Deleted. <a href="/mine">Back to my books</a></p> : <><p>That collection isn't here.</p><BackLink /></>);
+  if (member === null || state.status === "lost") return page(<SignIn returnTo={returnTo} />, APP_NAME);
+  if (state.status === "gone") return page(deleted ? <p ref={(el) => el?.focus()} tabIndex={-1}>Deleted. <a href="/">Back to my books</a></p> : <><p>That collection isn't here.</p><BackLink /></>);
   if (state.status === "failed") return page(<Trouble onRetry={retry} />);
 
   const shelf = state.status === "ok" ? state.data : null;
@@ -129,7 +136,7 @@ function Page({ id, member, returnTo }: Props) {
   return (
     <CoverWall
       kind={isOwner ? "my-collection" : "friend-collection"}
-      title={shelf ? shelf.collection.name : APP_NAME}
+      title={title}
       headingRef={heading}
       loading={!ready}
       items={shelf?.items ?? []}

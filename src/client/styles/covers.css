@@ -1,4 +1,4 @@
-/* Covers: a fixed 2:3 box in three sizes, and three states (loaded, no cover, failed to load). */
+/* Covers: a fixed 2:3 box in four sizes, and three states (loaded, no cover, failed to load). */
 .cover-frame {
   flex: none;
   min-width: 0;
@@ -17,6 +17,12 @@
 .cover-row {
   width: 64px;
   height: 96px;
+}
+
+/* Pair's book card. */
+.cover-card {
+  width: 96px;
+  height: 144px;
 }
 
 /* A fixed 160 by 240 box, before and after the image loads, so nothing below it ever moves.
@@ -43,7 +49,8 @@
 }
 
 .cover-wall .cover,
-.cover-row .cover {
+.cover-row .cover,
+.cover-card .cover {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -138,6 +145,23 @@
 
 .cover-row .cover-tile-author {
   display: none;
+}
+
+/* 88px of line inside the padding: Fraunces sets "Middlemarch" at --text-sm about 83px wide, so it stays whole. */
+.cover-card .cover-tile {
+  padding: var(--space-2) var(--space-1);
+  gap: var(--space-1);
+}
+
+.cover-card .cover-tile-title {
+  font-size: var(--text-sm);
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+}
+
+.cover-card .cover-tile-author,
+.cover-card .cover-tile-note {
+  font-size: var(--text-xs);
 }
 
 /* On the wall a tile can be under 80px wide: tighter padding, and type sized to the tile. Fraunces sets

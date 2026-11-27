@@ -315,7 +315,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
           <p>
             {outcome.into !== null
               ? <a className="button" href={`/collections/${encodeURIComponent(outcome.into.id)}`}><span>Open <Name>{outcome.into.name}</Name></span></a>
-              : <a className="button" href="/mine">My books</a>}
+              : <a className="button" href="/">My books</a>}
           </p>
         </>
       )}

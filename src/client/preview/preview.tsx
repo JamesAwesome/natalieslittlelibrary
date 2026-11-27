@@ -16,7 +16,7 @@ import {
   WALL, WALL_COLLECTIONS, type FixtureBook,
 } from "./fixtures";
 
-const SIZES: CoverSize[] = ["wall", "row", "hero"];
+const SIZES: CoverSize[] = ["wall", "row", "card", "hero"];
 const STATES: [string, FixtureBook][] = [
   ["loaded", LOADED[0]],
   ["loaded", LOADED[1]],
@@ -50,7 +50,7 @@ function Covers() {
         </section>
       ))}
       <section>
-        <h2>On the book page</h2>
+        <h2>Pair’s book card</h2>
         <Book title={LONG_TITLE} authors={NO_COVER_LONG.authors} coverUrl={null} />
         <Book title={LOADED[3].title} authors={LOADED[3].authors} coverUrl={LOADED[3].coverUrl} />
       </section>
@@ -197,7 +197,7 @@ createRoot(document.getElementById("root")!).render(
       .preview { padding: var(--space-4); }
       .preview-grid { display: grid; gap: var(--space-4); align-items: start; }
       .preview-wall { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
-      .preview-row, .preview-hero { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+      .preview-row, .preview-card, .preview-hero { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
       .preview figure { margin: 0; min-width: 0; }
       .preview-book + .preview-book { margin-top: var(--space-8); padding-top: var(--space-6); border-top: 4px solid var(--color-rule); }
       .preview-caption { font-size: var(--text-sm); color: var(--color-muted); margin: 0 0 var(--space-4); }

@@ -177,6 +177,8 @@ test("the import goes into the chosen collection; with none, collectionId is nul
   await user.click(await screen.findByRole("button", { name: "Import" }));
   await waitFor(() => expect(api.importRows).toHaveBeenCalled());
   expect(vi.mocked(api.importRows).mock.calls[0][0]).toBeNull();
+  // No collection to open: the way on is My books, at /.
+  expect(await screen.findByRole("link", { name: "My books" })).toHaveAttribute("href", "/");
 });
 
 test("a collection deleted since the list was read sends nothing and asks again", async () => {

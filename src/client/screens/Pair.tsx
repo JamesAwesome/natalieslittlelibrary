@@ -504,7 +504,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           ) : (
             <>
               <p>That book can't take a label here.</p>
-              <p><a href="/mine">My books</a></p>
+              <p><a href="/">My books</a></p>
             </>
           )}
         </>

@@ -13,10 +13,11 @@ export function BookCount({ n }: { n: number }) {
   return <span className="count">{n} {n === 1 ? "book" : "books"}</span>;
 }
 
-export type CoverSize = "wall" | "row" | "hero";
+// "card" is Pair's book card: the size it had before the hero existed, with the stored image as is.
+export type CoverSize = "wall" | "row" | "card" | "hero";
 // Width and height attributes give the image its 2:3 shape before it loads. The hero's box is reserved in CSS
 // (a fixed width at 2:3) until the image has loaded, and only then takes the cover's own proportions.
-const BOX: Record<CoverSize, [number, number]> = { wall: [160, 240], row: [64, 96], hero: [160, 240] };
+const BOX: Record<CoverSize, [number, number]> = { wall: [160, 240], row: [64, 96], card: [96, 144], hero: [160, 240] };
 
 // Three states: the image, a plain tile when there is no cover, and the same tile saying the cover did not load.
 // The whole thing is aria-hidden: the title and author beside it name the book.
@@ -39,7 +40,7 @@ function CoverFor({ url, title, authors, size = "row" }: { url: string | null; t
     <div className={`cover-frame cover-${size}`} data-state={state} data-ready={ready && state === "loaded" ? "" : undefined} aria-hidden="true">
       {url && !broken ? (
         <img
-          className="cover" src={attempts[failures] ?? undefined} alt="" width={width} height={height} loading="lazy" referrerPolicy="no-referrer"
+          className="cover" src={attempts[failures] ?? undefined} alt="" width={width} height={height} loading={size === "hero" ? "eager" : "lazy"} referrerPolicy="no-referrer"
           onLoad={(e) => { if (e.currentTarget.naturalWidth <= 1) fail(); else setReady(true); }}
           onError={fail}
         />
@@ -54,13 +55,12 @@ function CoverFor({ url, title, authors, size = "row" }: { url: string | null; t
   );
 }
 
-export function Book(props: { title: string; authors: string[]; coverUrl: string | null; headingLevel?: 1 | 2 }) {
-  const Heading = props.headingLevel === 1 ? "h1" : "h2";
+export function Book(props: { title: string; authors: string[]; coverUrl: string | null }) {
   return (
     <div className="book">
-      <Cover url={props.coverUrl} title={props.title} authors={props.authors} size="hero" />
+      <Cover url={props.coverUrl} title={props.title} authors={props.authors} size="card" />
       <div>
-        <Heading>{props.title}</Heading>
+        <h2>{props.title}</h2>
         {props.authors.length > 0 && <p className="authors">{props.authors.map((a, i) => (
           <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>
         ))}</p>}

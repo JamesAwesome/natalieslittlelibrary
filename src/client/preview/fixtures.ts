@@ -90,9 +90,10 @@ export const BOOK_OWNER: CopyView = {
     { at: day(16), type: "added", actor: natalie },
   ],
 };
+// Ann looks at Natalie's book that Grandad has: the server offers her claim, never request (only the holder may ask).
 export const BOOK_FRIEND: CopyView = {
   ...base(LOADED[0]), copyId: "p1", code: "abc", ownerCode: null, owner: natalie, holder: { kind: "person", id: "x1", name: "Grandad" }, home: false,
-  collection: WALL_COLLECTIONS[0], actions: ["claim", "request"],
+  collection: WALL_COLLECTIONS[0], actions: ["claim"],
   history: [{ at: day(20), type: "lent", actor: natalie, subject: { kind: "person", id: "x1", name: "Grandad" } }, { at: day(12), type: "added", actor: natalie }],
 };
 export const BOOK_OWNERLESS: CopyView = {
