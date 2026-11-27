@@ -101,6 +101,10 @@ cut or merge the entries whose shape has not recurred.
   (`Range.getBoundingClientRect` on its contents) against its band at the
   shortest landscape heights. A new first mark on the rail put "↑" next to
   "A", and at 568×320 their boxes overlapped by 6.6px.
+- **"The tap is only taken over on the tab's own page."** `matchRoute` keys on
+  the pathname, but screens read the query. List every link into the route
+  that carries a query (`/pair?copy=`, `/pair?label=`) and probe each one. A
+  pathname-only guard swallowed the Pair tab on all of them.
 
 ## Standing facts about this codebase's tools
 
