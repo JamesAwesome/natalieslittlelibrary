@@ -179,6 +179,13 @@ Added 2026-11-26: James put step 5 on hold for a full design round, inspired
 by reading apps like Apple Books and Kindle. Handoff:
 `docs/superpowers/handoffs/2026-11-26-design-round.md`.
 
+Released as v0.6.0 (2026-11-27): walls of covers with an A–Z rail and filter
+chips, a tab bar (Books · Holding · Friends · More), a cover-first book page,
+warm light and dark looks in Fraunces and Geist, and a home-screen icon. Spec:
+`docs/superpowers/specs/2026-11-26-design-round-design.md`. Still to do: James's
+phone checks (listed in PR #18), including whether the home-screen icon opens in
+Safari or as a web app on iOS 26. Release 2 of the round is cover photos.
+
 ## 5. Open up
 
 Settle the domain. Scheduled database export. Switch from the allowlist to
