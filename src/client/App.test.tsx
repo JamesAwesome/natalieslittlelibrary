@@ -8,13 +8,15 @@ vi.mock("./api");
 
 const natalie = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
 const reload = vi.fn();
+const assign = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getMe).mockResolvedValue(null);
   vi.mocked(api.logout).mockResolvedValue();
   reload.mockReset();
-  vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload });
+  assign.mockReset();
+  vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload, assign });
   // This runtime's own localStorage is not usable and warns when touched (the labels page reads it).
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
 });
@@ -28,7 +30,7 @@ function at(url: string) {
   // Split by hand: new URL("//b/abc") would read "b" as a host.
   const [rest, hash = ""] = url.split(/(?=#)/);
   const [pathname, search = ""] = rest.split(/(?=\?)/);
-  vi.stubGlobal("location", { pathname, search, hash, reload });
+  vi.stubGlobal("location", { pathname, search, hash, reload, assign });
 }
 
 test("while loading shows only the heading", () => {
@@ -76,7 +78,7 @@ test("returnTo is the bare path when refused was the only parameter", async () =
   expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2F");
 });
 
-test("sign out reloads only after the API call resolves", async () => {
+test("sign out goes to / only after the API call resolves", async () => {
   at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   let finish!: () => void;
@@ -84,9 +86,9 @@ test("sign out reloads only after the API call resolves", async () => {
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
   expect(api.logout).toHaveBeenCalledOnce();
-  expect(reload).not.toHaveBeenCalled();
+  expect(assign).not.toHaveBeenCalled();
   finish();
-  await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+  await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("/"));
 });
 
 test("a failed sign-out says so, stays signed in, and does not reload", async () => {
@@ -418,4 +420,39 @@ test.each([
   expect(root).not.toHaveClass("has-tab-bar");
   unmount();
   root.remove();
+});
+
+test("a refused sign-in that started on /mine ends with the address at /", async () => {
+  const replace = vi.spyOn(history, "replaceState");
+  at("/mine?refused=removed");
+  render(<App />);
+  await screen.findByRole("alert");
+  expect(replace.mock.calls.at(-1)?.[2]).toBe("/");
+});
+
+test("Sign out is disabled while a logout is in flight, and again enabled after a failure", async () => {
+  at("/more");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  let fail!: () => void;
+  vi.mocked(api.logout).mockReturnValue(new Promise<void>((_, r) => { fail = () => r(new Error("offline")); }));
+  render(<App />);
+  const button = await screen.findByRole("button", { name: "Sign out" });
+  await userEvent.click(button);
+  expect(button).toBeDisabled();
+  await userEvent.click(button);
+  expect(api.logout).toHaveBeenCalledOnce();
+  fail();
+  await screen.findByRole("alert");
+  expect(button).toBeEnabled();
+});
+
+test("the sign-out notice clears when the member tries again", async () => {
+  at("/more");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.logout).mockRejectedValueOnce(new Error("offline")).mockReturnValue(new Promise(() => {}));
+  render(<App />);
+  await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+  await screen.findByRole("alert");
+  await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 });

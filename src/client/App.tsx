@@ -47,6 +47,7 @@ export function App() {
   const [trouble, setTrouble] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [tab, setTab] = useState<Tab | null>(() => tabFor(route));
+  const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const shell = useMemo(() => ({ setTab, setSignedOut }), []);
   const showBar = member !== undefined && member !== null && !signedOut && !trouble;
@@ -59,18 +60,12 @@ export function App() {
   }, [showBar]);
 
   useEffect(() => {
-    if (hadRefused) {
+    // One write: the refusal is dropped and /mine becomes /, so neither undoes the other.
+    if (hadRefused || route.name === "mine") {
       try {
-        history.replaceState(null, "", cleanUrl);
+        history.replaceState(null, "", route.name === "mine" ? "/" : cleanUrl);
       } catch {
         // An odd path (e.g. "//x") can make this throw; the page must still render.
-      }
-    }
-    if (route.name === "mine") {
-      try {
-        history.replaceState(null, "", "/");
-      } catch {
-        // The page must still render if the address can't be rewritten.
       }
     }
     let live = true;
@@ -114,11 +109,18 @@ export function App() {
         member={member}
         returnTo={returnTo}
         notice={notice}
+        busy={signingOut}
         onLogout={() => {
+          if (signingOut) return;
           setNotice(undefined);
+          setSigningOut(true);
           logout().then(
-            () => location.reload(),
-            () => setNotice("Couldn't sign out. Check your connection and try again."),
+            // Land on the wall, so the next sign-in does not return to More.
+            () => location.assign("/"),
+            () => {
+              setSigningOut(false);
+              setNotice("Couldn't sign out. Check your connection and try again.");
+            },
           );
         }}
       />

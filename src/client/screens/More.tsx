@@ -14,9 +14,10 @@ export function More(props: {
   member: Member | null;
   returnTo: string;
   notice?: string;
+  busy?: boolean;
   onLogout: () => void;
 }) {
-  const { member, returnTo, notice, onLogout } = props;
+  const { member, returnTo, notice, busy, onLogout } = props;
   if (!member) {
     return (
       <>
@@ -36,7 +37,7 @@ export function More(props: {
       </ul>
       <div className="more-signout">
         {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
-        <button type="button" onClick={onLogout}>Sign out</button>
+        <button type="button" disabled={busy} onClick={onLogout}>Sign out</button>
       </div>
     </div>
   );

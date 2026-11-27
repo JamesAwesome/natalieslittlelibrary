@@ -16,6 +16,7 @@
   padding: var(--space-3) 0;
   color: var(--color-ink);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .more-signout {
