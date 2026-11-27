@@ -1,0 +1,298 @@
+/* A book's page, cover first: back link, cover, title and authors, status, one main button, the other actions as rows, history. */
+
+.copy-page button,
+.copy-page a.button {
+  min-height: 44px;
+}
+
+.copy-page p,
+.copy-page .history li {
+  overflow-wrap: anywhere;
+}
+
+/* The way back: one line, cut with an ellipsis rather than wrapping (a collection name can be 60 characters). */
+.book-back {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-2);
+}
+
+/* :visited too, or the base visited-link rule recolours it once followed. */
+.copy-page .book-back a,
+.copy-page .book-back a:visited {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 44px;
+  margin-left: calc(-1 * var(--space-1));
+  padding-right: var(--space-2);
+  color: var(--color-link);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.book-back-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) {
+  .copy-page .book-back a:hover .book-back-label {
+    text-decoration: underline;
+  }
+}
+
+/* Drawn like the tab icons: 1.6 stroke, round caps and joins. */
+.book-chevron {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The cover, centred: reserved at 160 by 240 until it loads, then its own proportions within that. */
+.book-head .cover-hero {
+  margin: var(--space-2) auto var(--space-6);
+}
+
+.book-head h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: 1.15;
+}
+
+/* Headings are focused by script after an action, so the page doesn't drop a keyboard user at the top. They aren't controls. */
+.copy-page h1:focus {
+  outline: none;
+}
+
+.book-authors {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted); /* 6.46:1 light, 7.99:1 dark */
+}
+
+.book-status {
+  margin: var(--space-3) 0 0;
+}
+
+.book-where {
+  font-weight: 600;
+}
+
+.book-meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted); /* 6.46:1 light, 7.99:1 dark */
+}
+
+.copy-page .label-code {
+  font-family: var(--font-mono);
+}
+
+.book-request {
+  margin: var(--space-3) 0 0;
+}
+
+/* The main button: ink, full width. Sign-in takes the same place when signed out. */
+.book-main {
+  margin: var(--space-5) 0 0;
+}
+
+.book-main > button,
+.book-main > a.button {
+  display: block;
+  width: 100%;
+  font-weight: 600;
+  text-align: center;
+}
+
+.book-main > p {
+  margin: 0 0 var(--space-3);
+}
+
+/* In an in-app browser: the address to copy by hand, under Copy link. */
+.book-main > button + p {
+  margin: var(--space-3) 0 0;
+}
+
+.copy-page input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-muted); /* the field's edge, 6.46:1 light, 7.99:1 dark */
+  border-radius: 8px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+/* Secondary buttons (Cancel, Move): paper-2 with ink, 15.20:1 light, 13.82:1 dark. */
+.copy-page button.secondary {
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+/* Lend, give, approve and release open here, below the main button. */
+.book-flow {
+  margin: var(--space-4) 0 0;
+}
+
+.book-flow > p {
+  margin: 0 0 var(--space-3);
+}
+
+.book-flow button + button {
+  margin-left: var(--space-2);
+}
+
+.lend-box label {
+  display: block;
+}
+
+.lend-box input[type="text"] {
+  display: block;
+  margin: var(--space-1) 0 0;
+}
+
+.lend-box p {
+  margin: var(--space-2) 0 0;
+}
+
+/* Who to lend or give to: plain rows, one line each. */
+.lend-box ul,
+.book-choices {
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lend-box ul:empty {
+  margin: 0 0 var(--space-3);
+}
+
+.lend-box li + li,
+.book-choices li + li {
+  border-top: 1px solid var(--color-rule);
+}
+
+.copy-page .lend-box li button,
+.copy-page .book-choices li button {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lend-box .tag {
+  margin-left: var(--space-1);
+  color: var(--color-muted);
+}
+
+/* The other actions: 48px rows with a hairline between and a chevron. Buttons and links look the same. */
+.book-rows {
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-rule);
+}
+
+.book-rows > li {
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.copy-page .book-row,
+.copy-page .book-row:visited {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-3) 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.book-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Icons that carry meaning need 3:1; muted is 6.46:1 light, 7.99:1 dark. */
+.book-row .book-chevron {
+  color: var(--color-muted);
+}
+
+.copy-page .book-row:active:not(:disabled) {
+  background: var(--color-paper-2);
+  transform: none;
+}
+
+@media (hover: hover) {
+  .copy-page .book-row:hover:not(:disabled) {
+    opacity: 1;
+  }
+
+  .copy-page .book-row:hover:not(:disabled) > span {
+    text-decoration: underline;
+  }
+}
+
+/* Move stays an open control: the collection to move to, and the button. */
+.book-rows .move {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+
+.book-rows .move label {
+  flex: 1;
+  min-width: 0;
+}
+
+.book-rows .move select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-muted); /* the field's edge, 6.46:1 light, 7.99:1 dark */
+  border-radius: 8px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.book-rows .move button {
+  flex: none;
+}
+
+.book-history-heading {
+  margin: var(--space-7) 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.copy-page .history {
+  margin: 0;
+}

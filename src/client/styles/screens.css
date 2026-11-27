@@ -1,39 +1,3 @@
-.copy-page button,
-.copy-page a.button {
-  min-height: 44px;
-}
-
-.copy-page .move label {
-  display: block;
-  margin: 0 0 var(--space-1);
-}
-
-.copy-page p,
-.copy-page .history li {
-  overflow-wrap: anywhere;
-}
-
-.copy-page select {
-  box-sizing: border-box;
-  display: block;
-  width: 100%;
-  min-height: 44px;
-  margin: var(--space-1) 0 var(--space-2);
-  padding: var(--space-3);
-  font: inherit;
-}
-
-.copy-page button + button {
-  margin-left: var(--space-2);
-}
-
-.copy-page input[type="text"] {
-  box-sizing: border-box;
-  width: 100%;
-  padding: var(--space-3);
-  font: inherit;
-}
-
 .pair-page button {
   min-height: 44px;
 }
@@ -108,7 +72,6 @@
   overflow-wrap: anywhere;
 }
 
-.copy-page .label-code,
 .pair-page .label-code {
   font-family: var(--font-mono);
   font-size: 0.875rem;

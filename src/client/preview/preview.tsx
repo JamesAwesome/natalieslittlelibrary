@@ -3,12 +3,18 @@
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
+import { BookBack, Copy, PublicBook } from "../screens/CopyPage";
 import { FriendRows } from "../screens/Members";
 import { TabBar } from "../TabBar";
 import "../styles/index.css";
 import { CoverWall, type WallKind } from "../wall/CoverWall";
 import { ALL, type Status, type WallFilter } from "../wall/model";
-import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, WALL, WALL_COLLECTIONS, type FixtureBook } from "./fixtures";
+import type { CopyView } from "../../shared/types";
+import { tabRoot, type Tab } from "../shell";
+import {
+  BOOK_COLLECTIONS, BOOK_FRIEND, BOOK_LONG, BOOK_OWNER, BOOK_OWNERLESS, BOOK_VIEWER, FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG,
+  WALL, WALL_COLLECTIONS, type FixtureBook,
+} from "./fixtures";
 
 const SIZES: CoverSize[] = ["wall", "row", "hero"];
 const STATES: [string, FixtureBook][] = [
@@ -107,7 +113,51 @@ function FriendsView() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView };
+// &v=owner|friend|public|ownerless|long shows one book page; with none, all of them one after another.
+const BOOKS: Record<string, { copy: CopyView | null; viewer: string | null; tab: Tab | null; back: { href: string; label: string } | null }> = {
+  owner: { copy: BOOK_OWNER, viewer: BOOK_VIEWER.natalie, tab: "books", back: tabRoot.books },
+  friend: { copy: BOOK_FRIEND, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/members/1", label: "Natalie’s books" } },
+  public: { copy: null, viewer: null, tab: null, back: null },
+  ownerless: { copy: BOOK_OWNERLESS, viewer: BOOK_VIEWER.ann, tab: "friends", back: tabRoot.friends },
+  long: { copy: BOOK_LONG, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/collections/k3", label: WALL_COLLECTIONS[2].name } },
+};
+
+function BookPage({ name }: { name: string }) {
+  const { copy, viewer, back } = BOOKS[name];
+  return (
+    <div className="copy-page">
+      {back && <BookBack {...back} />}
+      {copy ? (
+        <Copy
+          copy={copy} viewerId={viewer} busy={false} choices={BOOK_COLLECTIONS} choicesFailed={false}
+          onAction={() => {}} onMove={() => {}} onLend={() => {}} onGive={() => {}} onRelease={() => {}}
+        />
+      ) : <PublicBook book={LOADED[2]} returnTo="/b/abc" />}
+    </div>
+  );
+}
+
+function BookView() {
+  const v = new URLSearchParams(location.search).get("v");
+  const names = v !== null && v in BOOKS ? [v] : Object.keys(BOOKS);
+  const tab = names.length === 1 ? BOOKS[names[0]].tab : "books";
+  if (tab !== null) document.getElementById("root")?.classList.add("has-tab-bar");
+  return (
+    <>
+      <main>
+        {names.map((n, i) => (
+          <section key={n} className="preview-book">
+            {names.length > 1 && <p className="preview-caption">{i + 1}. {n}</p>}
+            <BookPage name={n} />
+          </section>
+        ))}
+      </main>
+      {tab !== null && <TabBar active={tab} />}
+    </>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { book: BookView, friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 
@@ -119,6 +169,8 @@ createRoot(document.getElementById("root")!).render(
       .preview-wall { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
       .preview-row, .preview-hero { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
       .preview figure { margin: 0; min-width: 0; }
+      .preview-book + .preview-book { margin-top: var(--space-8); padding-top: var(--space-6); border-top: 4px solid var(--color-rule); }
+      .preview-caption { font-size: var(--text-sm); color: var(--color-muted); margin: 0 0 var(--space-4); }
       .preview figcaption { font-size: var(--text-sm); color: var(--color-muted); margin-top: var(--space-1); overflow-wrap: anywhere; }
     `}</style>
     {View ? <View /> : <main className="preview"><p>Views: {Object.keys(VIEWS).join(", ")}. Add ?view=&lt;name&gt;.</p></main>}

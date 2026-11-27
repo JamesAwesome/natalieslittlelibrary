@@ -8,6 +8,8 @@ test.each([
   ["more.css", /\.more-list a:visited/],
   ["wall.css", /\.wall a\.wall-link:visited/],
   ["wall.css", /\.wall-menu a\.wall-menu-item:visited/],
+  ["book.css", /\.copy-page \.book-row:visited/],
+  ["book.css", /\.copy-page \.book-back a:visited/],
 ])("%s keeps its link colours once visited", (file, selector) => {
   expect(readFileSync(`src/client/styles/${file}`, "utf8")).toMatch(selector);
 });
