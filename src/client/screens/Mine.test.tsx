@@ -83,6 +83,23 @@ test("the wall waits for the requests read, so the bar never shifts the covers a
   expect(covers()).toHaveLength(3);
 });
 
+test("coming back restores the chips and scroll once the wall, requests and all, has loaded", async () => {
+  setup();
+  sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: "k2" }, scrollY: 300 }));
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  let answer: (v: { requests: never[] }) => void = () => {};
+  vi.mocked(api.listRequests).mockReturnValue(new Promise((r) => { answer = r; }));
+  show();
+  await waitFor(() => expect(api.getShelf).toHaveBeenCalledTimes(2));
+  await act(async () => {});
+  expect(scrollTo).not.toHaveBeenCalled();
+  await act(async () => answer({ requests: [] }));
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 300);
+  expect(screen.getByRole("button", { name: "Collection: Beach house" })).toBeInTheDocument();
+  expect(covers()).toEqual(["/copies/c"]);
+  scrollTo.mockRestore();
+});
+
 test("no collections: the empty line with pair, import, friends and holding links", async () => {
   setup([]);
   show();

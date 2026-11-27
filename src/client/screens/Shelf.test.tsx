@@ -267,11 +267,25 @@ test("an empty collection says so", async () => {
   expect(await screen.findByText("No books here yet.")).toBeInTheDocument();
 });
 
-test("while loading, a skeleton under the app name and no controls", () => {
+test("while loading, the app name and no controls", () => {
   vi.mocked(api.getShelf).mockReturnValue(new Promise(() => {}));
   show();
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+test("coming back to a collection restores the scroll once it has loaded", async () => {
+  sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: null }, scrollY: 400 }));
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  let answer: (v: ReturnType<typeof shelfOf>) => void = () => {};
+  vi.mocked(api.getShelf).mockReturnValue(new Promise((r) => { answer = r; }));
+  show();
+  await act(async () => {});
+  expect(scrollTo).not.toHaveBeenCalled();
+  await act(async () => answer(shelfOf(full, [out()])));
+  expect(screen.getByRole("link", { name: "Book c1, An Author" })).toBeInTheDocument();
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 400);
+  scrollTo.mockRestore();
 });
 
 function tabOf(owner: typeof me | typeof ann) {

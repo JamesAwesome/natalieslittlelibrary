@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
 import { Holding } from "./Holding";
@@ -28,6 +28,20 @@ test("a wall of what I hold, each cover saying whose it is", async () => {
   expect(screen.getByText(line("From Sam (no longer a member)"))).toBeInTheDocument();
   expect(screen.getByText("2 books")).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+test("coming back restores the scroll only once the covers are there", async () => {
+  sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: null }, scrollY: 500 }));
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  let answer: (v: { items: ReturnType<typeof item>[] }) => void = () => {};
+  vi.mocked(api.getHolding).mockReturnValue(new Promise((r) => { answer = r; }));
+  render(<Holding member={me} returnTo="/holding" />);
+  await act(async () => {});
+  expect(scrollTo).not.toHaveBeenCalled();
+  await act(async () => answer({ items: [item({ copyId: "c1", owner: ann })] }));
+  expect(screen.getByRole("link", { name: "Book c1, An Author" })).toBeInTheDocument();
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 500);
+  scrollTo.mockRestore();
 });
 
 test("empty", async () => {

@@ -62,6 +62,17 @@ test("a friend's Collection ▾ lists their collections and has nothing to manag
   expect(covers()).toEqual(["/copies/y"]);
 });
 
+test("coming back to a friend's wall restores the picked collection and the scroll", async () => {
+  annWall();
+  sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: "k8" }, scrollY: 200 }));
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("button", { name: "Collection: Kids" })).toBeInTheDocument();
+  expect(covers()).toEqual(["/copies/y"]);
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 200);
+  scrollTo.mockRestore();
+});
+
 test("one of a friend's shelves failing shows the rest with an alert and Try again", async () => {
   annWall("k8");
   render(<Members id="2" member={me} returnTo="/members/2" />);
