@@ -317,13 +317,15 @@ test("my own shelf reports the books tab once loaded", async () => {
   const setTab = tabOf(me);
   expect(setTab).not.toHaveBeenCalled();
   await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  // The tab is reported from an effect after the loaded render, so wait for it rather than racing it.
+  await waitFor(() => expect(setTab).toHaveBeenCalledWith("books"));
   expect(setTab).toHaveBeenCalledTimes(1);
-  expect(setTab).toHaveBeenCalledWith("books");
 });
 
 test("someone else's shelf reports the friends tab", async () => {
   const setTab = tabOf(ann);
   await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  // The tab is reported from an effect after the loaded render, so wait for it rather than racing it.
+  await waitFor(() => expect(setTab).toHaveBeenCalledWith("friends"));
   expect(setTab).toHaveBeenCalledTimes(1);
-  expect(setTab).toHaveBeenCalledWith("friends");
 });
