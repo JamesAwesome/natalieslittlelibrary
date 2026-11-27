@@ -536,7 +536,7 @@ test("an imported copy with the same ISBN is shown even when the lookup misses, 
   expect(para("It stays in Imported.")).toBeInTheDocument();
   expect(screen.queryByLabelText("Collection")).not.toBeInTheDocument();
   await click("stub label");
-  await findPara("Paired Dune.");
+  await findPara("Paired Dune. It stays in Imported.");
   expect(assign).not.toHaveBeenCalled();
   expect(api.addCopy).toHaveBeenCalledTimes(1);
   expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002" });
@@ -553,7 +553,7 @@ test("a title match after a lookup offers the copies, and picking one labels tha
   await click(/^This one/);
   expect(para("It stays in Imported.")).toBeInTheDocument();
   await click("stub label");
-  await findPara("Paired Dune.");
+  await findPara("Paired Dune. It stays in Imported.");
   expect(assign).not.toHaveBeenCalled();
   expect(api.labelCopy).toHaveBeenCalledWith("c5", "t7k2q9xzmb");
   expect(api.addCopy).not.toHaveBeenCalled();
@@ -1591,7 +1591,7 @@ test("a book picked from Is it one of these? comes back to scanning too", async 
   await waitFor(() => expect(wantOf()).toBe("isbn"));
   expect(assign).not.toHaveBeenCalled();
   expect(api.labelCopy).toHaveBeenCalledWith("c5", "t7k2q9xzmb");
-  expect(para("Paired Dune.")).toBeInTheDocument();
+  expect(para("Paired Dune. It stays in Imported.")).toBeInTheDocument();
 });
 
 test("a double tap on the last step saves once and counts once", async () => {
@@ -1759,4 +1759,40 @@ test("a refused camera is not asked for again after each book", async () => {
   expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
   expect(screen.getByText(denied)).toBeInTheDocument();
   expect(screen.getByLabelText("Title")).toHaveValue("");
+  await userEvent.type(screen.getByLabelText("Title"), "Emma");
+  await click("Continue");
+  expect(await screen.findByLabelText("Or type the code printed under it")).toBeInTheDocument();
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  expect(screen.getByText(denied)).toBeInTheDocument();
+});
+
+test("after a refused camera, Start over tries the camera again", async () => {
+  show();
+  await click("stub denied");
+  await userEvent.type(screen.getByLabelText("Title"), "Emma");
+  await click("Continue");
+  await screen.findByLabelText("Or type the code printed under it");
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  await click("Start over");
+  expect(wantOf()).toBe("isbn");
+});
+
+test("plain /pair: a picked copy gone before the save offers Start over and keeps the count", async () => {
+  vi.mocked(api.getCandidates).mockImplementation(async (q) => (q.title !== undefined ? { sameIsbn: null, similar: [item("c5", "Dune")] } : { sameIsbn: null, similar: [] }));
+  vi.mocked(api.labelCopy).mockResolvedValueOnce({ ...copy, copyId: "c5" }).mockRejectedValueOnce(refuse(404, "not-found"));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await click(/^This one/);
+  await click("stub label");
+  await findPara("Paired Dune. It stays in Imported.");
+  await toConfirm();
+  await click("Yes");
+  await click(/^This one/);
+  await click("stub other label");
+  await screen.findByText("That book can't take a label here.");
+  await click("Start over");
+  expect(wantOf()).toBe("isbn");
+  expect(para("1 paired this time")).toBeInTheDocument();
+  expect(assign).not.toHaveBeenCalled();
 });

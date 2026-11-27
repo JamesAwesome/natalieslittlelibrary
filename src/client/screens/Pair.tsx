@@ -199,8 +199,9 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setProblem(p);
   };
 
+  // A refused camera stays refused across steps, so no step asks for it again; Start over is the way back to it.
   const go = (next: Step) => {
-    setProblem(null);
+    setProblem(cameraDenied.current ? "denied" : null);
     setStep(next);
   };
 
@@ -221,6 +222,12 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     refused.current = null;
     setNotice(undefined);
     go("isbn");
+  }
+
+  // The Start over button: the person's own fresh start, which also tries the camera again.
+  function restart() {
+    cameraDenied.current = false;
+    startOver();
   }
 
   async function look(raw: string) {
@@ -288,8 +295,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           refused.current = label;
           setLinked(null);
           setStale(false);
-          if (cameraDenied.current) setProblem("denied");
-          setLast({ title: saved.book.title, authors: saved.book.authors, coverUrl: saved.book.coverUrl, label, stays: stayed?.name ?? null });
+          // An existing copy (same-ISBN import, or one picked from a list) stays in its collection, as does one that landed elsewhere.
+          setLast({ title: saved.book.title, authors: saved.book.authors, coverUrl: saved.book.coverUrl, label, stays: stayed?.name ?? p.stays?.name ?? null });
           setCount((n) => n + 1);
           heading.current?.focus();
         }
@@ -682,10 +689,11 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       {step === "failed" && code !== null && pending !== null && (
         <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}
-      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && (replace && copyId !== null ? (
+      {/* On plain /pair a book that can't be labelled ends only that book, not the run. */}
+      {step !== "isbn" && step !== "saving" && (step !== "cannot" || loops) && step !== "copyloading" && (replace && copyId !== null ? (
         // Replace mode never opens the add flow: it cannot find a labelled copy, so it would make a second one.
         <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
-      ) : <p><button type="button" className="link" onClick={startOver}>Start over</button></p>)}
+      ) : <p><button type="button" className="link" onClick={restart}>Start over</button></p>)}
     </div>
   );
 }
