@@ -17,16 +17,17 @@
   height: 96px;
 }
 
+/* Reserved at 2:3 until the image has loaded (and for the tiles), then the cover's own proportions. */
 .cover-hero {
-  width: fit-content;
-  max-width: 160px;
-  max-height: 240px;
+  width: 160px;
+  max-width: 100%;
+  aspect-ratio: 2 / 3;
 }
 
-.cover-hero[data-state="none"],
-.cover-hero[data-state="failed"] {
-  width: 160px;
-  aspect-ratio: 2 / 3;
+.cover-hero[data-ready] {
+  width: fit-content;
+  aspect-ratio: auto;
+  max-height: 240px;
 }
 
 .cover {
@@ -41,8 +42,14 @@
   object-fit: cover;
 }
 
-/* The book's own proportions, within the box. */
 .cover-hero .cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The book's own proportions, within the box. */
+.cover-hero[data-ready] .cover {
   width: auto;
   height: auto;
   max-width: 160px;
@@ -76,6 +83,7 @@
   font-weight: 600;
   font-size: var(--text-base);
   line-height: 1.15;
+  hyphens: auto;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;

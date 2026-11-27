@@ -2,7 +2,8 @@
 // Development only: screenshots a URL at exact CSS widths, in light and dark, with headless Chrome over its debugging protocol.
 // Usage: node scripts/shoot.mjs <url> <out-dir> --widths 320,375,414,768 --schemes light,dark [--dpr 3] [--height 812]
 // Chrome refuses --window-size under ~500px, so the width is set with Emulation.setDeviceMetricsOverride and checked.
-// Exit 1 if innerWidth differs from the width asked for. Sideways scroll is reported per shot (and exits 2 if any).
+// Exit 1 if anything is off: navigation fails, the page has nothing matching --expect (default "#root > *"), the colour scheme
+// or innerWidth is not what was asked for, or a shot takes over --timeout seconds (default 30). Exit 2 if any page scrolls sideways.
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,6 +29,7 @@ const proc = spawn(chrome, ["--headless=new", "--remote-debugging-port=0", `--us
 let stopped = false;
 const stop = () => { if (stopped) return; stopped = true; proc.kill(); try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {} };
 process.on("exit", stop);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { stop(); process.exit(130); });
 
 const wsUrl = await new Promise((resolve, reject) => {
   let buf = "";
@@ -53,29 +55,44 @@ const evaluate = async (expression) => (await send("Runtime.evaluate", { express
 const loaded = () => new Promise((resolve) => { const w = (m) => { if (m.method === "Page.loadEventFired") { waiters.splice(waiters.indexOf(w), 1); resolve(); } }; waiters.push(w); });
 
 await send("Page.enable");
-let failed = false;
-let sideways = false;
-for (const scheme of schemes) {
-  for (const width of widths) {
-    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
-    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
-    const done = loaded();
-    await send("Page.navigate", { url });
-    await done;
-    // Lazy images below the fold only load once scrolled to.
-    await evaluate("(async () => { for (let y = 0; y < document.documentElement.scrollHeight; y += innerHeight / 2) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 150)); } scrollTo(0, 0); })()");
-    await evaluate("document.fonts.ready.then(() => new Promise((r) => setTimeout(r, 1500)))");
-    const m = await evaluate("({ inner: innerWidth, scroll: document.documentElement.scrollWidth, body: document.body.scrollWidth })");
-    if (process.env.SHOOT_DEBUG) console.log(await evaluate("[...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).slice(0, 5).map((e) => e.tagName + '.' + e.className + ' ' + Math.round(e.getBoundingClientRect().right)).join(' | ')"));
-    const side = m.scroll > m.inner || m.body > m.inner;
-    if (m.inner !== width) failed = true;
-    if (side) sideways = true;
-    const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, fromSurface: true });
-    const file = join(outDir, `${scheme}-${width}.png`);
-    writeFileSync(file, Buffer.from(data, "base64"));
-    console.log(`${scheme} ${width}px: innerWidth=${m.inner}${m.inner === width ? "" : " MISMATCH"} scrollWidth=${m.scroll} sideways=${side ? "YES" : "no"} ${file}`);
-  }
+const timeoutMs = Number(opt("timeout", "30")) * 1000;
+const expect = opt("expect", "#root > *");
+const within = (promise, what) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out: ${what}`)), timeoutMs))]);
+
+async function shoot(scheme, width) {
+  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+  const done = loaded();
+  const nav = await send("Page.navigate", { url });
+  if (nav.errorText) throw new Error(`navigation failed: ${nav.errorText}`);
+  await within(done, "page load");
+  // Lazy images below the fold only load once scrolled to.
+  await evaluate("(async () => { for (let y = 0; y < document.documentElement.scrollHeight; y += innerHeight / 2) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 150)); } scrollTo(0, 0); })()");
+  await evaluate("document.fonts.ready.then(() => new Promise((r) => setTimeout(r, 1500)))");
+  const m = await evaluate(`({ inner: innerWidth, scroll: document.documentElement.scrollWidth, body: document.body.scrollWidth,
+    dark: matchMedia("(prefers-color-scheme: dark)").matches, scheme: location.protocol, content: document.querySelector(${JSON.stringify(expect)}) !== null })`);
+  if (m.scheme === "chrome-error:") throw new Error("Chrome showed its error page (is the server running?)");
+  if (!m.content) throw new Error(`nothing matches "${expect}" on the page (wrong URL or view?)`);
+  if (m.dark !== (scheme === "dark")) throw new Error(`prefers-color-scheme is ${m.dark ? "dark" : "light"}, wanted ${scheme}`);
+  if (m.inner !== width) throw new Error(`innerWidth is ${m.inner}, wanted ${width}`);
+  if (process.env.SHOOT_DEBUG) console.log(await evaluate("[...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).slice(0, 5).map((e) => e.tagName + '.' + e.className + ' ' + Math.round(e.getBoundingClientRect().right)).join(' | ')"));
+  const side = m.scroll > m.inner || m.body > m.inner;
+  const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, fromSurface: true });
+  const file = join(outDir, `${scheme}-${width}.png`);
+  writeFileSync(file, Buffer.from(data, "base64"));
+  console.log(`${scheme} ${width}px: innerWidth=${m.inner} scrollWidth=${m.scroll} sideways=${side ? "YES" : "no"} ${file}`);
+  return side;
 }
-ws.close();
+
+let code = 0;
+try {
+  for (const scheme of schemes) for (const width of widths) {
+    if (await within(shoot(scheme, width), `${scheme} ${width}px`)) code = 2;
+  }
+} catch (e) {
+  console.error(`FAIL: ${e.message}`);
+  code = 1;
+}
+try { ws.close(); } catch {}
 stop();
-process.exit(failed ? 1 : sideways ? 2 : 0);
+process.exit(code);

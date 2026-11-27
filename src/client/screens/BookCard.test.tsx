@@ -39,11 +39,17 @@ test("the cover is hidden from assistive tech", () => {
   expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
 });
 
+const stored = "https://covers.openlibrary.org/b/id/12345-M.jpg";
+const larger = "https://covers.openlibrary.org/b/id/12345-L.jpg?default=false";
+const loadWith = (img: Element, naturalWidth: number) => {
+  Object.defineProperty(img, "naturalWidth", { value: naturalWidth, configurable: true });
+  fireEvent.load(img);
+};
+
 test("a hero cover asks for the larger image and falls back to the stored one before showing the failed tile", () => {
-  const stored = "https://covers.openlibrary.org/b/isbn/9780141439518-M.jpg";
   const { container } = render(<Cover url={stored} title="T" authors={[]} size="hero" />);
   const img = () => container.querySelector("img")!;
-  expect(img()).toHaveAttribute("src", "https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg");
+  expect(img()).toHaveAttribute("src", larger);
   fireEvent.error(img());
   expect(img()).toHaveAttribute("src", stored);
   expect(container.firstElementChild).toHaveAttribute("data-state", "loaded");
@@ -53,7 +59,50 @@ test("a hero cover asks for the larger image and falls back to the stored one be
 });
 
 test("wall and row covers use the stored URL as is", () => {
-  const stored = "https://covers.openlibrary.org/b/isbn/9780141439518-M.jpg";
+  for (const size of ["wall", "row"] as const) {
+    const { container, unmount } = render(<Cover url={stored} title="T" authors={[]} size={size} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", stored);
+    unmount();
+  }
+});
+
+test("the image carries width and height, so its box is reserved before it loads", () => {
   const { container } = render(<Cover url={stored} title="T" authors={[]} size="row" />);
+  expect(container.querySelector("img")).toHaveAttribute("width", "64");
+  expect(container.querySelector("img")).toHaveAttribute("height", "96");
+});
+
+test("a 1x1 placeholder answered with 200 counts as a failed load", () => {
+  const { container } = render(<Cover url={stored} title="T" authors={[]} size="wall" />);
+  loadWith(container.querySelector("img")!, 1);
+  expect(container.firstElementChild).toHaveAttribute("data-state", "failed");
+  expect(screen.getByText("Cover didn’t load")).toBeInTheDocument();
+});
+
+test("a blank larger hero image falls back to the stored one", () => {
+  const { container } = render(<Cover url={stored} title="T" authors={[]} size="hero" />);
+  loadWith(container.querySelector("img")!, 1);
   expect(container.querySelector("img")).toHaveAttribute("src", stored);
+  loadWith(container.querySelector("img")!, 180);
+  expect(container.firstElementChild).toHaveAttribute("data-state", "loaded");
+  expect(container.firstElementChild).toHaveAttribute("data-ready");
+});
+
+test("a new url starts over: a failure does not stick, and a hero asks for the larger image again", () => {
+  const { container, rerender } = render(<Cover url="https://example.test/a.jpg" title="A" authors={[]} size="hero" />);
+  fireEvent.error(container.querySelector("img")!);
+  expect(container.firstElementChild).toHaveAttribute("data-state", "failed");
+  rerender(<Cover url={stored} title="B" authors={[]} size="hero" />);
+  expect(container.firstElementChild).toHaveAttribute("data-state", "loaded");
+  expect(container.querySelector("img")).toHaveAttribute("src", larger);
+  fireEvent.error(container.querySelector("img")!);
+  rerender(<Cover url="https://covers.openlibrary.org/b/id/999-M.jpg" title="C" authors={[]} size="hero" />);
+  expect(container.querySelector("img")).toHaveAttribute("src", "https://covers.openlibrary.org/b/id/999-L.jpg?default=false");
+});
+
+test("the no-cover tile shows the title and the first author only", () => {
+  const { container } = render(<Cover url={null} title="Beowulf" authors={["Anon", "Second"]} />);
+  expect(container.querySelector(".cover-tile-title")).toHaveTextContent("Beowulf");
+  expect(container.querySelector(".cover-tile-author")).toHaveTextContent("Anon");
+  expect(screen.queryByText("Second")).toBeNull();
 });

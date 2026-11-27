@@ -10,23 +10,35 @@ export const holderLabel = (h: Holder): string => (h.kind === "member" ? personL
 export const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
 
 export type CoverSize = "wall" | "row" | "hero";
-// Width and height attributes reserve the 2:3 box before the image loads.
+// Width and height attributes give the image its 2:3 shape before it loads. The hero's box is reserved in CSS
+// (a fixed width at 2:3) until the image has loaded, and only then takes the cover's own proportions.
 const BOX: Record<CoverSize, [number, number]> = { wall: [160, 240], row: [64, 96], hero: [160, 240] };
 
 // Three states: the image, a plain tile when there is no cover, and the same tile saying the cover did not load.
 // The whole thing is aria-hidden: the title and author beside it name the book.
-export function Cover({ url, title, authors, size = "row" }: { url: string | null; title: string; authors: string[]; size?: CoverSize }) {
-  // 0: the first choice (the larger image at hero size), 1: the stored URL, 2: failed.
-  const [tries, setTries] = useState(0);
-  const larger = size === "hero" && url ? largerCover(url) : null;
-  const src = url && larger !== null && larger !== url && tries === 0 ? larger : url;
-  const broken = tries >= (larger !== null && larger !== url ? 2 : 1);
+// A different url starts over (the key), so a failure never carries across to another book's cover.
+export function Cover(props: { url: string | null; title: string; authors: string[]; size?: CoverSize }) {
+  return <CoverFor key={props.url ?? ""} {...props} />;
+}
+
+function CoverFor({ url, title, authors, size = "row" }: { url: string | null; title: string; authors: string[]; size?: CoverSize }) {
+  // The hero asks for a larger image first. Failed attempts so far: 0, then 1 (the stored URL), then 2 (give up).
+  const [failures, setFailures] = useState(0);
+  const [ready, setReady] = useState(false);
+  const larger = size === "hero" && url ? largerCover(url) : url;
+  const attempts = url && larger !== url ? [larger, url] : [url];
+  const broken = failures >= attempts.length;
   const state = !url ? "none" : broken ? "failed" : "loaded";
   const [width, height] = BOX[size];
+  const fail = () => setFailures((n) => n + 1);
   return (
-    <div className={`cover-frame cover-${size}`} data-state={state} aria-hidden="true">
+    <div className={`cover-frame cover-${size}`} data-state={state} data-ready={ready && state === "loaded" ? "" : undefined} aria-hidden="true">
       {url && !broken ? (
-        <img className="cover" src={src ?? undefined} alt="" width={width} height={height} loading="lazy" referrerPolicy="no-referrer" onError={() => setTries((n) => n + 1)} />
+        <img
+          className="cover" src={attempts[failures] ?? undefined} alt="" width={width} height={height} loading="lazy" referrerPolicy="no-referrer"
+          onLoad={(e) => { if (e.currentTarget.naturalWidth <= 1) fail(); else setReady(true); }}
+          onError={fail}
+        />
       ) : (
         <div className="cover-tile">
           <span className="cover-tile-title">{title}</span>
