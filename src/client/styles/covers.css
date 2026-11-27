@@ -10,6 +10,8 @@
 .cover-wall {
   width: 100%;
   aspect-ratio: 2 / 3;
+  /* The tile's type scales with the tile, so a long single word fits three across on a 320px phone. */
+  container-type: inline-size;
 }
 
 .cover-row {
@@ -127,4 +129,20 @@
 
 .cover-row .cover-tile-author {
   display: none;
+}
+
+/* On the wall a tile can be under 80px wide: tighter padding, and type sized to the tile. Fraunces sets
+   "Middlemarch" about 6.5em wide, so 13cqi keeps an 11-letter word whole inside the 4px padding. */
+.cover-wall .cover-tile {
+  padding: var(--space-2) var(--space-1);
+  gap: var(--space-1);
+}
+
+.cover-wall .cover-tile-title {
+  font-size: clamp(0.625rem, 13cqi, var(--text-base));
+}
+
+.cover-wall .cover-tile-author,
+.cover-wall .cover-tile-note {
+  font-size: clamp(0.5625rem, 11cqi, var(--text-sm));
 }

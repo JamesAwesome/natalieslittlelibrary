@@ -40,6 +40,7 @@ describe.each([
 
   it("keeps text at 4.5:1 or better", () => {
     expect(c("ink", "paper")).toBeGreaterThanOrEqual(4.5);
+    expect(c("ink", "paper-2")).toBeGreaterThanOrEqual(4.5);
     expect(c("muted", "paper")).toBeGreaterThanOrEqual(4.5);
     expect(c("muted", "paper-2")).toBeGreaterThanOrEqual(4.5);
     expect(c("accent", "paper")).toBeGreaterThanOrEqual(4.5);

@@ -1,0 +1,362 @@
+/* The wall: title and count scroll away, the chips row stays at the top, covers sit three across under letter
+   headings, and the A–Z rail is fixed down the right edge between the chips row and the tab bar. */
+:root {
+  --wall-max: 56rem;
+}
+
+/* The column widens for a wall, so the grid can go to four or five covers across. */
+#root:has(.wall) {
+  max-width: var(--wall-max);
+}
+
+.wall {
+  /* The chips row's height: a 44px target plus its padding. Headings and the rail sit below it. */
+  --wall-chips-h: 0px;
+  /* Room on the right for the rail's 44px strip, less the page's own padding. */
+  --wall-gutter: 0px;
+}
+
+.wall[data-chips] {
+  --wall-chips-h: calc(44px + 2 * var(--space-2));
+}
+
+.wall[data-rail] {
+  --wall-gutter: calc(44px - var(--space-4));
+  padding-right: var(--wall-gutter);
+}
+
+.wall > h1 {
+  margin-bottom: var(--space-1);
+}
+
+.wall-count {
+  margin: 0 0 var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+/* Chips: status toggles scroll sideways when they don't fit; Collection stays at the right end. */
+.wall-chips {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--wall-chips-h);
+  /* Bleed the paper to the page edges, so covers never show past it as they scroll under. */
+  margin: 0 calc(-1 * (var(--space-4) + var(--wall-gutter))) var(--space-2) calc(-1 * var(--space-4));
+  padding: 0 calc(var(--space-4) + var(--wall-gutter)) 0 var(--space-4);
+  background: var(--color-paper);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.wall-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  /* Room for the focus ring on the first and last pill. */
+  margin: 0 calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wall-collection {
+  flex: none;
+  margin-left: auto;
+}
+
+/* The button is the 44px target; the pill drawn inside it is smaller. */
+.chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.chip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 32px;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  background: var(--color-paper-2); /* ink on paper-2: 15.20:1 light, 13.82:1 dark */
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Selected: filled with ink, so it differs by more than colour. Paper on ink: 17.11:1 light, 15.50:1 dark. */
+.chip[aria-pressed="true"] .chip-pill,
+.chip[data-active] .chip-pill {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-weight: 600;
+}
+
+.chip:focus-visible {
+  outline: none;
+}
+
+.chip:focus-visible .chip-pill {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.chip-label {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chip[aria-expanded="true"] .chip-chevron {
+  transform: rotate(180deg);
+}
+
+/* The menu hangs from the chips row's right edge, under the Collection button. */
+.wall-menu {
+  position: absolute;
+  top: 100%;
+  right: calc(var(--space-4) + var(--wall-gutter));
+  z-index: 3;
+  box-sizing: border-box;
+  min-width: 12rem;
+  max-width: calc(100% - 2 * var(--space-4) - var(--wall-gutter));
+  padding: var(--space-1) 0;
+  border-radius: 8px;
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  box-shadow: var(--cover-shadow);
+}
+
+.wall-menu-item,
+.wall-menu a.wall-menu-item,
+.wall-menu a.wall-menu-item:visited {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink);
+  text-align: left;
+  text-decoration: none;
+  font-size: var(--text-base);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.wall-menu-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.wall-menu-item[aria-checked="true"] {
+  font-weight: 600;
+}
+
+/* A hairline between choosing a collection and the actions after. */
+.wall-menu [role="menuitemradio"] + [role="menuitem"] {
+  border-top: 1px solid var(--color-rule);
+}
+
+.wall-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) {
+  .wall-menu-item:hover,
+  .wall-menu a.wall-menu-item:hover {
+    background: var(--color-paper-2); /* ink on paper-2: 15.20:1 light, 13.82:1 dark */
+  }
+}
+
+/* Letter groups. Accent on paper: 6.81:1 light, 8.40:1 dark. */
+.wall-letter {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--color-accent);
+  font-size: var(--text-xl);
+  line-height: 1;
+  scroll-margin-top: calc(var(--wall-chips-h) + var(--space-3));
+}
+
+.wall-group:first-of-type .wall-letter {
+  margin-top: var(--space-3);
+}
+
+.wall-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-3);
+  align-items: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 40rem) {
+  .wall-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-5) var(--space-4);
+  }
+}
+
+@media (min-width: 48rem) {
+  .wall-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.wall-tile {
+  min-width: 0;
+}
+
+/* :visited too, or the base visited-link rule (higher specificity) recolours them once followed. */
+.wall a.wall-link,
+.wall a.wall-link:visited {
+  position: relative;
+  display: block;
+  border-radius: 4px;
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+/* Muted on paper: 6.46:1 light, 7.99:1 dark. */
+.wall-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.wall-none p {
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.wall-none button {
+  min-height: 44px;
+}
+
+.wall-skeleton {
+  margin-top: var(--space-6);
+}
+
+.wall-skeleton-tile {
+  aspect-ratio: 2 / 3;
+  border-radius: 4px;
+  background: var(--color-paper-2);
+}
+
+/* The rail: one 44px strip; its 27 marks divide its height evenly, so the finger's height maps to a mark. */
+.alpha-rail {
+  position: fixed;
+  z-index: 4;
+  top: calc(var(--wall-chips-h) + var(--space-2));
+  bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-2));
+  right: max(env(safe-area-inset-right, 0px), calc((100vw - var(--wall-max)) / 2 - var(--space-4)));
+  display: flex;
+  flex-direction: column;
+  width: 44px;
+  max-height: calc(27 * 1.5rem);
+  margin: auto 0;
+  font-family: var(--font-body);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.alpha-rail-mark {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+/* No books under it: smaller and lighter, not just another colour. Muted on paper: 6.46:1 light, 7.99:1 dark. */
+.alpha-rail-mark[data-empty] {
+  color: var(--color-muted);
+  font-size: 0.5625rem;
+  font-weight: 400;
+}
+
+/* The current letter, beside the thumb while dragging. Paper on ink: 17.11:1 light, 15.50:1 dark. */
+.alpha-rail-bubble {
+  position: absolute;
+  right: calc(100% + var(--space-2));
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  box-shadow: var(--cover-shadow);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: wall-bubble-in var(--dur-micro) var(--ease-out);
+}
+
+@keyframes wall-bubble-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alpha-rail-bubble {
+    animation: none;
+  }
+}
+
+@media print {
+  .alpha-rail,
+  .wall-chips {
+    display: none;
+  }
+}

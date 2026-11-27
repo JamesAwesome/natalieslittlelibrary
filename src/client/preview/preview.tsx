@@ -1,11 +1,13 @@
 // Development only: screens and parts rendered from fixtures, with no API.
 // Open /src/client/preview/preview.html?view=<name>. Not linked from the app and not in the production build.
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
 import { TabBar } from "../TabBar";
 import "../styles/index.css";
-import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, type FixtureBook } from "./fixtures";
+import { CoverWall, type WallKind } from "../wall/CoverWall";
+import { ALL } from "../wall/model";
+import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, WALL, WALL_COLLECTIONS, type FixtureBook } from "./fixtures";
 
 const SIZES: CoverSize[] = ["wall", "row", "hero"];
 const STATES: [string, FixtureBook][] = [
@@ -62,7 +64,28 @@ function TabBarView() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers, tabbar: TabBarView };
+// &kind=friend|holding|… picks another wall, &loading shows the skeleton, &empty shows an empty wall.
+function WallView() {
+  document.getElementById("root")?.classList.add("has-tab-bar");
+  const params = new URLSearchParams(location.search);
+  const kind = (params.get("kind") ?? "mine") as WallKind;
+  const [filter, setFilter] = useState(ALL);
+  return (
+    <>
+      <main>
+        <CoverWall
+          kind={kind} title={kind === "holding" ? "Holding" : kind === "mine" ? "My books" : "Ann"}
+          items={params.has("empty") ? [] : WALL} collections={WALL_COLLECTIONS} filter={filter} onFilter={setFilter}
+          onNewCollection={() => {}} loading={params.has("loading")}
+          empty={<p>You haven’t added any books yet.</p>}
+        />
+      </main>
+      <TabBar active="books" />
+    </>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers, tabbar: TabBarView, wall: WallView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 

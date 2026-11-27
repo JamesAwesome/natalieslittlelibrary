@@ -6,6 +6,8 @@ import { expect, test } from "vitest";
 test.each([
   ["shell.css", /\.tab-bar \.tab:visited/],
   ["more.css", /\.more-list a:visited/],
+  ["wall.css", /\.wall a\.wall-link:visited/],
+  ["wall.css", /\.wall-menu a\.wall-menu-item:visited/],
 ])("%s keeps its link colours once visited", (file, selector) => {
   expect(readFileSync(`src/client/styles/${file}`, "utf8")).toMatch(selector);
 });
