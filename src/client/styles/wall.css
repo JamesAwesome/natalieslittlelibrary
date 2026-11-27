@@ -34,8 +34,39 @@ html:has(.wall[data-chips]) {
   padding-right: var(--wall-gutter);
 }
 
-.wall > h1 {
+.wall-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   margin-bottom: var(--space-1);
+}
+
+.wall-head > h1 {
+  margin: 0;
+  min-width: 0;
+}
+
+/* :is(:link, :visited) outranks the global link and visited colours (base.css). */
+a.wall-pair:is(:link, :visited) {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-paper);
+}
+
+.wall-pair svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  fill: none;
 }
 
 .wall-count {
