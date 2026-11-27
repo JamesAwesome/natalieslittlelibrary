@@ -89,14 +89,16 @@ html:has(.wall[data-chips]) {
   margin-top: var(--space-4);
 }
 
-/* Chips: status toggles scroll sideways when they don't fit; Collection stays at the right end. */
+/* Chips: the status toggles stay whole and Collection gives way: a picked collection's name shortens to the room
+   left. The gaps and pill padding are as tight as they go, so with nothing picked the row fits whole on every
+   iPhone from 375px wide (see the 399px query). Only narrower than that do the toggles scroll. */
 .wall-chips {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   box-sizing: border-box;
   height: var(--wall-chips-h);
   /* Bleed the paper to the page edges, so covers never show past it as they scroll under. */
@@ -106,15 +108,21 @@ html:has(.wall[data-chips]) {
   border-bottom: 1px solid var(--color-rule);
 }
 
+/* It never shrinks while Collection can: its cap leaves Collection its 44px button and the gap (the strip's -4px
+   margins give back 8px). When it must scroll (under 375px, bigger text), it moves sideways only: no vertical give,
+   and the rubber-band at either end stays in the strip instead of dragging the page. */
 .wall-status {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
+  gap: 2px;
+  max-width: calc(100% + var(--space-1) - 44px);
   /* Room for the focus ring on the first and last pill. */
   margin: 0 calc(-1 * var(--space-1));
   padding: 0 var(--space-1);
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
 
@@ -125,8 +133,19 @@ html:has(.wall[data-chips]) {
 }
 
 .wall-collection {
-  flex: none;
+  display: flex;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
   margin-left: auto;
+}
+
+.wall-collection > .chip {
+  flex: 0 1 auto;
+}
+
+.wall-collection .chip-label {
+  min-width: 0;
 }
 
 /* The button is the 44px target; the pill drawn inside it is smaller. */
@@ -152,7 +171,7 @@ html:has(.wall[data-chips]) {
   min-width: 44px;
   min-height: 32px;
   justify-content: center;
-  padding: 0 var(--space-2);
+  padding: 0 6px;
   border-radius: 999px;
   background: var(--color-paper-2); /* ink on paper-2: 15.20:1 light, 13.82:1 dark */
   color: var(--color-ink);
@@ -197,6 +216,37 @@ html:has(.wall[data-chips]) {
 
 .chip[aria-expanded="true"] .chip-chevron {
   transform: rotate(180deg);
+}
+
+.chip-icon {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Under 400px (iPhone SE and mini at 375, most models at 390–393) the word "Collection" would push the status
+   chips into a scroll: show the icon instead. The word stays as the button's name. A picked collection still shows
+   its name, and the strip scrolls if that needs the room. */
+@media (max-width: 399px) {
+  .chip-icon {
+    display: block;
+  }
+
+  .chip-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 /* The menu hangs from the chips row's right edge, under the Collection button. */

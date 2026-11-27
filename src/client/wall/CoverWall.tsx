@@ -50,12 +50,16 @@ export function CoverWall(props: Props) {
   const shown = applyFilter(items, filter);
   const groups = groupByLetter(shown);
   const rail = !loading && items.length > 0 && showRail(shown.length, groups.length);
+  // The rail's room on the right follows the whole wall, not the filter, so a filter tap that hides or shows the
+  // rail never slides the chips row and the grid sideways.
+  // (What the filter shows is a subset of the wall, so the rail never shows without its room.)
+  const railRoom = !loading && showRail(items.length, groupByLetter(items).length);
   // Your own wall always has its chips, so Collection ▾ (New collection…, Manage) is there even with no books.
   const chipsShown = chips && !loading && (items.length > 0 || kind === "mine");
   const pick = (letter: string) => document.getElementById(letterId(letter))?.scrollIntoView({ block: "start", behavior: "instant" });
 
   return (
-    <div className="wall" data-chips={chipsShown ? "" : undefined} data-rail={rail ? "" : undefined}>
+    <div className="wall" data-chips={chipsShown ? "" : undefined} data-rail={railRoom ? "" : undefined}>
       <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
       {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
       {props.top && <div className="wall-top">{props.top}</div>}
@@ -241,7 +245,13 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
         <span className="chip-pill">
           {picked ? (
             <span className="chip-label"><span className="visually-hidden">Collection:</span> <Name>{picked.name}</Name></span>
-          ) : <span className="chip-label">Collection</span>}
+          ) : (
+            <>
+              {/* A stack of layers; wall.css shows it in place of the word on a narrow phone. */}
+              <svg className="chip-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6l6-3 6 3-6 3zM2 10l6 3 6-3" /></svg>
+              <span className="chip-label chip-word">Collection</span>
+            </>
+          )}
           <svg className="chip-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
         </span>
       </button>
