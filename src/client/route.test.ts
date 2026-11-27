@@ -19,6 +19,8 @@ test.each([
   ["/members/", { name: "members" }],
   ["/people", { name: "people" }],
   ["/people/", { name: "people" }],
+  ["/more", { name: "more" }],
+  ["/more/", { name: "more" }],
   ["/import", { name: "import" }],
   ["/import/", { name: "import" }],
   ["/collections/c1", { name: "shelf", id: "c1" }],
