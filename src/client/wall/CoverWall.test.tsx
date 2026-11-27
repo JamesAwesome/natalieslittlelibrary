@@ -477,10 +477,22 @@ test("picking a letter on the rail scrolls its heading to the top instantly", ()
   const { container } = wall({ items: many(26) });
   const rail = container.querySelector<HTMLElement>(".alpha-rail")!;
   rail.setPointerCapture = vi.fn();
-  rail.getBoundingClientRect = () => ({ top: 0, height: 270, bottom: 270, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
-  fireEvent.pointerDown(rail, { clientY: 25, pointerId: 1 }); // the third mark, C
+  rail.getBoundingClientRect = () => ({ top: 0, height: 280, bottom: 280, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerDown(rail, { clientY: 35, pointerId: 1 }); // the fourth band, C
   expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "instant" });
   expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(document.getElementById("letter-C"));
+});
+
+test("the rail's top band scrolls the page to the top instantly", () => {
+  const scrollTo = vi.fn();
+  vi.stubGlobal("scrollTo", scrollTo);
+  const { container } = wall({ items: many(26) });
+  const rail = container.querySelector<HTMLElement>(".alpha-rail")!;
+  rail.setPointerCapture = vi.fn();
+  rail.getBoundingClientRect = () => ({ top: 0, height: 280, bottom: 280, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerDown(rail, { clientY: 5, pointerId: 1 });
+  expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "instant" });
+  vi.unstubAllGlobals();
 });
 
 test("while loading it shows nine tile-shaped blocks, hidden, with no images, chips or rail", () => {

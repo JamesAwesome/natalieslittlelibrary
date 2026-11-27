@@ -91,7 +91,7 @@ export function CoverWall(props: Props) {
               </ul>
             </section>
           ))}
-          {rail && <AlphaRail present={groups.map((g) => g.letter)} onPick={pick} />}
+          {rail && <AlphaRail present={groups.map((g) => g.letter)} onPick={pick} onTop={() => window.scrollTo({ top: 0, behavior: "instant" })} />}
         </>
       )}
     </div>
