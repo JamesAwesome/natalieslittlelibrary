@@ -85,9 +85,10 @@ test("public shows the book, the prompt and the sign-in link; cover has empty al
 test("a missing cover is a placeholder, not an image", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(publicView);
   const { container } = show(null);
-  await screen.findByText("Dune");
+  await screen.findByRole("heading", { name: "Dune" });
   expect(container.querySelector("img")).toBeNull();
-  expect(container.querySelector(".cover-missing")).not.toBeNull();
+  expect(container.querySelector("[data-state=none]")).not.toBeNull();
+  expect(screen.queryByText("Cover didn’t load")).toBeNull();
 });
 
 test("public in an embedded browser explains, offers no login link, and copies the link", async () => {
@@ -573,9 +574,12 @@ test("a broken cover image falls back to the placeholder", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView()));
   const { container } = show();
   await screen.findByText(line("Owned by Ann"));
+  // The hero asks for the larger image first, so it takes two failures to give up.
+  act(() => { container.querySelector("img")!.dispatchEvent(new Event("error")); });
   act(() => { container.querySelector("img")!.dispatchEvent(new Event("error")); });
   expect(container.querySelector("img")).toBeNull();
-  expect(container.querySelector(".cover-missing")).not.toBeNull();
+  expect(container.querySelector("[data-state=failed]")).not.toBeNull();
+  expect(screen.getByText("Cover didn’t load")).toBeInTheDocument();
 });
 
 test("names and authors are isolated with bdi so a bidi override cannot reorder the line", async () => {

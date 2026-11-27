@@ -3,7 +3,7 @@
 // Add ?outlines to draw the label outlines too, so their vector positions can be read from the PDF.
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "../index.css";
+import "../styles/index.css";
 import { perSheet } from "./layout";
 import { Sheet } from "./Sheet";
 import { SHEETS } from "./sheets";

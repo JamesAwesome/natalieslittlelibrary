@@ -1,0 +1,76 @@
+:root {
+  /* Light: near-white paper, warm greys, rust highlighter. Ratios are WCAG 2.1. */
+  --color-paper: oklch(98% 0.005 75);
+  --color-paper-2: oklch(94% 0.008 75); /* chips, tiles */
+  --color-ink: oklch(20% 0.012 60); /* 17.11:1 on paper; paper on ink 17.11:1 */
+  --color-muted: oklch(47% 0.012 60); /* 6.46:1 on paper, 5.74:1 on paper-2 */
+  --color-accent: oklch(47% 0.13 45); /* rust, 6.81:1 on paper, 6.05:1 on paper-2 */
+  --color-rule: oklch(88% 0.01 75); /* hairline, 1.36:1 on paper, 1.20:1 on paper-2 */
+  --color-link: oklch(47% 0.13 45); /* 6.81:1 on paper */
+  --color-link-visited: oklch(45% 0.08 20); /* 7.32:1 on paper */
+  --color-alert-bg: oklch(93% 0.03 40);
+  --color-alert-ink: oklch(35% 0.12 35); /* 9.62:1 on alert-bg */
+  --color-tile: oklch(90% 0.03 70); /* no-cover and failed tiles */
+  --color-tile-ink: oklch(30% 0.03 60); /* 10.15:1 on tile */
+  --color-focus: oklch(56% 0.13 45); /* 4.63:1 on paper, 4.11 paper-2, 3.70 ink, 3.96 alert-bg */
+
+  --cover-shadow: 0 1px 2px oklch(20% 0.02 60 / 0.18), 0 4px 12px oklch(20% 0.02 60 / 0.14);
+
+  --font-display: "Fraunces Variable", Georgia, serif;
+  --font-body: "Geist Variable", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* 1.25 scale from a 16px body */
+  --text-sm: 0.8rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 1.953rem;
+  --text-3xl: 2.441rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+
+  /* Old names, kept as aliases until Task 14 removes them. */
+  --bg: var(--color-paper);
+  --fg: var(--color-ink);
+  --accent: var(--color-accent);
+  --accent-fg: var(--color-paper);
+  --alert-bg: var(--color-alert-bg);
+  --alert-fg: var(--color-alert-ink);
+  --cover-bg: var(--color-tile);
+  --link: var(--color-link);
+  --link-visited: var(--color-link-visited);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark: warm brown evening shelf, amber highlighter. */
+    --color-paper: oklch(19% 0.015 55);
+    --color-paper-2: oklch(24% 0.016 55);
+    --color-ink: oklch(94% 0.015 75); /* 15.50:1 on paper; paper on ink 15.50:1 */
+    --color-muted: oklch(74% 0.03 70); /* 7.99:1 on paper, 7.13:1 on paper-2 */
+    --color-accent: oklch(76% 0.11 60); /* amber, 8.40:1 on paper, 7.49:1 on paper-2 */
+    --color-rule: oklch(32% 0.015 55); /* hairline, 1.45:1 on paper, 1.30:1 on paper-2 */
+    --color-link: oklch(76% 0.11 60); /* 8.40:1 on paper */
+    --color-link-visited: oklch(74% 0.07 20); /* 7.79:1 on paper */
+    --color-alert-bg: oklch(27% 0.05 35);
+    --color-alert-ink: oklch(90% 0.05 40); /* 11.20:1 on alert-bg */
+    --color-tile: oklch(30% 0.03 65);
+    --color-tile-ink: oklch(90% 0.03 70); /* 10.14:1 on tile */
+    --cover-shadow: 0 1px 2px oklch(5% 0.01 55 / 0.6), 0 6px 16px oklch(5% 0.01 55 / 0.55);
+    --color-focus: oklch(58% 0.11 60); /* 4.19:1 on paper, 3.73 paper-2, 3.70 ink, 3.47 alert-bg */
+  }
+}

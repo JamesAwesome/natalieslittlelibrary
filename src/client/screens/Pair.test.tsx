@@ -101,7 +101,7 @@ test("happy path saves by ISBN once and goes to the book's page", async () => {
   expect(screen.getByRole("button", { name: "No barcode? Type it in" })).toBeInTheDocument();
   await toConfirm();
   expect(api.lookupBook).toHaveBeenCalledWith("9780000000002");
-  expect(screen.getByText("Dune")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Dune" })).toBeInTheDocument();
   await click("Yes");
   expect(screen.getByText("Now scan a blank label.")).toBeInTheDocument();
   expect(wantOf()).toBe("label");
@@ -525,7 +525,7 @@ test("an imported copy with the same ISBN is shown even when the lookup misses, 
   show();
   await click("stub isbn");
   await screen.findByText("Is this the book?");
-  expect(screen.getByText("Dune (imported)")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Dune (imported)" })).toBeInTheDocument();
   expect(para("From Imported")).toBeInTheDocument();
   expect(api.getCandidates).toHaveBeenCalledWith({ isbn: "9780000000002" });
   await click("Yes");
@@ -601,7 +601,7 @@ test("/pair?copy= goes straight to the label step and labels that copy, never ad
   show("?copy=c1");
   await screen.findByText("Now scan a blank label.");
   expect(api.getCopy).toHaveBeenCalledWith("c1");
-  expect(screen.getByText("Dune")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Dune" })).toBeInTheDocument();
   await click("stub label");
   await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
   expect(api.labelCopy).toHaveBeenCalledWith("c1", "t7k2q9xzmb");
@@ -711,7 +711,7 @@ test("replace mode asks for a label, confirms, then replaces and goes to the new
   expect(wantOf()).toBe("label");
   await typeCode("h4k7m2p9qr");
   expect(para(ASK)).toBeInTheDocument();
-  expect(screen.getByText("Frank Herbert")).toBeInTheDocument();
+  expect(screen.getByText("Frank Herbert", { selector: "bdi" })).toBeInTheDocument();
   expect(para("Label h4k7m2p9qr")).toHaveClass("label-code");
   expect(api.relabelCopy).not.toHaveBeenCalled();
   await click("Replace");

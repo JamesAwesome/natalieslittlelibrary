@@ -1,0 +1,169 @@
+a:not(.button) {
+  color: var(--color-link);
+}
+
+a:not(.button):visited {
+  color: var(--color-link-visited);
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    font-weight: 350;
+  }
+}
+
+#root {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-style: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+h1 {
+  font-size: var(--text-xl);
+  margin: 0 0 var(--space-4);
+}
+
+button,
+a.button {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--dur-micro) var(--ease-out),
+    opacity var(--dur-micro) var(--ease-out);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  transition: none;
+}
+
+button:active:not(:disabled),
+a.button:active {
+  transform: translateY(1px);
+}
+
+a:not(.button):active {
+  text-decoration-thickness: 3px;
+  opacity: 0.75;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border: 2px solid var(--color-alert-ink);
+}
+
+@media (hover: hover) {
+  a:not(.button):hover {
+    text-decoration-thickness: 2px;
+  }
+
+  button:hover:not(:disabled),
+  a.button:hover {
+    opacity: 0.88;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  a.button {
+    transition: none;
+  }
+
+  button:active:not(:disabled),
+  a.button:active {
+    transform: none;
+  }
+}
+
+.refusal {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--alert-fg);
+}
+
+.book {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  margin: 0 0 var(--space-4);
+}
+
+.book > div:last-child {
+  min-width: 0;
+}
+
+.book h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.authors {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.history {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-rule);
+}
+
+.when {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
