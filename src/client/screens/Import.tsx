@@ -290,8 +290,8 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
                   <p>
                     <label htmlFor="import-new-name">Name</label>
                     <input id="import-new-name" type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                      aria-invalid={newError ? true : undefined} aria-describedby={newError ? "import-new-name-error" : undefined} />
-                    {newError && <span id="import-new-name-error" className="field-error">{newError}</span>}
+                      aria-invalid={newError ? true : undefined} aria-describedby="import-new-name-error" />
+                    <span id="import-new-name-error" className="field-error long">{newError}</span>
                   </p>
                   <p><button type="button" onClick={() => void create()}>Create</button></p>
                 </div>
@@ -315,7 +315,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
           <p>
             {outcome.into !== null
               ? <a className="button" href={`/collections/${encodeURIComponent(outcome.into.id)}`}><span>Open <Name>{outcome.into.name}</Name></span></a>
-              : <a className="button" href="/mine">My books</a>}
+              : <a className="button" href="/">My books</a>}
           </p>
         </>
       )}

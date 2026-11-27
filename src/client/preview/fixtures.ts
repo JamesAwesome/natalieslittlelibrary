@@ -1,6 +1,6 @@
 // Development only: public-domain books with real Open Library cover URLs, so the preview needs no API.
 // Cover ids are those of common modern editions, in the /b/id/ form the app stores; none of this is anyone's reading data.
-import type { CollectionRef, Holder, Person, ShelfItem } from "../../shared/types";
+import type { CollectionRef, CollectionSummary, CopyView, Holder, Person, ShelfItem } from "../../shared/types";
 
 const ol = (id: number) => `https://covers.openlibrary.org/b/id/${id}-M.jpg`;
 
@@ -74,3 +74,42 @@ export const WALL: ShelfItem[] = WALL_BOOKS.map(([title, author, coverUrl], i) =
   home: !OUT[title],
   collection: KIDS.has(title) ? WALL_COLLECTIONS[1] : TRANSLATED.has(title) ? WALL_COLLECTIONS[2] : WALL_COLLECTIONS[0],
 }));
+
+// A book's page: Natalie's own copy, a friend's copy that someone else has, one no one owns, and one with the long title.
+const day = (d: number) => Date.UTC(2026, 10, d, 12);
+export const BOOK_COLLECTIONS: CollectionSummary[] = WALL_COLLECTIONS.map((c, i) => ({ ...c, isDefault: i === 0, count: 0, unlabelled: 0 }));
+export const BOOK_VIEWER = { natalie: natalie.id, ann: ann.id };
+const base = (book: FixtureBook): Pick<CopyView, "book" | "request"> => ({ book: { isbn: null, ...book }, request: null });
+export const BOOK_OWNER: CopyView = {
+  ...base(LOADED[3]), copyId: "p4", code: null, ownerCode: "t7k2q9xzmb", owner: natalie, holder: { kind: "member", person: natalie }, home: true,
+  collection: WALL_COLLECTIONS[0], actions: ["lend", "give", "move", "relabel", "release"],
+  history: [
+    { at: day(22), type: "returned", actor: ann },
+    { at: day(19), type: "lent", actor: natalie, subject: { kind: "member", person: ann } },
+    { at: day(16), type: "labelled", actor: natalie },
+    { at: day(16), type: "added", actor: natalie },
+  ],
+};
+// Ann looks at Natalie's book that Grandad has: the server offers her claim, never request (only the holder may ask).
+export const BOOK_FRIEND: CopyView = {
+  ...base(LOADED[0]), copyId: "p1", code: "abc", ownerCode: null, owner: natalie, holder: { kind: "person", id: "x1", name: "Grandad" }, home: false,
+  collection: WALL_COLLECTIONS[0], actions: ["claim"],
+  history: [{ at: day(20), type: "lent", actor: natalie, subject: { kind: "person", id: "x1", name: "Grandad" } }, { at: day(12), type: "added", actor: natalie }],
+};
+export const BOOK_OWNERLESS: CopyView = {
+  ...base(NO_COVER), copyId: "p6", code: "def", ownerCode: null, owner: null, holder: null, home: false, collection: null, actions: ["adopt"],
+  history: [{ at: day(21), type: "released", actor: sam }, { at: day(2), type: "added", actor: sam }],
+};
+export const BOOK_LONG: CopyView = {
+  ...base(NO_COVER_LONG), copyId: "p8", code: null, ownerCode: null, owner: { ...natalie, removed: true }, holder: { kind: "member", person: sam }, home: false,
+  collection: WALL_COLLECTIONS[2], request: { by: sam, at: day(23) }, actions: [],
+  history: [{ at: day(23), type: "requested", actor: sam }, { at: day(14), type: "claimed", actor: sam }],
+};
+
+// Google Books thumbnails are about 128px wide; drawn here at 128x192 and 128x160, the sizes that used to move the page.
+const googleSized = (h: number) => `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="${h}" viewBox="0 0 128 ${h}"><rect width="128" height="${h}" fill="#33506b"/>` +
+  `<rect x="10" y="${h - 46}" width="108" height="30" fill="#e9dcc2"/><text x="64" y="${h - 26}" font-family="Georgia" font-size="12" text-anchor="middle" fill="#33506b">Emma</text></svg>`,
+)}`;
+export const BOOK_GOOGLE: CopyView = { ...BOOK_FRIEND, book: { ...BOOK_FRIEND.book, title: "Emma", coverUrl: googleSized(192) } };
+export const BOOK_GOOGLE_SHORT: CopyView = { ...BOOK_FRIEND, book: { ...BOOK_FRIEND.book, title: "Emma", coverUrl: googleSized(160) } };

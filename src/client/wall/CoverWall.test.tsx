@@ -259,6 +259,49 @@ test("Escape and a click outside close the menu", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
+test("a tap outside the open menu only closes it: the cover under the finger does not open", () => {
+  const { props } = wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  const cover = screen.getByRole("link", { name: "Book c1, An Author" });
+  fireEvent.pointerDown(cover);
+  expect(screen.queryByRole("menu")).toBeNull();
+  // fireEvent returns false when the default (following the link) was prevented.
+  expect(fireEvent.click(cover)).toBe(false);
+  // Swallowed once: the next tap works, here on a chip.
+  const chip = screen.getByRole("button", { name: "At home" });
+  fireEvent.pointerDown(chip);
+  expect(fireEvent.click(chip)).toBe(true);
+  expect(props.onFilter).toHaveBeenCalledExactlyOnceWith({ ...ALL, status: "home" });
+});
+
+test("a tap outside the open menu on a chip closes the menu without pressing the chip", () => {
+  const { props } = wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  const chip = screen.getByRole("button", { name: "At home" });
+  fireEvent.pointerDown(chip);
+  fireEvent.click(chip);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(props.onFilter).not.toHaveBeenCalled();
+});
+
+test("a gesture outside that ends without a click (a scroll) leaves the next tap alone", () => {
+  const { props } = wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  fireEvent.pointerDown(screen.getByRole("link", { name: "Book c1, An Author" }));
+  fireEvent.pointerCancel(screen.getByRole("link", { name: "Book c1, An Author" }));
+  fireEvent.click(screen.getByRole("button", { name: "At home" }));
+  expect(props.onFilter).toHaveBeenCalledExactlyOnceWith({ ...ALL, status: "home" });
+});
+
+test("a tap inside the open menu still picks", () => {
+  const { props } = wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  const kidsItem = screen.getByRole("menuitemradio", { name: "Kids" });
+  fireEvent.pointerDown(kidsItem);
+  fireEvent.click(kidsItem);
+  expect(props.onFilter).toHaveBeenCalledExactlyOnceWith({ ...ALL, collectionId: "k2" });
+});
+
 test("Tab closes the menu and leaves focus on the button", () => {
   wall();
   const button = screen.getByRole("button", { name: "Collection" });

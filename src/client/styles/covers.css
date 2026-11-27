@@ -1,4 +1,4 @@
-/* Covers: a fixed 2:3 box in three sizes, and three states (loaded, no cover, failed to load). */
+/* Covers: a fixed 2:3 box in four sizes, and three states (loaded, no cover, failed to load). */
 .cover-frame {
   flex: none;
   min-width: 0;
@@ -19,7 +19,15 @@
   height: 96px;
 }
 
-/* Reserved at 2:3 until the image has loaded (and for the tiles), then the cover's own proportions. */
+/* Pair's book card. */
+.cover-card {
+  width: 96px;
+  height: 144px;
+}
+
+/* A fixed 160 by 240 box, before and after the image loads, so nothing below it ever moves.
+   Once loaded, the cover keeps its own proportions inside the box, bottom-aligned and centred, and the shadow and corners
+   move from the box to the image. A full-size Open Library cover fills the box; a small Google one sits at its own size. */
 .cover-hero {
   width: 160px;
   max-width: 100%;
@@ -27,9 +35,12 @@
 }
 
 .cover-hero[data-ready] {
-  width: fit-content;
-  aspect-ratio: auto;
-  max-height: 240px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
 }
 
 .cover {
@@ -38,7 +49,8 @@
 }
 
 .cover-wall .cover,
-.cover-row .cover {
+.cover-row .cover,
+.cover-card .cover {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -54,8 +66,12 @@
 .cover-hero[data-ready] .cover {
   width: auto;
   height: auto;
-  max-width: 160px;
-  max-height: 240px;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  box-shadow: var(--cover-shadow);
 }
 
 /* No cover: a plain cloth binding, not an error. */
@@ -129,6 +145,23 @@
 
 .cover-row .cover-tile-author {
   display: none;
+}
+
+/* 88px of line inside the padding: Fraunces sets "Middlemarch" at --text-sm about 83px wide, so it stays whole. */
+.cover-card .cover-tile {
+  padding: var(--space-2) var(--space-1);
+  gap: var(--space-1);
+}
+
+.cover-card .cover-tile-title {
+  font-size: var(--text-sm);
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+}
+
+.cover-card .cover-tile-author,
+.cover-card .cover-tile-note {
+  font-size: var(--text-xs);
 }
 
 /* On the wall a tile can be under 80px wide: tighter padding, and type sized to the tile. Fraunces sets

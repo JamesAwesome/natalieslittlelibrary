@@ -139,7 +139,7 @@ test("one failing shelf: the rest show, with an alert and Try again and no count
     return shelfOf(home, homeItems);
   });
   show();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn’t load.");
   expect(covers()).toEqual(["/copies/a", "/copies/b"]);
   expect(screen.queryByText(/^\d+ books?/)).not.toBeInTheDocument();
   vi.mocked(api.getShelf).mockImplementation(async (id) => (id === "k1" ? shelfOf(home, homeItems) : shelfOf(beach, beachItems)));
@@ -156,7 +156,7 @@ test("one failing shelf beside an empty one doesn't claim there are no books", a
     return shelfOf(home, []);
   });
   show();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn’t load.");
   expect(screen.queryByText("You haven’t added any books yet.")).not.toBeInTheDocument();
 });
 
@@ -282,7 +282,9 @@ test("an invalid name is stopped before any request", async () => {
   show();
   await openCreate();
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("A collection name is 1 to 60 characters, with no control characters.");
+  const field = screen.getByLabelText("Name");
+  await waitFor(() => expect(field).toHaveAccessibleDescription("A collection name is 1 to 60 characters, with no control characters."));
+  expect(field).toHaveAttribute("aria-invalid", "true");
   expect(api.createCollection).not.toHaveBeenCalled();
 });
 
@@ -293,7 +295,36 @@ test("any other failure says something went wrong", async () => {
   await openCreate();
   await userEvent.type(screen.getByLabelText("Name"), "Cabin");
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong. Try again.");
+  await waitFor(() => expect(screen.getByLabelText("Name")).toHaveAccessibleDescription("Something went wrong. Try again."));
+});
+
+test("the name's error slot is under the field from the start, empty, and the field is invalid only with an error", async () => {
+  setup();
+  show();
+  await openCreate();
+  const field = screen.getByLabelText("Name");
+  expect(field).not.toHaveAttribute("aria-invalid");
+  expect(field).toHaveAccessibleDescription("");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("Cancel closes the new collection form clean and hands focus back to Collection", async () => {
+  setup();
+  show();
+  await openCreate();
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true"));
+  await userEvent.type(screen.getByLabelText("Name"), "Cab");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("heading", { level: 2, name: "New collection" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Collection" })).toHaveFocus();
+  expect(api.createCollection).not.toHaveBeenCalled();
+  // Opening it again starts empty, with no error.
+  await openCreate();
+  expect(screen.getByLabelText("Name")).toHaveValue("");
+  expect(screen.getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+  expect(screen.queryByText("A collection name is 1 to 60 characters, with no control characters.")).not.toBeInTheDocument();
 });
 
 test("a 401 while creating shows sign-in with no stale controls", async () => {

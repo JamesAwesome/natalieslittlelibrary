@@ -11,7 +11,7 @@ export function Trouble({ onRetry }: { onRetry: () => void }) {
 export function SomeFailed({ onRetry }: { onRetry: () => void }) {
   return (
     <>
-      <p role="alert" className="refusal">Some books couldn't load.</p>
+      <p role="alert" className="refusal">Some books couldn’t load.</p>
       <button type="button" onClick={onRetry}>Try again</button>
     </>
   );

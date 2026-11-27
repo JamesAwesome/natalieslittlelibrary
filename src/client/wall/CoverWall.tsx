@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import type { CollectionRef, ShelfItem } from "../../shared/types";
 import { Cover, holderLabel, Name, personLabel } from "../screens/BookCard";
 import { AlphaRail } from "./AlphaRail";
@@ -20,6 +20,8 @@ type Props = {
   /** Some shelves failed to load, so the count would be wrong. */
   incomplete?: boolean;
   onNewCollection?: () => void;
+  /** The Collection ▾ button, so the screen can hand focus back to it (closing the form New collection… opened). */
+  menuButtonRef?: RefObject<HTMLButtonElement | null>;
   filter: WallFilter;
   onFilter(f: WallFilter): void;
   empty: ReactNode;
@@ -148,13 +150,35 @@ function Tile({ kind, item }: { kind: WallKind; item: ShelfItem }) {
   );
 }
 
-function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollection }: Props) {
+// Eats the next click anywhere, once, and returns a function that disarms it. A gesture that ends with no click (a
+// scroll's pointercancel) disarms it, as does the next pointerdown or key, so it never eats a later tap or Enter.
+// Added during the pointerdown's own dispatch, its pointerdown listener does not hear that same event.
+function swallowNextClick(): () => void {
+  const click = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    disarm();
+  };
+  const disarm = () => {
+    document.removeEventListener("click", click, true);
+    for (const type of ["pointercancel", "pointerdown", "keydown"]) document.removeEventListener(type, disarm, true);
+  };
+  document.addEventListener("click", click, true);
+  for (const type of ["pointercancel", "pointerdown", "keydown"]) document.addEventListener(type, disarm, true);
+  return disarm;
+}
+
+function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollection, menuButtonRef }: Props) {
   const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
+  const ownButton = useRef<HTMLButtonElement>(null);
+  const button = menuButtonRef ?? ownButton;
   const root = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const picked = collections.find((c) => c.id === filter.collectionId) ?? null;
+  // Disarms a click swallow still waiting when the wall goes away.
+  const swallow = useRef<(() => void) | null>(null);
+  useEffect(() => () => swallow.current?.(), []);
 
   const close = (refocus: boolean) => {
     setOpen(false);
@@ -171,9 +195,15 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
       m.style.maxHeight = `${Math.max(88, floor - m.getBoundingClientRect().top - 8)}px`;
     }
     (entries()[0])?.focus();
-    const outside = (e: Event) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
+    // A tap outside only closes the menu: the click it goes on to make (on a cover, a tab) is swallowed, once.
+    const outside = (e: Event) => {
+      if (root.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      swallow.current?.();
+      swallow.current = swallowNextClick();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    return () => document.removeEventListener("pointerdown", outside, true);
   }, [open]);
 
   const onKeyDown = (e: KeyboardEvent) => {

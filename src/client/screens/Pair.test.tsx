@@ -652,7 +652,7 @@ test.each([
   arrange();
   show("?copy=c1");
   await screen.findByText("That book can't take a label here.");
-  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/");
   expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
   expect(api.labelCopy).not.toHaveBeenCalled();
 });
@@ -780,7 +780,7 @@ test("without replace=1, a copy that can't take a label keeps the My books wordi
   vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, ownerCode: "t7k2q9xzmb", book, actions: ["move"] } as CopyView);
   show("?copy=c1");
   await screen.findByText("That book can't take a label here.");
-  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "My books" })).toHaveAttribute("href", "/");
 });
 
 const OWN = "That's the label already on this book. Scan a new blank one.";
@@ -1475,4 +1475,35 @@ test("the h1 is Pair a book, or the app name when signed out", () => {
   unmount();
   show("", null);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+test("each error slot exists and is empty until there is an error, and aria-invalid follows the error", async () => {
+  show();
+  await click("No barcode? Type it in");
+  const title = screen.getByLabelText("Title");
+  const isbn = screen.getByLabelText("ISBN (optional)");
+  for (const f of [title, isbn]) {
+    expect(f).not.toHaveAttribute("aria-invalid");
+    const slot = document.getElementById(f.getAttribute("aria-describedby") ?? "");
+    expect(slot).not.toBeNull();
+    expect(slot).toHaveTextContent("");
+  }
+  await click("Continue");
+  expect(title).toHaveAttribute("aria-invalid", "true");
+  expect(title).toHaveAccessibleDescription("Type the title.");
+  expect(isbn).not.toHaveAttribute("aria-invalid");
+});
+
+test("the new collection name field is invalid only while its error shows, and the slot is always there", async () => {
+  mineIs(two);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.selectOptions(await screen.findByLabelText("Collection"), "new");
+  const name = screen.getByLabelText("Name");
+  expect(name).not.toHaveAttribute("aria-invalid");
+  expect(document.getElementById(name.getAttribute("aria-describedby") ?? "")).toHaveTextContent("");
+  await click("Create");
+  expect(name).toHaveAttribute("aria-invalid", "true");
+  expect(name).toHaveAccessibleDescription("A collection name is 1 to 60 characters, with no control characters.");
 });

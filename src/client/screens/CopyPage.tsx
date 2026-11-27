@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ActionType, CollectionSummary, CopyView, HistoryEntry, LabelView, LendTo, Member, Person } from "../../shared/types";
 import {
   adoptCopy, ApiError, approveRequest, claim, declineRequest, getCopy, getLabel, giveCopy, lendCopy, listMembers, moveCopy, myCollections,
   releaseCopy, requestCopy, returnCopy, withdrawRequest,
 } from "../api";
-import { Book, holderLabel, Name, personLabel } from "./BookCard";
-import { APP_NAME, useTab, type Tab } from "../shell";
+import { backFor, mainAction, storedBack, type Back } from "../book/model";
+import { Cover, holderLabel, Name, personLabel } from "./BookCard";
+import { APP_NAME, tabRoot, useTab, type Tab } from "../shell";
 import { LendBox } from "./LendBox";
 import { SignIn } from "./SignIn";
 
@@ -52,8 +53,51 @@ function historyKeys(history: HistoryEntry[]): [string, HistoryEntry][] {
   });
 }
 
-function Copy(props: {
+// One stroke set with the tab icons: 24x24, 1.6 stroke, round caps and joins.
+const Chevron = ({ back = false }: { back?: boolean }) => (
+  <svg className="book-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={back ? "M14.5 6l-6 6 6 6" : "M9.5 6l6 6-6 6"} /></svg>
+);
+
+// Parts of one line, with a middle dot between those present.
+const joined = (parts: ReactNode[]) => parts.filter(Boolean).map((p, i) => <Fragment key={i}>{i > 0 && " \u00B7 "}{p}</Fragment>);
+
+// The way back to the wall this visit came from. The visible text is the wall's name; its accessible name says "Back to".
+// The link is a flex row, so the space that keeps the name readable takes no room on screen.
+export function BookBack({ href, label }: { href: string; label: string }) {
+  return (
+    <p className="book-back">
+      <a href={href}><Chevron back /><span className="visually-hidden">Back to</span>{" "}<span className="book-back-label"><Name>{label}</Name></span></a>
+    </p>
+  );
+}
+
+// The cover, centred, then the title and the authors. The title takes focus after an action, so it can be focused by script.
+function BookHead({ book }: { book: { title: string; authors: string[]; coverUrl: string | null } }) {
+  return (
+    <div className="book-head">
+      <Cover url={book.coverUrl} title={book.title} authors={book.authors} size="hero" />
+      <h1 tabIndex={-1}>{book.title}</h1>
+      {book.authors.length > 0 && (
+        <p className="book-authors">{book.authors.map((a, i) => <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>)}</p>
+      )}
+    </div>
+  );
+}
+
+// Signed out: the same layout, with sign-in where the main button goes.
+export function PublicBook({ book, returnTo }: { book: { title: string; authors: string[]; coverUrl: string | null }; returnTo: string }) {
+  return (
+    <>
+      <BookHead book={book} />
+      <p className="book-status">Sign in to see who has this book or to take it.</p>
+      <div className="book-main"><SignIn returnTo={returnTo} /></div>
+    </>
+  );
+}
+
+export function Copy(props: {
   copy: CopyView;
+  viewerId: string | null;
   busy: boolean;
   onAction: (a: ActionType) => void;
   choices: CollectionSummary[] | undefined;
@@ -63,7 +107,7 @@ function Copy(props: {
   onGive: (memberId: string) => void;
   onRelease: () => void;
 }) {
-  const { copy, busy, onAction, choices, choicesFailed, onMove, onLend, onGive, onRelease } = props;
+  const { copy, viewerId, busy, onAction, choices, choicesFailed, onMove, onLend, onGive, onRelease } = props;
   const [step, setStep] = useState<"lend" | "give" | "release" | "approve" | undefined>(undefined);
   const [giveTo, setGiveTo] = useState<Person | undefined>(undefined);
   const [members, setMembers] = useState<Person[] | "failed" | undefined>(undefined);
@@ -87,98 +131,110 @@ function Copy(props: {
   const current = copy.collection?.id;
   const options = (choices ?? []).filter((c) => c.id !== current);
   const chosen = picked !== undefined && options.some((c) => c.id === picked) ? picked : options[0]?.id;
-  // A copy with no label code was reached by id; claiming and taking go through the code, so they are not offered.
-  // Move, label, relabel, lend, give and release have controls of their own.
   // An action this page has no text for (a newer server's) is ignored, never a blank button.
-  const own: ActionType[] = ["move", "label", "relabel", "lend", "give", "release"];
+  const known = copy.actions.filter((a) => a in actionText);
+  const main = mainAction(known, copy.code);
   // Approve hands the book over, so it asks first; while it asks, its own buttons stand in for the plain one.
   const approving = step === "approve" && copy.request !== null;
-  const buttons = copy.actions.filter(
-    (a) => a in actionText && !own.includes(a) && !((a === "claim" || a === "adopt") && copy.code === null) && !(a === "approve" && approving),
-  );
-  const mayAsk = (a: "lend" | "give" | "release") => copy.actions.includes(a) && step === undefined;
+  // Lend, give and release open a step; while any step is open, none of the three is offered again.
+  const shows = (a: ActionType) => (a === "lend" || a === "give" || a === "release" ? step === undefined : !(a === "approve" && approving));
+  const press = (a: ActionType) => (a === "approve" || a === "lend" || a === "give" || a === "release" ? setStep(a) : onAction(a));
+  // A copy with no label code was reached by id; claiming and taking go through the code, so they are not offered.
+  // Move has its own control, and label and relabel go to pairing.
+  const rowActions = known.filter((a) => a !== main && a !== "move" && !((a === "claim" || a === "adopt") && copy.code === null));
+  const rows = rowActions.flatMap((a) => {
+    if (a === "label" || a === "relabel") {
+      const href = `/pair?copy=${encodeURIComponent(copy.copyId)}${a === "relabel" ? "&replace=1" : ""}`;
+      return [<li key={a}><a className="book-row" href={href}><span>{actionText[a]}</span><Chevron /></a></li>];
+    }
+    if (!shows(a)) return [];
+    return [<li key={a}><button type="button" className="book-row" disabled={busy} onClick={() => press(a)}><span>{actionText[a]}</span><Chevron /></button></li>];
+  });
+  if (copy.actions.includes("move") && options.length > 0 && chosen !== undefined) {
+    rows.push(
+      <li key="move" className="move">
+        <label>
+          {actionText.move} to
+          <select value={chosen} disabled={busy} onChange={(e) => setPicked(e.target.value)}>
+            {options.map((c) => <option key={c.id} value={c.id} dir="auto">{c.name}</option>)}
+          </select>
+        </label>
+        <button type="button" className="secondary" disabled={busy} onClick={() => onMove(chosen)}>Move</button>
+      </li>,
+    );
+  }
+
+  const isOwner = viewerId !== null && copy.owner !== null && copy.owner.id === viewerId;
+  const where = copy.home ? <span className="book-where">At home</span>
+    : copy.holder && <span className="book-where">With <Name>{holderLabel(copy.holder)}</Name></span>;
+  const whose = copy.owner === null ? <span>No one owns this book.</span> : !isOwner && <><Name>{personLabel(copy.owner)}</Name>’s book</>;
+  const status = joined([where, whose]);
+  const meta = isOwner
+    ? joined([copy.collection && <>In <Name>{copy.collection.name}</Name></>, copy.ownerCode !== null && <span className="label-code">Label {copy.ownerCode}</span>])
+    : [];
   return (
     <>
-      <Book {...copy.book} headingLevel={1} />
-      {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
-      {copy.owner ? (
-        <p>Owned by <Name>{personLabel(copy.owner)}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
-      ) : <p>No one owns this book.</p>}
-      {copy.home ? <p>At home</p> : copy.holder && <p>With <Name>{holderLabel(copy.holder)}</Name></p>}
-      {copy.request && <p><Name>{personLabel(copy.request.by)}</Name> asked to keep this</p>}
-      {buttons.length > 0 && (
-        <p>
-          {buttons.map((a) => (
-            <button key={a} type="button" disabled={busy} onClick={() => (a === "approve" ? setStep("approve") : onAction(a))}>{actionText[a]}</button>
-          ))}
-        </p>
+      <BookHead book={copy.book} />
+      {status.length > 0 && <p className="book-status">{status}</p>}
+      {meta.length > 0 && <p className="book-meta">{meta}</p>}
+      {copy.request && <p className="book-request"><Name>{personLabel(copy.request.by)}</Name> asked to keep this</p>}
+      {main !== null && shows(main) && (
+        <div className="book-main">
+          <button type="button" disabled={busy} onClick={() => press(main)}>{actionText[main]}</button>
+        </div>
       )}
-      {mayAsk("lend") && <p><button type="button" disabled={busy} onClick={() => setStep("lend")}>{actionText.lend}</button></p>}
-      {mayAsk("give") && <p><button type="button" disabled={busy} onClick={() => setStep("give")}>{actionText.give}</button></p>}
-      {mayAsk("release") && <p><button type="button" disabled={busy} onClick={() => setStep("release")}>{actionText.release}</button></p>}
       {step === "lend" && copy.owner && (
-        <div>
+        <div className="book-flow">
           <LendBox ownerId={copy.owner.id} holder={copy.holder} busy={busy} onLend={onLend} />
-          <button type="button" onClick={close}>Cancel</button>
+          <button type="button" className="secondary" onClick={close}>Cancel</button>
         </div>
       )}
       {step === "give" && giveTo === undefined && (
-        <div>
+        <div className="book-flow">
           {members === undefined && <p>Loading members.</p>}
           {members === "failed" && <p>Couldn't load the members, so giving isn't available right now.</p>}
           {Array.isArray(members) && members.length === 0 && <p>There is no one to give it to.</p>}
           {Array.isArray(members) && (
-            <ul>
+            <ul className="book-choices">
               {members.map((m) => <li key={m.id}><button type="button" disabled={busy} onClick={() => setGiveTo(m)}><Name>{m.name}</Name></button></li>)}
             </ul>
           )}
-          <button type="button" onClick={close}>Cancel</button>
+          <button type="button" className="secondary" onClick={close}>Cancel</button>
         </div>
       )}
       {step === "give" && giveTo !== undefined && (
-        <div>
+        <div className="book-flow">
           <p>Give <Name>{copy.book.title}</Name> to <Name>{giveTo.name}</Name>?</p>
           <button type="button" disabled={busy} onClick={() => onGive(giveTo.id)}>{actionText.give}</button>
-          <button type="button" onClick={close}>Cancel</button>
+          <button type="button" className="secondary" onClick={close}>Cancel</button>
         </div>
       )}
       {approving && copy.request && (
-        <div>
+        <div className="book-flow">
           <p>Let <Name>{personLabel(copy.request.by)}</Name> keep <Name>{copy.book.title}</Name>?</p>
           <button type="button" disabled={busy} onClick={() => onAction("approve")}>{actionText.approve}</button>
-          <button type="button" onClick={close}>Cancel</button>
+          <button type="button" className="secondary" onClick={close}>Cancel</button>
         </div>
       )}
       {step === "release" && (
-        <div>
+        <div className="book-flow">
           <p>Release <Name>{copy.book.title}</Name>? It leaves your collection and anyone who scans it can take it.</p>
           <button type="button" disabled={busy} onClick={onRelease}>{actionText.release}</button>
-          <button type="button" onClick={close}>Cancel</button>
+          <button type="button" className="secondary" onClick={close}>Cancel</button>
         </div>
       )}
-      {copy.actions.includes("move") && options.length > 0 && chosen !== undefined && (
-        <p className="move">
-          <label>
-            {actionText.move} to
-            <select value={chosen} disabled={busy} onChange={(e) => setPicked(e.target.value)}>
-              {options.map((c) => <option key={c.id} value={c.id} dir="auto">{c.name}</option>)}
-            </select>
-          </label>
-          <button type="button" disabled={busy} onClick={() => onMove(chosen)}>Move</button>
-        </p>
-      )}
+      {rows.length > 0 && <ul className="book-rows" aria-label="Other actions">{rows}</ul>}
       {copy.actions.includes("move") && choicesFailed && <p>Couldn't load your collections, so moving isn't available right now.</p>}
-      {copy.actions.includes("label") && (
-        <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}`}>{actionText.label}</a></p>
+      {copy.history.length > 0 && (
+        <>
+          <h2 className="book-history-heading">History</h2>
+          <ul className="history">
+            {historyKeys(copy.history).map(([key, h]) => (
+              <li key={key}><Name>{personLabel(h.actor)}</Name> {historyText[h.type](h.subject ? <Name>{holderLabel(h.subject)}</Name> : "someone")} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
+            ))}
+          </ul>
+        </>
       )}
-      {copy.actions.includes("relabel") && (
-        <p><a className="button" href={`/pair?copy=${encodeURIComponent(copy.copyId)}&replace=1`}>{actionText.relabel}</a></p>
-      )}
-      <ul className="history">
-        {historyKeys(copy.history).map(([key, h]) => (
-          <li key={key}><Name>{personLabel(h.actor)}</Name> {historyText[h.type](h.subject ? <Name>{holderLabel(h.subject)}</Name> : "someone")} <span className="when">{new Date(h.at).toLocaleDateString()}</span></li>
-        ))}
-      </ul>
     </>
   );
 }
@@ -253,7 +309,37 @@ function Page(props: Props) {
     else if (view.copy.holder?.kind === "member" && view.copy.holder.person.id === member.id) tab = "holding";
     else tab = "friends";
   }
-  useTab(tab);
+  // The tab and the way back are decided once, when the view first comes in, and stay for the visit:
+  // a claim that makes me the holder doesn't move the page to Holding, and a move or a give doesn't change where Back goes.
+  // The way back is also saved with this history entry: a reload (App reloads a page restored from the back-forward cache)
+  // has the page itself as its referrer, so the saved one is preferred, if it is one this page could have made.
+  const [pinned, setPinned] = useState<{ tab: Tab; back: Back } | undefined>(undefined);
+  if (pinned === undefined && tab !== undefined && view !== undefined) {
+    const copy = view.kind === "copy" ? view.copy : null;
+    const back = storedBack(history.state, copy) ?? (copy !== null ? backFor(document.referrer, location.origin, copy, tab) : tabRoot[tab]);
+    setPinned({ tab, back });
+  }
+  useTab(pinned?.tab ?? tab);
+  const savedBack = pinned?.back;
+  useEffect(() => {
+    if (savedBack === undefined) return;
+    const state: unknown = history.state;
+    try {
+      history.replaceState({ ...(typeof state === "object" ? state : null), back: savedBack }, "");
+    } catch {
+      // A history entry that can't be written only means a reload falls back to the referrer.
+    }
+  }, [savedBack]);
+
+  // After an action, focus goes where the news is: the notice, when there is one, else the page's heading.
+  // Nobody is left at the top of the document, or scrolled away from what went wrong, when the page redraws.
+  const page = useRef<HTMLDivElement>(null);
+  const [acted, setActed] = useState(0);
+  useEffect(() => {
+    if (acted === 0) return;
+    const alert = page.current?.querySelector<HTMLElement>('[role="alert"]');
+    (alert ?? page.current?.querySelector<HTMLElement>("h1"))?.focus();
+  }, [acted]);
 
   const load = useCallback(async () => {
     setFailed(false);
@@ -334,7 +420,10 @@ function Page(props: Props) {
       await load();
     } finally {
       inFlight.current = false;
-      if (live.current) setBusy(false);
+      if (live.current) {
+        setBusy(false);
+        setActed((n) => n + 1);
+      }
     }
   }
 
@@ -364,56 +453,59 @@ function Page(props: Props) {
       await load();
     } finally {
       inFlight.current = false;
-      if (live.current) setBusy(false);
+      if (live.current) {
+        setBusy(false);
+        setActed((n) => n + 1);
+      }
     }
   }
 
-  const heading = <h1>{APP_NAME}</h1>;
+  const heading = <h1 tabIndex={-1}>{APP_NAME}</h1>;
   if (failed) {
     return (
-      <div className="copy-page">
+      <div className="copy-page" ref={page}>
         {heading}
-        <p role="alert" className="refusal">The library is having trouble right now. Please try again later.</p>
+        <p role="alert" className="refusal" tabIndex={-1}>The library is having trouble right now. Please try again later.</p>
         <button type="button" onClick={() => { setView(undefined); void load(); }}>Try again</button>
       </div>
     );
   }
   if (view === undefined) {
     return (
-      <div className="copy-page">
+      <div className="copy-page" ref={page}>
         {heading}
         {gone && <p>That book isn't here.</p>}
-        {lost && !gone && <SignIn returnTo={returnTo} />}
+        {lost && !gone && <div className="book-main"><SignIn returnTo={returnTo} /></div>}
       </div>
     );
   }
 
   const signedIn = member !== null && !lost;
+  // Signed out there is no way back: no tab, no wall.
+  const back = signedIn ? pinned?.back : undefined;
   return (
-    <div className="copy-page">
+    <div className="copy-page" ref={page}>
+      {back && <BookBack {...back} />}
       {view.kind !== "copy" && view.kind !== "public" && heading}
-      {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
+      {notice !== undefined && <p role="alert" className="refusal" tabIndex={-1}>{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
       {view.kind === "retired" && <p>This label has been replaced.</p>}
       {view.kind === "blank" && (
         <>
           <p>This label isn't on a book yet.</p>
-          {signedIn ? (
-            <a className="button" href={`/pair?label=${encodeURIComponent(view.code)}`}>Pair it with a book</a>
-          ) : <SignIn returnTo={returnTo} />}
+          <div className="book-main">
+            {signedIn ? (
+              <a className="button" href={`/pair?label=${encodeURIComponent(view.code)}`}>Pair it with a book</a>
+            ) : <SignIn returnTo={returnTo} />}
+          </div>
         </>
       )}
-      {view.kind === "public" && (
-        <>
-          <Book {...view.book} headingLevel={1} />
-          <p>Sign in to see who has this book or to take it.</p>
-          <SignIn returnTo={returnTo} />
-        </>
-      )}
+      {view.kind === "public" && <PublicBook book={view.book} returnTo={returnTo} />}
       {view.kind === "copy" && (
         <Copy
           key={rev}
           copy={view.copy}
+          viewerId={signedIn ? member.id : null}
           busy={busy}
           choices={choices}
           choicesFailed={choicesFailed}

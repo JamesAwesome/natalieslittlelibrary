@@ -129,7 +129,7 @@ test("confirmed delete sends once, then says it is gone with a way back", async 
   const yes = screen.getByRole("button", { name: "Yes, delete it" });
   await act(async () => { yes.click(); yes.click(); });
   expect(api.deleteCollection).toHaveBeenCalledExactlyOnceWith("k2");
-  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/");
 });
 
 test("delete refused (not empty any more) says so and re-reads the truth", async () => {
@@ -274,6 +274,20 @@ test("while loading, the app name and no controls", () => {
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
+test("the collection's name, once known, stays the h1 through a failed read and Try again", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(full, [out()]));
+  vi.mocked(api.makeDefault).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(500, null));
+  await userEvent.click(screen.getByRole("button", { name: "Make this the default" }));
+  expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Beach house" })).toBeInTheDocument();
+  vi.mocked(api.getShelf).mockReturnValue(new Promise(() => {}));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Beach house" })).toBeInTheDocument();
+});
+
 test("coming back to a collection restores the scroll once it has loaded", async () => {
   sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: null }, scrollY: 400 }));
   const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
@@ -303,13 +317,15 @@ test("my own shelf reports the books tab once loaded", async () => {
   const setTab = tabOf(me);
   expect(setTab).not.toHaveBeenCalled();
   await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  // The tab is reported from an effect after the loaded render, so wait for it rather than racing it.
+  await waitFor(() => expect(setTab).toHaveBeenCalledWith("books"));
   expect(setTab).toHaveBeenCalledTimes(1);
-  expect(setTab).toHaveBeenCalledWith("books");
 });
 
 test("someone else's shelf reports the friends tab", async () => {
   const setTab = tabOf(ann);
   await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  // The tab is reported from an effect after the loaded render, so wait for it rather than racing it.
+  await waitFor(() => expect(setTab).toHaveBeenCalledWith("friends"));
   expect(setTab).toHaveBeenCalledTimes(1);
-  expect(setTab).toHaveBeenCalledWith("friends");
 });

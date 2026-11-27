@@ -93,14 +93,25 @@ function FriendWall({ id, member, returnTo }: Props & { id: string }) {
   }, member !== null);
   const ready = state.status === "ok";
   const [filter, setFilter] = useWallPlace(wallKey(), ready, ready ? state.data.collections.map((c) => c.id) : []);
+  // The friend's name once known, kept through a failed read and Try again, so the h1 never flickers back.
+  const name = ready ? personLabel(state.data.owner) : null;
+  const [known, setKnown] = useState<string | null>(null);
+  if (name !== null && name !== known) setKnown(name);
+  const title = name ?? known ?? "Friends";
 
-  if (member === null || state.status === "lost" || state.status === "gone" || state.status === "failed") {
+  if (member === null || state.status === "lost") {
     return (
       <div className="shelf-page">
         <h1>{APP_NAME}</h1>
-        {member === null || state.status === "lost" ? <SignIn returnTo={returnTo} />
-          : state.status === "gone" ? <><p>That member isn't here.</p><BackLink /></>
-          : <Trouble onRetry={retry} />}
+        <SignIn returnTo={returnTo} />
+      </div>
+    );
+  }
+  if (state.status === "gone" || state.status === "failed") {
+    return (
+      <div className="shelf-page">
+        <h1><Name>{title}</Name></h1>
+        {state.status === "gone" ? <><p>That member isn't here.</p><BackLink /></> : <Trouble onRetry={retry} />}
       </div>
     );
   }
@@ -109,7 +120,7 @@ function FriendWall({ id, member, returnTo }: Props & { id: string }) {
   return (
     <CoverWall
       kind="friend"
-      title={wall ? personLabel(wall.owner) : APP_NAME}
+      title={title}
       loading={!ready}
       items={wall?.items ?? []}
       collections={wall?.collections ?? []}

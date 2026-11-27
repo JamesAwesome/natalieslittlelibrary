@@ -58,8 +58,8 @@ test("a hero cover asks for the larger image and falls back to the stored one be
   expect(container.firstElementChild).toHaveAttribute("data-state", "failed");
 });
 
-test("wall and row covers use the stored URL as is", () => {
-  for (const size of ["wall", "row"] as const) {
+test("wall, row and card covers use the stored URL as is", () => {
+  for (const size of ["wall", "row", "card"] as const) {
     const { container, unmount } = render(<Cover url={stored} title="T" authors={[]} size={size} />);
     expect(container.querySelector("img")).toHaveAttribute("src", stored);
     unmount();
@@ -107,10 +107,21 @@ test("the no-cover tile shows the title and the first author only", () => {
   expect(screen.queryByText("Second")).toBeNull();
 });
 
-test("Book's title is an h2 unless asked for an h1", () => {
-  const { rerender } = render(<Book title="Dune" authors={[]} coverUrl={null} />);
+test("Book's title is an h2", () => {
+  render(<Book title="Dune" authors={[]} coverUrl={null} />);
   expect(screen.getByRole("heading", { level: 2, name: "Dune" })).toBeInTheDocument();
-  rerender(<Book title="Dune" authors={[]} coverUrl={null} headingLevel={1} />);
-  expect(screen.getByRole("heading", { level: 1, name: "Dune" })).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+});
+
+test("Pair's book card keeps its 96 by 144 cover, the stored image as is, and loads it lazily", () => {
+  const { container } = render(<Book title="T" authors={[]} coverUrl={stored} />);
+  const img = container.querySelector("img")!;
+  expect(img).toHaveAttribute("src", stored);
+  expect(img).toHaveAttribute("width", "96");
+  expect(img).toHaveAttribute("height", "144");
+  expect(img).toHaveAttribute("loading", "lazy");
+});
+
+test("the hero cover loads at once; the book page opens on it", () => {
+  const { container } = render(<Cover url={stored} title="T" authors={[]} size="hero" />);
+  expect(container.querySelector("img")).toHaveAttribute("loading", "eager");
 });

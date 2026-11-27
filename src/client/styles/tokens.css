@@ -46,16 +46,6 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-micro: 120ms;
 
-  /* Old names, kept as aliases until Task 14 removes them. */
-  --bg: var(--color-paper);
-  --fg: var(--color-ink);
-  --accent: var(--color-accent);
-  --accent-fg: var(--color-paper);
-  --alert-bg: var(--color-alert-bg);
-  --alert-fg: var(--color-alert-ink);
-  --cover-bg: var(--color-tile);
-  --link: var(--color-link);
-  --link-visited: var(--color-link-visited);
   color-scheme: light dark;
 }
 

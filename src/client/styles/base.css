@@ -26,10 +26,17 @@ body {
   }
 }
 
+/* The page's side padding: the usual gutter, or more where a notch or rounded corner sits (a phone in landscape).
+   Anything that bleeds to the page's edges or makes room on the right reads these, so an inset is counted once. */
+:root {
+  --page-pad-left: max(var(--space-4), env(safe-area-inset-left, 0px));
+  --page-pad-right: max(var(--space-4), env(safe-area-inset-right, 0px));
+}
+
 #root {
   max-width: 32rem;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-6) var(--page-pad-right) var(--space-6) var(--page-pad-left);
 }
 
 h1,
@@ -92,10 +99,74 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
+/* Text controls. The border is 1px in every state; invalid is a colour and an inset ring, so nothing shifts. */
+input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"]),
+select,
+textarea {
+  box-sizing: border-box;
+  border: 1px solid var(--color-muted); /* 6.46:1 on paper */
+  border-radius: 8px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"]):active:not(:disabled),
+select:active:not(:disabled),
+textarea:active:not(:disabled) {
+  background: var(--color-paper-2);
+}
+
+@media (hover: hover) {
+  input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"]):hover:not(:disabled):not([aria-invalid="true"]),
+  select:hover:not(:disabled):not([aria-invalid="true"]),
+  textarea:hover:not(:disabled):not([aria-invalid="true"]) {
+    border-color: var(--color-ink);
+  }
+}
+
 input[aria-invalid="true"],
 select[aria-invalid="true"],
 textarea[aria-invalid="true"] {
-  border: 2px solid var(--color-alert-ink);
+  border-color: var(--color-alert-ink);
+  box-shadow: inset 0 0 0 1px var(--color-alert-ink);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent);
+}
+
+input[type="file"] {
+  font: inherit;
+  color: var(--color-ink);
+}
+
+/* The field-error slot is always drawn, empty or not, so a short error does not move what is below it. */
+.field-error {
+  display: block;
+  min-height: 1lh;
+  margin: var(--space-1) 0 0;
+  color: var(--color-alert-ink);
+  overflow-wrap: anywhere;
+}
+
+/* The collection-name message wraps to two lines on a phone, so its slot reserves both. */
+.field-error.long {
+  min-height: 2lh;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--color-rule);
+  border-radius: 8px;
+}
+
+legend {
+  padding: 0 var(--space-2);
+  color: var(--color-muted);
 }
 
 @media (hover: hover) {
@@ -125,8 +196,8 @@ textarea[aria-invalid="true"] {
   margin: 0 0 var(--space-4);
   padding: var(--space-3);
   border-radius: 6px;
-  background: var(--alert-bg);
-  color: var(--alert-fg);
+  background: var(--color-alert-bg);
+  color: var(--color-alert-ink); /* 9.62:1 on alert-bg */
 }
 
 .book {

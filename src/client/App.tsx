@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
-import { ShellContext, tabFor, type Tab } from "./shell";
+import { APP_NAME, ShellContext, tabFor, type Tab } from "./shell";
 import { TabBar } from "./TabBar";
 import { CopyPage } from "./screens/CopyPage";
 import { Holding } from "./screens/Holding";
@@ -50,7 +50,7 @@ export function App() {
   const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const shell = useMemo(() => ({ setTab, setSignedOut }), []);
-  const showBar = member !== undefined && member !== null && !signedOut && !trouble;
+  const showBar = member !== undefined && member !== null && !signedOut;
 
   useEffect(() => {
     if (!showBar) return;
@@ -94,14 +94,14 @@ export function App() {
   if (trouble) {
     return (
       <>
-        <h1>Natalie's Little Library</h1>
+        <h1>{APP_NAME}</h1>
         <p role="alert" className="refusal">{refusalText.unavailable}</p>
         <button type="button" onClick={() => location.reload()}>Try again</button>
       </>
     );
   }
 
-  if (member === undefined) return <h1>Natalie's Little Library</h1>;
+  if (member === undefined) return <h1>{APP_NAME}</h1>;
 
   const screen =
     route.name === "more" ? (
