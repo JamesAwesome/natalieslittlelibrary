@@ -411,3 +411,9 @@ test("a session already lost shows sign-in", () => {
   render(<Import member={null} returnTo="/import" />);
   expect(screen.getByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
 });
+
+test("signed out, the h1 is the app name, not the import title", () => {
+  render(<Import member={null} returnTo="/import" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Import from StoryGraph" })).not.toBeInTheDocument();
+});

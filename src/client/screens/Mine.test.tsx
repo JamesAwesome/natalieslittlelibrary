@@ -27,7 +27,7 @@ const show = () => render(<Mine member={me} returnTo="/mine" />);
 test("groups collections in order with counts, headings link to shelves", async () => {
   setup();
   show();
-  const headings = await screen.findAllByRole("heading", { level: 3 });
+  const headings = await screen.findAllByRole("heading", { level: 2 });
   expect(headings.map((h) => h.textContent)).toEqual(["Home library", "Beach house", "New collection"]);
   expect(within(headings[0]).getByRole("link")).toHaveAttribute("href", "/collections/k1");
   expect(screen.getByText("1 without a label")).toBeInTheDocument();
@@ -217,15 +217,16 @@ async function approve() {
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
 }
 
-test("open requests sit above My books and are answered in place", async () => {
+test("open requests sit under the title and above the collections and are answered in place", async () => {
   setup();
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
   vi.mocked(api.approveRequest).mockResolvedValue({} as never);
   show();
   expect(await screen.findByRole("link", { name: "Wanted" })).toHaveAttribute("href", "/copies/r1");
   expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).toBeInTheDocument();
-  const order = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-  expect(order.indexOf("Requests")).toBeLessThan(order.indexOf("My books"));
+  const order = screen.getAllByRole("heading").map((h) => h.textContent);
+  expect(order.indexOf("My books")).toBeLessThan(order.indexOf("Requests"));
+  expect(order.indexOf("Requests")).toBeLessThan(order.indexOf("Home library"));
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
   expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Let Ann keep Wanted?")).toBeInTheDocument();
   expect(api.approveRequest).not.toHaveBeenCalled();
@@ -328,4 +329,32 @@ test("not-allowed says it was already answered and the row goes after the reload
   await approve();
   expect(await screen.findByText("That request was already answered or withdrawn.")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Wanted" })).not.toBeInTheDocument());
+});
+
+test("the h1 is My books, or the app name when signed out", async () => {
+  setup();
+  show();
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2, name: "My books" })).not.toBeInTheDocument();
+});
+
+test("signed out, the h1 is the app name", () => {
+  show_(null);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+test("headings run h1, then h2 for requests, collections and the new-collection form", async () => {
+  setup();
+  show();
+  await screen.findByRole("heading", { level: 2, name: "Home library" });
+  expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
+  expect(screen.getByRole("heading", { level: 2, name: "New collection" })).toBeInTheDocument();
+});
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
+  vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "My books" })).not.toBeInTheDocument();
 });

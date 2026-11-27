@@ -1,11 +1,13 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
+import { ShellContext, tabFor, type Tab } from "./shell";
+import { TabBar } from "./TabBar";
 import { CopyPage } from "./screens/CopyPage";
 import { Holding } from "./screens/Holding";
 import { Import } from "./screens/Import";
-import { Home } from "./screens/Home";
+import { More } from "./screens/More";
 import { Members } from "./screens/Members";
 import { Mine } from "./screens/Mine";
 import { People } from "./screens/People";
@@ -44,11 +46,24 @@ export function App() {
   const [member, setMember] = useState<Member | null | undefined>(undefined);
   const [trouble, setTrouble] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [tab, setTab] = useState<Tab | null>(() => tabFor(route));
+  const [signingOut, setSigningOut] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
+  const shell = useMemo(() => ({ setTab, setSignedOut }), []);
+  const showBar = member !== undefined && member !== null && !signedOut && !trouble;
 
   useEffect(() => {
-    if (hadRefused) {
+    if (!showBar) return;
+    const root = document.getElementById("root");
+    root?.classList.add("has-tab-bar");
+    return () => root?.classList.remove("has-tab-bar");
+  }, [showBar]);
+
+  useEffect(() => {
+    // One write: the refusal is dropped and /mine becomes /, so neither undoes the other.
+    if (hadRefused || route.name === "mine") {
       try {
-        history.replaceState(null, "", cleanUrl);
+        history.replaceState(null, "", route.name === "mine" ? "/" : cleanUrl);
       } catch {
         // An odd path (e.g. "//x") can make this throw; the page must still render.
       }
@@ -65,7 +80,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [hadRefused, cleanUrl]);
+  }, [hadRefused, cleanUrl, route.name]);
 
   useEffect(() => {
     // A page restored from the back-forward cache keeps old state; start it afresh.
@@ -89,16 +104,23 @@ export function App() {
   if (member === undefined) return <h1>Natalie's Little Library</h1>;
 
   const screen =
-    route.name === "home" ? (
-      <Home
+    route.name === "more" ? (
+      <More
         member={member}
         returnTo={returnTo}
         notice={notice}
+        busy={signingOut}
         onLogout={() => {
+          if (signingOut) return;
           setNotice(undefined);
+          setSigningOut(true);
           logout().then(
-            () => location.reload(),
-            () => setNotice("Couldn't sign out. Check your connection and try again."),
+            // Land on the wall, so the next sign-in does not return to More.
+            () => location.assign("/"),
+            () => {
+              setSigningOut(false);
+              setNotice("Couldn't sign out. Check your connection and try again.");
+            },
           );
         }}
       />
@@ -110,7 +132,7 @@ export function App() {
       <Pair member={member} returnTo={returnTo} />
     ) : route.name === "labels" ? (
       <Labels member={member} returnTo={returnTo} />
-    ) : route.name === "mine" ? (
+    ) : route.name === "home" || route.name === "mine" ? (
       <Mine member={member} returnTo={returnTo} />
     ) : route.name === "shelf" ? (
       <Shelf id={route.id} member={member} returnTo={returnTo} />
@@ -129,9 +151,10 @@ export function App() {
     );
 
   return (
-    <>
+    <ShellContext.Provider value={shell}>
       {refused !== null && <p role="alert" className="refusal app-chrome">{explain(refused)}</p>}
       <Suspense fallback={<p>Loading…</p>}>{screen}</Suspense>
-    </>
+      {showBar && <TabBar active={tab} />}
+    </ShellContext.Provider>
   );
 }

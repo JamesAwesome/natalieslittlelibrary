@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Member, SheetSummary } from "../../shared/types";
 import { ApiError, listSheets, mintLabels, sheetLabels } from "../api";
 import { DEFAULT_SHEET_ID, perSheet, SHEETS, Sheet, validate, type Nudge, type SheetLayout } from "../labelsheet";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 
 const STORAGE_KEY = "labels.settings";
@@ -207,11 +208,10 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
     }
   }
 
-  const heading = <h1>Natalie's Little Library</h1>;
   if (member === null || lost) {
     return (
       <div className="labels-page">
-        {heading}
+        <h1>{APP_NAME}</h1>
         <SignIn returnTo={returnTo} />
       </div>
     );
@@ -220,7 +220,7 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
   const set = (key: keyof Custom, value: string) => setCustom({ ...custom, [key]: value });
   return (
     <div className="labels-page">
-      {heading}
+      <h1>Print labels</h1>
       <p>
         <label htmlFor="labels-sheet">Label sheet</label>
         <select id="labels-sheet" value={sheetId} onChange={(e) => setSheetId(e.target.value)}>

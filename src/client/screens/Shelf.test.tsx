@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
+import { ShellContext } from "../shell";
 import { Shelf } from "./Shelf";
 import { ann, item, me, shelfOf, summary } from "./shelfFixtures";
 
@@ -194,7 +195,7 @@ test("navigating to another shelf starts from nothing (open rename form, notice)
 test("the not-found page has a way back", async () => {
   vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(404, null));
   show();
-  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/");
 });
 
 test("after a rename focus moves to the heading", async () => {
@@ -203,7 +204,7 @@ test("after a rename focus moves to the heading", async () => {
   show();
   await userEvent.click(await screen.findByRole("button", { name: "Rename" }));
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(screen.getByRole("heading", { level: 2 })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
 });
 
 test("after a delete focus moves to the message", async () => {
@@ -213,4 +214,42 @@ test("after a delete focus moves to the message", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
   await userEvent.click(screen.getByRole("button", { name: "Yes, delete it" }));
   await waitFor(() => expect(screen.getByText(/^Deleted\./)).toHaveFocus());
+});
+
+test("the h1 is the collection's name", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(beach, []));
+  show();
+  expect(await screen.findByRole("heading", { level: 1, name: "Beach house" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+});
+
+test("signed out, the h1 is the app name", () => {
+  show("k2", null);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+function tabOf(owner: typeof me | typeof ann) {
+  const setTab = vi.fn();
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(beach, [], owner));
+  render(
+    <ShellContext.Provider value={{ setTab, setSignedOut: vi.fn() }}>
+      <Shelf id="k2" member={me} returnTo="/collections/k2" />
+    </ShellContext.Provider>,
+  );
+  return setTab;
+}
+
+test("my own shelf reports the books tab once loaded", async () => {
+  const setTab = tabOf(me);
+  expect(setTab).not.toHaveBeenCalled();
+  await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  expect(setTab).toHaveBeenCalledTimes(1);
+  expect(setTab).toHaveBeenCalledWith("books");
+});
+
+test("someone else's shelf reports the friends tab", async () => {
+  const setTab = tabOf(ann);
+  await screen.findByRole("heading", { level: 1, name: "Beach house" });
+  expect(setTab).toHaveBeenCalledTimes(1);
+  expect(setTab).toHaveBeenCalledWith("friends");
 });

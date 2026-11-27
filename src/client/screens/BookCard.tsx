@@ -50,12 +50,13 @@ function CoverFor({ url, title, authors, size = "row" }: { url: string | null; t
   );
 }
 
-export function Book(props: { title: string; authors: string[]; coverUrl: string | null }) {
+export function Book(props: { title: string; authors: string[]; coverUrl: string | null; headingLevel?: 1 | 2 }) {
+  const Heading = props.headingLevel === 1 ? "h1" : "h2";
   return (
     <div className="book">
       <Cover url={props.coverUrl} title={props.title} authors={props.authors} size="hero" />
       <div>
-        <h2>{props.title}</h2>
+        <Heading>{props.title}</Heading>
         {props.authors.length > 0 && <p className="authors">{props.authors.map((a, i) => (
           <span key={i}>{i > 0 && ", "}<Name>{a}</Name></span>
         ))}</p>}

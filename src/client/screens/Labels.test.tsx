@@ -503,3 +503,11 @@ test("a layout that goes invalid while a reprint is loading drops the print, and
   await userEvent.click(screen.getByRole("button", { name: "Print" }));
   expect(print).toHaveBeenCalledTimes(1);
 });
+
+test("the h1 is Print labels, or the app name when signed out", () => {
+  const { unmount } = show();
+  expect(screen.getByRole("heading", { level: 1, name: "Print labels" })).toBeInTheDocument();
+  unmount();
+  render(<Labels member={null} returnTo="/labels" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});

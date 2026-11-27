@@ -48,3 +48,28 @@ test("an ownerless copy says No owner", async () => {
   render(<Holding member={me} returnTo="/holding" />);
   expect(await screen.findByText("No owner")).toBeInTheDocument();
 });
+
+test("the h1 is Holding, with no What I'm holding heading", async () => {
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
+  render(<Holding member={me} returnTo="/holding" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Holding" })).toBeInTheDocument();
+  await screen.findByText("You're not holding anyone else's books.");
+  expect(screen.queryByRole("heading", { name: "What I'm holding" })).not.toBeInTheDocument();
+});
+
+test("a failed load keeps the Holding title; signed out uses the app name", async () => {
+  vi.mocked(api.getHolding).mockRejectedValue(new Error("boom"));
+  const { unmount } = render(<Holding member={me} returnTo="/holding" />);
+  await screen.findByRole("button", { name: /try again/i });
+  expect(screen.getByRole("heading", { level: 1, name: "Holding" })).toBeInTheDocument();
+  unmount();
+  render(<Holding member={null} returnTo="/holding" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.getHolding).mockRejectedValue(new api.ApiError(401, null));
+  render(<Holding member={me} returnTo="/holding" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Holding" })).not.toBeInTheDocument();
+});

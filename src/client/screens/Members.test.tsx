@@ -31,7 +31,7 @@ test("a removed or unknown member shows not-found, not an error", async () => {
   vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(404, null));
   render(<Members id="2" member={me} returnTo="/members/2" />);
   expect(await screen.findByText("That member isn't here.")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+  expect(screen.getByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/");
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
@@ -60,4 +60,40 @@ test("long unbroken names sit in bdi", async () => {
   vi.mocked(api.listMembers).mockResolvedValue({ members: [{ id: "5", name: "W".repeat(80), pictureUrl: null }] });
   render(<Members member={me} returnTo="/members" />);
   expect((await screen.findByText("W".repeat(80))).tagName).toBe("BDI");
+});
+
+test("the list's h1 is Friends and the member page's h1 is the member's name", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [natalie, ann] });
+  const { unmount } = render(<Members member={me} returnTo="/members" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Friends" })).toBeInTheDocument();
+  await screen.findByRole("link", { name: "Ann" });
+  expect(screen.queryByRole("heading", { name: "Friends' shelves" })).not.toBeInTheDocument();
+  unmount();
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [] });
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+});
+
+test("signed out, the h1 is the app name", () => {
+  render(<Members member={null} returnTo="/members" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.listMembers).mockRejectedValue(new api.ApiError(401, null));
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Friends" })).not.toBeInTheDocument();
+});
+
+test("a member page's h1 is the app name until the name is known, and when gone or failed", async () => {
+  vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
+  const a = render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  a.unmount();
+  vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(404, null));
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  await screen.findByText("That member isn't here.");
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
 });

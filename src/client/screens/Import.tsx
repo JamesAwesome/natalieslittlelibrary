@@ -4,6 +4,7 @@ import { cleanCollectionName } from "../../shared/collectionName";
 import { ApiError, createCollection, importRows, myCollections } from "../api";
 import { chunkRows, parseExport, type ParseResult } from "../storygraph";
 import { Name } from "./BookCard";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 import { useGuard } from "./useGuard";
 
@@ -237,7 +238,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
   if (member === null || lost) {
     return (
       <div className="import-page">
-        {heading}
+        <h1>{APP_NAME}</h1>
         <SignIn returnTo={returnTo} />
       </div>
     );

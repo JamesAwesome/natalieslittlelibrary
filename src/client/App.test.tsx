@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
@@ -8,13 +8,15 @@ vi.mock("./api");
 
 const natalie = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
 const reload = vi.fn();
+const assign = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getMe).mockResolvedValue(null);
   vi.mocked(api.logout).mockResolvedValue();
   reload.mockReset();
-  vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload });
+  assign.mockReset();
+  vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload, assign });
   // This runtime's own localStorage is not usable and warns when touched (the labels page reads it).
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
 });
@@ -28,7 +30,7 @@ function at(url: string) {
   // Split by hand: new URL("//b/abc") would read "b" as a host.
   const [rest, hash = ""] = url.split(/(?=#)/);
   const [pathname, search = ""] = rest.split(/(?=\?)/);
-  vi.stubGlobal("location", { pathname, search, hash, reload });
+  vi.stubGlobal("location", { pathname, search, hash, reload, assign });
 }
 
 test("while loading shows only the heading", () => {
@@ -39,10 +41,11 @@ test("while loading shows only the heading", () => {
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
-test("signed in shows the name", async () => {
+test("signed in at /more shows the name", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
-  expect(await screen.findByText("Hi, Natalie")).toBeInTheDocument();
+  expect(await screen.findByText((_, el) => el?.tagName === "P" && el.textContent === "Hi, Natalie")).toBeInTheDocument();
 });
 
 test("a failed getMe is treated as signed out", async () => {
@@ -75,25 +78,27 @@ test("returnTo is the bare path when refused was the only parameter", async () =
   expect(link).toHaveAttribute("href", "/auth/login?returnTo=%2F");
 });
 
-test("sign out reloads only after the API call resolves", async () => {
+test("sign out goes to / only after the API call resolves", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   let finish!: () => void;
   vi.mocked(api.logout).mockReturnValue(new Promise<void>((r) => { finish = r; }));
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
   expect(api.logout).toHaveBeenCalledOnce();
-  expect(reload).not.toHaveBeenCalled();
+  expect(assign).not.toHaveBeenCalled();
   finish();
-  await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+  await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("/"));
 });
 
 test("a failed sign-out says so, stays signed in, and does not reload", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   vi.mocked(api.logout).mockRejectedValue(new Error("offline"));
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't sign out. Check your connection and try again.");
-  expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Hi, Natalie")).toBeInTheDocument();
   expect(reload).not.toHaveBeenCalled();
 });
 
@@ -226,10 +231,45 @@ test("an unknown path renders the not-found screen", async () => {
   expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
 });
 
-test("signed in, the home screen links to pairing and labels", async () => {
+test("signed in at /more, the screen links to pairing", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
   expect(await screen.findByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
+});
+
+test("signed in at /, the My books screen shows and More does not", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+});
+
+test("/mine rewrites the address to / and shows My books", async () => {
+  const replace = vi.spyOn(history, "replaceState");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  at("/mine");
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  expect(replace).toHaveBeenCalledWith(null, "", "/");
+});
+
+test("/mine still renders if replaceState throws", async () => {
+  vi.spyOn(history, "replaceState").mockImplementation(() => { throw new DOMException("no", "SecurityError"); });
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  at("/mine");
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+});
+
+test("signed out at /more shows sign-in and no tab bar", async () => {
+  at("/more");
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Fmore");
+  expect(main()).not.toBeInTheDocument();
 });
 
 test.each([401, 500, 502])("a %i from getMe is signed out, not the trouble message", async (status) => {
@@ -278,7 +318,6 @@ test("the shelf screens are routed", async () => {
   vi.mocked(api.memberCollections).mockResolvedValue({ owner: { id: "2", name: "Ann", pictureUrl: null }, collections: [] });
   vi.mocked(api.getShelf).mockRejectedValue(Object.assign(new api.ApiError(404, null), { status: 404 }));
   for (const [path, text] of [
-    ["/mine", "My books"],
     ["/holding", "You're not holding anyone else's books."],
     ["/members", "No one else is here yet."],
     ["/members/2", "No collections yet."],
@@ -297,4 +336,123 @@ test("the import screen is routed", async () => {
   at("/import");
   render(<App />);
   expect(await screen.findByLabelText(/StoryGraph export/)).toBeInTheDocument();
+});
+
+const main = () => screen.queryByRole("navigation", { name: "Main" });
+
+test("signed in at /holding, the Main navigation is there and Holding is current", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
+  at("/holding");
+  render(<App />);
+  const nav = await screen.findByRole("navigation", { name: "Main" });
+  expect(within(nav).getByRole("link", { name: "Holding" })).toHaveAttribute("aria-current", "page");
+  expect(within(nav).getAllByRole("link")).toHaveLength(4);
+});
+
+test("signed out at /, there is no Main navigation", async () => {
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("when the screen's load answers 401 and falls back to sign-in, the navigation goes away", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  // The module is auto-mocked, so the class the screen tests against is the mock; give it the status by hand.
+  vi.mocked(api.getHolding).mockRejectedValue(Object.assign(new api.ApiError(401, null), { status: 401 }));
+  at("/holding");
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  await waitFor(() => expect(main()).not.toBeInTheDocument());
+});
+
+test("while getMe is pending there is no navigation", () => {
+  vi.mocked(api.getMe).mockReturnValue(new Promise(() => {}));
+  at("/holding");
+  render(<App />);
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("a 503 from getMe shows no navigation", async () => {
+  const { ApiError } = await vi.importActual<typeof import("./api")>("./api");
+  vi.mocked(api.getMe).mockRejectedValue(new ApiError(503, "unavailable"));
+  render(<App />);
+  await screen.findByRole("alert");
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("at /b/x no tab is current until the screen reports one", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getLabel).mockReturnValue(new Promise(() => {}));
+  at("/b/x");
+  render(<App />);
+  const nav = await screen.findByRole("navigation", { name: "Main" });
+  for (const l of within(nav).getAllByRole("link")) expect(l).not.toHaveAttribute("aria-current");
+});
+
+test("#root reserves room for the bar only while the bar is shown", async () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  const { unmount } = render(<App />);
+  await screen.findByRole("navigation", { name: "Main" });
+  expect(root).toHaveClass("has-tab-bar");
+  unmount();
+  expect(root).not.toHaveClass("has-tab-bar");
+  root.remove();
+});
+
+test.each([
+  ["an unknown label", "/b/zzz", () => vi.mocked(api.getLabel).mockResolvedValue({ kind: "unknown" })],
+  ["a label still loading", "/b/zzz", () => vi.mocked(api.getLabel).mockReturnValue(new Promise(() => {}))],
+  ["an unknown path", "/nope", () => {}],
+])("signed out on %s: no navigation and no room reserved", async (_name, path, setup) => {
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  setup();
+  at(path);
+  const { unmount } = render(<App />);
+  await waitFor(() => expect(api.getMe).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(main()).not.toBeInTheDocument();
+  expect(root).not.toHaveClass("has-tab-bar");
+  unmount();
+  root.remove();
+});
+
+test("a refused sign-in that started on /mine ends with the address at /", async () => {
+  const replace = vi.spyOn(history, "replaceState");
+  at("/mine?refused=removed");
+  render(<App />);
+  await screen.findByRole("alert");
+  expect(replace.mock.calls.at(-1)?.[2]).toBe("/");
+});
+
+test("Sign out is disabled while a logout is in flight, and again enabled after a failure", async () => {
+  at("/more");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  let fail!: () => void;
+  vi.mocked(api.logout).mockReturnValue(new Promise<void>((_, r) => { fail = () => r(new Error("offline")); }));
+  render(<App />);
+  const button = await screen.findByRole("button", { name: "Sign out" });
+  await userEvent.click(button);
+  expect(button).toBeDisabled();
+  await userEvent.click(button);
+  expect(api.logout).toHaveBeenCalledOnce();
+  fail();
+  await screen.findByRole("alert");
+  expect(button).toBeEnabled();
+});
+
+test("the sign-out notice clears when the member tries again", async () => {
+  at("/more");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.logout).mockRejectedValueOnce(new Error("offline")).mockReturnValue(new Promise(() => {}));
+  render(<App />);
+  await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+  await screen.findByRole("alert");
+  await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 });

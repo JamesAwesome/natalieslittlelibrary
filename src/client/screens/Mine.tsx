@@ -4,6 +4,7 @@ import { cleanCollectionName } from "../../shared/collectionName";
 import { ApiError, approveRequest, createCollection, declineRequest, getShelf, listRequests, myCollections } from "../api";
 import { Name, personLabel } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
@@ -98,7 +99,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
 
   return (
     <div className="shelf-page">
-      <h1>Natalie's Little Library</h1>
+      <h1>{member === null || state.status === "lost" ? APP_NAME : "My books"}</h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
       ) : state.status === "failed" || state.status === "gone" ? (
@@ -134,7 +135,6 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
               </ul>
             </section>
           )}
-          <h2>My books</h2>
           {state.data.length === 0 ? (
             <p>
               No books yet. <a href="/pair">Pair a book</a> or <a href="/import">import from StoryGraph</a>.
@@ -149,7 +149,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
                 if (shelf === null) {
                   return (
                     <section key={listed.id} className="group">
-                      <h3><Name>{listed.name}</Name></h3>
+                      <h2><Name>{listed.name}</Name></h2>
                       <Trouble onRetry={retry} />
                     </section>
                   );
@@ -159,7 +159,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
                 const items = onlyUnlabelled ? shelf.items.filter((i) => !i.labelled) : shelf.items;
                 return (
                   <section key={collection.id} className="group">
-                    <h3><a href={`/collections/${encodeURIComponent(collection.id)}`}><Name>{collection.name}</Name></a></h3>
+                    <h2><a href={`/collections/${encodeURIComponent(collection.id)}`}><Name>{collection.name}</Name></a></h2>
                     <p>
                       <BookCount n={collection.count} />
                       {collection.unlabelled > 0 && <> &middot; <span className="count">{collection.unlabelled} without a label</span></>}
@@ -171,7 +171,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
             </>
           )}
           <form className="new-collection" onSubmit={create}>
-            <h3>New collection</h3>
+            <h2>New collection</h2>
             {error !== undefined && <p role="alert" className="refusal">{error}</p>}
             <label>
               Name
