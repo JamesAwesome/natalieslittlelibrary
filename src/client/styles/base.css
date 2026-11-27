@@ -122,6 +122,10 @@ button:disabled {
   margin: 0 0 var(--space-4);
 }
 
+.book > div:last-child {
+  min-width: 0;
+}
+
 .book h2 {
   font-size: 1.25rem;
   margin: 0;
@@ -130,15 +134,7 @@ button:disabled {
 
 .authors {
   margin: var(--space-1) 0 0;
-}
-
-.cover {
-  flex: none;
-  width: 96px;
-  height: 144px;
-  border-radius: 4px;
-  object-fit: cover;
-  background: var(--cover-bg);
+  overflow-wrap: anywhere;
 }
 
 .history {

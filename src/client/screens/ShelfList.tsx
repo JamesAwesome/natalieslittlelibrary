@@ -10,7 +10,7 @@ export function ShelfList(props: { items: ShelfItem[]; viewerId?: string; showOw
         const mine = viewerId !== undefined && item.owner?.id === viewerId;
         return (
           <li key={item.copyId} className="shelf-row">
-            <Cover url={item.book.coverUrl} />
+            <Cover url={item.book.coverUrl} title={item.book.title} authors={item.book.authors} size="row" />
             <div className="shelf-text">
               <a className="shelf-title" href={`/copies/${encodeURIComponent(item.copyId)}`}><Name>{item.book.title}</Name></a>
               {item.book.authors.length > 0 && (

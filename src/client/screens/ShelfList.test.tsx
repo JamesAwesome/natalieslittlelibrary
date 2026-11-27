@@ -6,7 +6,7 @@ import { ann, item } from "./shelfFixtures";
 test("a row shows cover placeholder, title, authors, status, and links to the copy", () => {
   render(<ShelfList items={[item({ copyId: "c 1", book: { isbn: null, title: "Dune", authors: ["Frank Herbert"], coverUrl: null } })]} viewerId="1" />);
   expect(screen.getByRole("link", { name: "Dune" })).toHaveAttribute("href", "/copies/c%201");
-  expect(screen.getByText("Frank Herbert").tagName).toBe("BDI");
+  expect(screen.getByText("Frank Herbert", { selector: "bdi" }).tagName).toBe("BDI");
   expect(screen.getByText("At home")).toBeInTheDocument();
   expect(screen.queryByText("No label yet")).not.toBeInTheDocument();
 });

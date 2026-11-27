@@ -265,7 +265,7 @@ test("a copy reached by id loads with getCopy and never asks for a label", async
   });
   at("/copies/c1");
   render(<App />);
-  expect(await screen.findByText("Dune")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Dune" })).toBeInTheDocument();
   expect(api.getCopy).toHaveBeenCalledWith("c1");
   expect(api.getLabel).not.toHaveBeenCalled();
 });

@@ -1,0 +1,122 @@
+/* Covers: a fixed 2:3 box in three sizes, and three states (loaded, no cover, failed to load). */
+.cover-frame {
+  flex: none;
+  min-width: 0;
+  border-radius: 4px;
+  box-shadow: var(--cover-shadow);
+  overflow: hidden;
+}
+
+.cover-wall {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+}
+
+.cover-row {
+  width: 64px;
+  height: 96px;
+}
+
+.cover-hero {
+  width: fit-content;
+  max-width: 160px;
+  max-height: 240px;
+}
+
+.cover-hero[data-state="none"],
+.cover-hero[data-state="failed"] {
+  width: 160px;
+  aspect-ratio: 2 / 3;
+}
+
+.cover {
+  display: block;
+  background: var(--color-tile);
+}
+
+.cover-wall .cover,
+.cover-row .cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The book's own proportions, within the box. */
+.cover-hero .cover {
+  width: auto;
+  height: auto;
+  max-width: 160px;
+  max-height: 240px;
+}
+
+/* No cover: a plain cloth binding, not an error. */
+.cover-tile {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-tile);
+  color: var(--color-tile-ink);
+  text-align: center;
+  overflow: hidden;
+}
+
+.cover-tile > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cover-tile-title {
+  font-family: var(--font-display);
+  font-style: normal;
+  font-weight: 600;
+  font-size: var(--text-base);
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+
+.cover-tile-author {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1.2;
+}
+
+/* Failed: the same tile, with a hairline inset and a line saying so. */
+[data-state="failed"] .cover-tile {
+  box-shadow: inset 0 0 0 1px var(--color-muted);
+}
+
+.cover-tile-note {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  color: var(--color-muted);
+}
+
+.cover-row .cover-tile {
+  padding: var(--space-1);
+  gap: var(--space-1);
+}
+
+.cover-row .cover-tile-title {
+  font-size: 0.7rem;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.cover-row .cover-tile-author,
+.cover-row .cover-tile-note {
+  font-size: 0.6rem;
+}
+
+.cover-row .cover-tile-author {
+  display: none;
+}

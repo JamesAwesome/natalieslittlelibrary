@@ -191,11 +191,6 @@
   border-top: 1px solid var(--color-rule);
 }
 
-.shelf-row .cover {
-  width: 64px;
-  height: 96px;
-}
-
 .shelf-text {
   min-width: 0;
   flex: 1;
