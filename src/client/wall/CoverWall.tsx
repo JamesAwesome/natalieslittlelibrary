@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import type { CollectionRef, ShelfItem } from "../../shared/types";
 import { Cover, holderLabel, Name, personLabel } from "../screens/BookCard";
 import { AlphaRail } from "./AlphaRail";
@@ -8,7 +8,10 @@ export type WallKind = "mine" | "friend" | "holding" | "my-collection" | "friend
 
 type Props = {
   kind: WallKind;
+  /** The h1. It is often a name (a collection's, a friend's), so it sits in bdi. */
   title: string;
+  /** Lets the screen move focus to the h1 (after a rename, say); the h1 then takes tabIndex -1. */
+  headingRef?: Ref<HTMLHeadingElement>;
   items: ShelfItem[];
   collections?: CollectionRef[];
   /** Alerts and the requests bar, between the count line and the chips. */
@@ -48,14 +51,14 @@ export function CoverWall(props: Props) {
 
   return (
     <div className="wall" data-chips={chips && !loading && items.length > 0 ? "" : undefined} data-rail={rail ? "" : undefined}>
-      <h1>{title}</h1>
+      <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
       {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
-      {props.top}
+      {props.top && <div className="wall-top">{props.top}</div>}
       {loading ? (
         <div className="wall-grid wall-skeleton" aria-hidden="true">
           {Array.from({ length: 9 }, (_, i) => <div key={i} className="wall-skeleton-tile" />)}
         </div>
-      ) : items.length === 0 ? props.empty : (
+      ) : items.length === 0 ? <div className="wall-empty">{props.empty}</div> : (
         <>
           {chips && (
             <div className="wall-chips">

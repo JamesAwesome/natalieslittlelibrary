@@ -1,43 +1,43 @@
-import { useEffect, useState } from "react";
-import type { CollectionSummary, Member, Shelf } from "../../shared/types";
+import { useEffect, useId, useRef, useState } from "react";
+import type { CollectionSummary, Member, ShelfItem } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
-import { ApiError, approveRequest, createCollection, declineRequest, getShelf, listRequests, myCollections } from "../api";
+import { ApiError, approveRequest, createCollection, declineRequest, listRequests, myCollections } from "../api";
+import { CoverWall } from "../wall/CoverWall";
+import { loadShelves } from "../wall/load";
+import { useWallPlace, wallKey } from "../wall/memory";
 import { Name, personLabel } from "./BookCard";
-import { BookCount, ShelfList } from "./ShelfList";
 import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
-import { Trouble } from "./Trouble";
+import { SomeFailed, Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
 import { useLoaded } from "./useLoaded";
 
-// shelf is null when that one read failed: its group shows trouble and the others stay.
-type Group = { collection: CollectionSummary; shelf: Shelf | null };
+type Wall = { collections: CollectionSummary[]; items: ShelfItem[]; failed: number };
 
-async function loadGroups(): Promise<Group[]> {
+async function loadWall(): Promise<Wall> {
   const { collections } = await myCollections();
-  const shelves = await Promise.all(
-    collections.map(async (collection) => {
-      try {
-        return { collection, shelf: await getShelf(collection.id) };
-      } catch (e) {
-        // Deleted between the two reads: it is simply not there any more.
-        if (e instanceof ApiError && e.status === 404) return null;
-        if (e instanceof ApiError && e.status === 401) throw e;
-        return { collection, shelf: null };
-      }
-    }),
-  );
-  return shelves.filter((g) => g !== null);
+  return { collections, ...(await loadShelves(collections)) };
 }
 
 export function Mine({ member, returnTo }: { member: Member | null; returnTo: string }) {
-  const { state, reload, lose, retry } = useLoaded(loadGroups, member !== null);
-  // Requests are their own read: if it fails the section says so and the shelves stay.
+  const { state, reload, lose, retry } = useLoaded(loadWall, member !== null);
+  // Requests are their own read: if it fails the bar says so and the shelves stay.
   const requests = useLoaded(async () => (await listRequests()).requests, member !== null);
-  const [onlyUnlabelled, setOnlyUnlabelled] = useState(false);
+  // The covers wait for both reads. The requests bar sits above them, so arriving later it would push down a
+  // wall whose scroll place had just been restored; nothing above the grid may change height after `ready`.
+  const ready = state.status === "ok" && requests.state.status !== "loading";
+  const [filter, setFilter] = useWallPlace(wallKey(), ready, state.status === "ok" ? state.data.collections.map((c) => c.id) : []);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
   const { busy, guard, live } = useGuard();
+  // Each "New collection…" from the menu bumps this: the form shows, and the cursor goes to its name.
+  const [createAsked, setCreateAsked] = useState(0);
+  const nameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (createAsked > 0) nameInput.current?.focus();
+  }, [createAsked]);
+  const [showRequests, setShowRequests] = useState(false);
+  const requestsId = useId();
 
   function create(e: React.FormEvent) {
     e.preventDefault();
@@ -97,90 +97,101 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
     });
   }
 
-  return (
-    <div className="shelf-page">
-      <h1>{member === null || state.status === "lost" ? APP_NAME : "My books"}</h1>
-      {member === null || state.status === "lost" ? (
+  if (member === null || state.status === "lost") {
+    return (
+      <div className="shelf-page">
+        <h1>{APP_NAME}</h1>
         <SignIn returnTo={returnTo} />
-      ) : state.status === "failed" || state.status === "gone" ? (
+      </div>
+    );
+  }
+  if (state.status === "failed" || state.status === "gone") {
+    return (
+      <div className="shelf-page">
+        <h1>My books</h1>
         <Trouble onRetry={retry} />
-      ) : state.status === "ok" ? (
+      </div>
+    );
+  }
+
+  const wall = state.status === "ok" ? state.data : null;
+  const asks = requests.state.status === "ok" ? requests.state.data : [];
+  const top = ready && wall && (
+    <>
+      {(answerError !== undefined || (answered && requests.state.status === "failed")) && (
+        <p role="alert" className="refusal">{answerError ?? "Something went wrong. Try again."}</p>
+      )}
+      {wall.failed > 0 && <SomeFailed onRetry={retry} />}
+      {(requests.state.status === "failed" || requests.state.status === "gone") && !answered && <p>Couldn't load requests.</p>}
+      {asks.length > 0 && (
         <>
-          {(answerError !== undefined || (answered && requests.state.status === "failed")) && (
-            <p role="alert" className="refusal">{answerError ?? "Something went wrong. Try again."}</p>
+          <button type="button" className="wall-requests-bar" aria-expanded={showRequests}
+            aria-controls={showRequests ? requestsId : undefined} onClick={() => setShowRequests((s) => !s)}>
+            {asks.length === 1 ? "1 request" : `${asks.length} requests`}
+            <svg className="chip-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
+          </button>
+          {showRequests && (
+            <ul id={requestsId} className="plain-list wall-requests">
+              {asks.map((r) => (
+                <li key={r.copyId}>
+                  <a href={`/copies/${encodeURIComponent(r.copyId)}`}><Name>{r.book.title}</Name></a>
+                  {confirming === r.copyId ? (
+                    <>
+                      <p>Let <Name>{personLabel(r.by)}</Name> keep <Name>{r.book.title}</Name>?</p>
+                      <button type="button" disabled={busy} onClick={() => answer(r.copyId, approveRequest, true)}>Approve</button>{" "}
+                      <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <p><Name>{personLabel(r.by)}</Name> asked to keep this</p>
+                      <button type="button" disabled={busy} onClick={() => setConfirming(r.copyId)}>Approve</button>{" "}
+                      <button type="button" disabled={busy} onClick={() => answer(r.copyId, declineRequest, false)}>Decline</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
-          {(requests.state.status === "failed" || requests.state.status === "gone") && !answered && <p>Couldn't load requests.</p>}
-          {requests.state.status === "ok" && requests.state.data.length > 0 && (
-            <section className="requests">
-              <h2>Requests</h2>
-              <ul className="plain-list">
-                {requests.state.data.map((r) => (
-                  <li key={r.copyId}>
-                    <a href={`/copies/${encodeURIComponent(r.copyId)}`}><Name>{r.book.title}</Name></a>
-                    {confirming === r.copyId ? (
-                      <>
-                        <p>Let <Name>{personLabel(r.by)}</Name> keep <Name>{r.book.title}</Name>?</p>
-                        <button type="button" disabled={busy} onClick={() => answer(r.copyId, approveRequest, true)}>Approve</button>{" "}
-                        <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        <p><Name>{personLabel(r.by)}</Name> asked to keep this</p>
-                        <button type="button" disabled={busy} onClick={() => setConfirming(r.copyId)}>Approve</button>{" "}
-                        <button type="button" disabled={busy} onClick={() => answer(r.copyId, declineRequest, false)}>Decline</button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {state.data.length === 0 ? (
-            <p>
-              No books yet. <a href="/pair">Pair a book</a> or <a href="/import">import from StoryGraph</a>.
-            </p>
-          ) : (
-            <>
-              <label className="toggle">
-                <input type="checkbox" checked={onlyUnlabelled} onChange={(e) => setOnlyUnlabelled(e.target.checked)} />
-                Show only books without a label
-              </label>
-              {state.data.map(({ collection: listed, shelf }) => {
-                if (shelf === null) {
-                  return (
-                    <section key={listed.id} className="group">
-                      <h2><Name>{listed.name}</Name></h2>
-                      <Trouble onRetry={retry} />
-                    </section>
-                  );
-                }
-                // The heading and count come from the same read as the rows, so they always agree.
-                const collection = shelf.collection;
-                const items = onlyUnlabelled ? shelf.items.filter((i) => !i.labelled) : shelf.items;
-                return (
-                  <section key={collection.id} className="group">
-                    <h2><a href={`/collections/${encodeURIComponent(collection.id)}`}><Name>{collection.name}</Name></a></h2>
-                    <p>
-                      <BookCount n={collection.count} />
-                      {collection.unlabelled > 0 && <> &middot; <span className="count">{collection.unlabelled} without a label</span></>}
-                    </p>
-                    <ShelfList items={items} viewerId={member.id} />
-                  </section>
-                );
-              })}
-            </>
-          )}
-          <form className="new-collection" onSubmit={create}>
-            <h2>New collection</h2>
-            {error !== undefined && <p role="alert" className="refusal">{error}</p>}
-            <label>
-              Name
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <button type="submit" disabled={busy}>Create</button>
-          </form>
         </>
-      ) : null}
-    </div>
+      )}
+      {createAsked > 0 && (
+        <form className="new-collection" onSubmit={create}>
+          <h2>New collection</h2>
+          {error !== undefined && <p role="alert" className="refusal">{error}</p>}
+          <label>
+            Name
+            <input ref={nameInput} type="text" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <button type="submit" disabled={busy}>Create</button>
+        </form>
+      )}
+    </>
+  );
+
+  return (
+    <CoverWall
+      kind="mine"
+      title="My books"
+      loading={!ready}
+      items={wall?.items ?? []}
+      collections={wall?.collections ?? []}
+      incomplete={(wall?.failed ?? 0) > 0}
+      top={top}
+      onNewCollection={() => setCreateAsked((n) => n + 1)}
+      filter={filter}
+      onFilter={setFilter}
+      // With a shelf missing, an empty wall doesn't mean no books: the alert above says what happened.
+      empty={wall && wall.failed > 0 ? null : (
+        <>
+          <p>You haven’t added any books yet.</p>
+          <ul className="plain-list">
+            <li><a href="/pair">Pair a book</a></li>
+            <li><a href="/import">Import from StoryGraph</a></li>
+            <li><a href="/members">Friends</a></li>
+            <li><a href="/holding">Holding</a></li>
+          </ul>
+        </>
+      )}
+    />
   );
 }

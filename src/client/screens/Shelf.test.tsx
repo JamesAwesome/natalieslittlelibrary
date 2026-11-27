@@ -10,7 +10,10 @@ vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
   return { ...actual, getShelf: vi.fn(), renameCollection: vi.fn(), deleteCollection: vi.fn(), makeDefault: vi.fn() };
 });
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  sessionStorage.clear();
+});
 
 const beach = summary({ id: "k2", name: "Beach house", count: 0 });
 const full = summary({ id: "k2", name: "Beach house", count: 1 });
@@ -29,7 +32,7 @@ test("a non-owner sees the shelf and no controls", async () => {
   vi.mocked(api.getShelf).mockResolvedValue(shelfOf(beach, [item({ copyId: "c1", owner: ann })], ann));
   show();
   await screen.findByText("Beach house");
-  expect(screen.getByRole("link", { name: "Book c1" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Book c1, An Author" })).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
@@ -136,7 +139,7 @@ test("delete refused (not empty any more) says so and re-reads the truth", async
   await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
   await userEvent.click(screen.getByRole("button", { name: "Yes, delete it" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("can't be deleted");
-  expect(await screen.findByRole("link", { name: "Book c1" })).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "Book c1, An Author" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Yes, delete it" })).not.toBeInTheDocument();
 });
@@ -226,6 +229,49 @@ test("the h1 is the collection's name", async () => {
 test("signed out, the h1 is the app name", () => {
   show("k2", null);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+// A note line holds a <bdi> name, so match on the paragraph's whole text.
+const line = (t: string) => (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === t;
+const out = (owner = me as typeof me | typeof ann) =>
+  item({ copyId: "c1", owner, home: false, holder: { kind: "person", id: "p1", name: "Sam" }, collection: { id: "k2", name: "Beach house" } });
+
+test("the owner's controls sit above their collection's wall, which names who has a book", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(full, [out()]));
+  show();
+  const cover = await screen.findByRole("link", { name: "Book c1, An Author" });
+  expect(cover).toHaveAttribute("href", "/copies/c1");
+  expect(screen.getByText(line("With Sam"))).toBeInTheDocument();
+  expect(screen.getByText("1 book · 1 lent out")).toBeInTheDocument();
+  for (const name of ["Rename", "Make this the default"]) {
+    expect(screen.getByRole("button", { name }).compareDocumentPosition(cover) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  // A single collection has no chips.
+  expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Collection" })).not.toBeInTheDocument();
+});
+
+test("a visitor sees a friend's collection wall: Out, never who has it", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(full, [out(ann)], ann));
+  show();
+  expect(await screen.findByRole("link", { name: "Book c1, An Author" })).toBeInTheDocument();
+  expect(screen.getByText(line("Out"))).toBeInTheDocument();
+  expect(screen.queryByText(/Sam/)).not.toBeInTheDocument();
+  expect(screen.getByText("1 book")).toBeInTheDocument();
+  expect(screen.getByText(line("Owned by Ann"))).toBeInTheDocument();
+});
+
+test("an empty collection says so", async () => {
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(beach, []));
+  show();
+  expect(await screen.findByText("No books here yet.")).toBeInTheDocument();
+});
+
+test("while loading, a skeleton under the app name and no controls", () => {
+  vi.mocked(api.getShelf).mockReturnValue(new Promise(() => {}));
+  show();
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
 function tabOf(owner: typeof me | typeof ann) {

@@ -9,6 +9,10 @@ export const holderLabel = (h: Holder): string => (h.kind === "member" ? personL
 
 export const Name = ({ children }: { children: string }) => <bdi>{children}</bdi>;
 
+export function BookCount({ n }: { n: number }) {
+  return <span className="count">{n} {n === 1 ? "book" : "books"}</span>;
+}
+
 export type CoverSize = "wall" | "row" | "hero";
 // Width and height attributes give the image its 2:3 shape before it loads. The hero's box is reserved in CSS
 // (a fixed width at 2:3) until the image has loaded, and only then takes the cover's own proportions.

@@ -1,14 +1,33 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
 import { Members } from "./Members";
-import { ann, me, natalie, summary } from "./shelfFixtures";
+import { ann, item, me, natalie, shelfOf, summary } from "./shelfFixtures";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
-  return { ...actual, listMembers: vi.fn(), memberCollections: vi.fn() };
+  return { ...actual, listMembers: vi.fn(), memberCollections: vi.fn(), getShelf: vi.fn() };
 });
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  sessionStorage.clear();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+const beach = summary({ id: "k9", name: "Beach house", count: 1 });
+const kids = summary({ id: "k8", name: "Kids", count: 1 });
+const annItem = (copyId: string, k: { id: string; name: string }, over = {}) => item({ copyId, owner: ann, holder: { kind: "member", person: ann }, collection: { id: k.id, name: k.name }, ...over });
+const covers = () => screen.queryAllByRole("link", { name: /^Book .*, An Author$/ }).map((l) => l.getAttribute("href"));
+const line = (t: string) => (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === t;
+
+function annWall(fail?: string) {
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [beach, kids] });
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === fail) throw new api.ApiError(500, null);
+    return id === "k9" ? shelfOf(beach, [annItem("x", beach, { home: false })], ann) : shelfOf(kids, [annItem("y", kids)], ann);
+  });
+}
 
 test("lists other members by name, omitting the signed-in one, each linking to their page", async () => {
   vi.mocked(api.listMembers).mockResolvedValue({ members: [natalie, ann] });
@@ -19,12 +38,54 @@ test("lists other members by name, omitting the signed-in one, each linking to t
   expect(screen.queryByText("Natalie")).not.toBeInTheDocument();
 });
 
-test("a member's page lists their collections linking to shelves", async () => {
-  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [summary({ id: "k9", name: "Beach house", count: 3 })] });
+test("a member's page is their wall: every collection read and merged under their name", async () => {
+  annWall();
   render(<Members id="2" member={me} returnTo="/members/2" />);
-  expect(await screen.findByRole("link", { name: "Beach house" })).toHaveAttribute("href", "/collections/k9");
-  expect(screen.getByText("3 books")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "Book x, An Author" })).toHaveAttribute("href", "/copies/x");
+  expect(screen.getByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
+  expect(covers()).toEqual(["/copies/x", "/copies/y"]);
   expect(api.memberCollections).toHaveBeenCalledWith("2");
+  expect(vi.mocked(api.getShelf).mock.calls.map((c) => c[0]).sort()).toEqual(["k8", "k9"]);
+  expect(screen.getByText("2 books")).toBeInTheDocument();
+  expect(screen.getByText(line("Out"))).toBeInTheDocument();
+  for (const name of ["All", "At home", "Collection"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Lent out" })).not.toBeInTheDocument();
+});
+
+test("a friend's Collection ▾ lists their collections and has nothing to manage or create", async () => {
+  annWall();
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  await userEvent.click(await screen.findByRole("button", { name: "Collection" }));
+  expect(screen.getAllByRole("menuitemradio").map((m) => m.textContent)).toEqual(["All collections", "Beach house", "Kids"]);
+  expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Kids" }));
+  expect(covers()).toEqual(["/copies/y"]);
+});
+
+test("one of a friend's shelves failing shows the rest with an alert and Try again", async () => {
+  annWall("k8");
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(covers()).toEqual(["/copies/x"]);
+  expect(screen.queryByText(/^\d+ books?$/)).not.toBeInTheDocument();
+  annWall();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("link", { name: "Book y, An Author" })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("every one of a friend's shelves failing is trouble", async () => {
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [beach] });
+  vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(500, null));
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("having trouble");
+});
+
+test("a friend with no collections has an empty wall", async () => {
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [] });
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByText("No books here yet.")).toBeInTheDocument();
+  expect(api.getShelf).not.toHaveBeenCalled();
 });
 
 test("a removed or unknown member shows not-found, not an error", async () => {
@@ -48,12 +109,13 @@ test("a 401 on load shows sign-in", async () => {
 });
 
 test("navigating to another member starts from nothing", async () => {
-  vi.mocked(api.memberCollections).mockResolvedValueOnce({ owner: ann, collections: [summary({ id: "k9", name: "Beach house" })] });
+  annWall();
   const { rerender } = render(<Members id="2" member={me} returnTo="/members/2" />);
-  await screen.findByText("Beach house");
+  await screen.findByRole("link", { name: "Book x, An Author" });
   vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
   rerender(<Members id="3" member={me} returnTo="/members/3" />);
-  expect(screen.queryByText("Beach house")).not.toBeInTheDocument();
+  expect(covers()).toEqual([]);
+  expect(screen.queryByRole("heading", { level: 1, name: "Ann" })).not.toBeInTheDocument();
 });
 
 test("long unbroken names sit in bdi", async () => {

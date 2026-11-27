@@ -43,6 +43,39 @@ html:has(.wall[data-chips]) {
   font-size: var(--text-sm);
 }
 
+/* Alerts, the requests bar and the forms that open above the chips. Its buttons, labels and links take the shelf
+   screens' rules (screens.css), never the chips row's. */
+.wall-top {
+  margin: 0 0 var(--space-3);
+}
+
+/* "1 request": a full-width bar that opens the list under it. Ink on paper-2: 15.20:1 light, 13.82:1 dark. */
+.wall-top .wall-requests-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  font-weight: 600;
+  text-align: left;
+}
+
+.wall-requests-bar[aria-expanded="true"] .chip-chevron {
+  transform: rotate(180deg);
+}
+
+.wall-top .wall-requests {
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.wall-empty > p:first-child {
+  margin-top: var(--space-4);
+}
+
 /* Chips: status toggles scroll sideways when they don't fit; Collection stays at the right end. */
 .wall-chips {
   position: sticky;

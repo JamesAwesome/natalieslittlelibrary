@@ -8,19 +8,32 @@ vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
   return { ...actual, getHolding: vi.fn() };
 });
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  sessionStorage.clear();
+});
 
-test("shows each book with its owner", async () => {
-  vi.mocked(api.getHolding).mockResolvedValue({ items: [item({ copyId: "c1", owner: ann, home: false, holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } } })] });
+// A note line holds a <bdi> name, so match on the paragraph's whole text.
+const line = (t: string) => (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === t;
+const removed = { id: "3", name: "Sam", pictureUrl: null, removed: true as const };
+
+test("a wall of what I hold, each cover saying whose it is", async () => {
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [
+    item({ copyId: "c1", owner: ann, home: false, holder: { kind: "member", person: { id: "1", name: "Natalie", pictureUrl: null } } }),
+    item({ copyId: "c2", owner: removed, home: false }),
+  ] });
   render(<Holding member={me} returnTo="/holding" />);
-  expect(await screen.findByText("Ann")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Book c1" })).toHaveAttribute("href", "/copies/c1");
+  expect(await screen.findByRole("link", { name: "Book c1, An Author" })).toHaveAttribute("href", "/copies/c1");
+  expect(screen.getByText(line("From Ann"))).toBeInTheDocument();
+  expect(screen.getByText(line("From Sam (no longer a member)"))).toBeInTheDocument();
+  expect(screen.getByText("2 books")).toBeInTheDocument();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
 test("empty", async () => {
   vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
   render(<Holding member={me} returnTo="/holding" />);
-  expect(await screen.findByText("You're not holding anyone else's books.")).toBeInTheDocument();
+  expect(await screen.findByText("You aren’t holding anyone’s books.")).toBeInTheDocument();
 });
 
 test("signed out: only the sign-in link back to the page, and nothing is fetched", () => {
@@ -46,14 +59,15 @@ test("a failure shows trouble with a retry", async () => {
 test("an ownerless copy says No owner", async () => {
   vi.mocked(api.getHolding).mockResolvedValue({ items: [item({ copyId: "c9", owner: null, collection: null })] });
   render(<Holding member={me} returnTo="/holding" />);
-  expect(await screen.findByText("No owner")).toBeInTheDocument();
+  expect(await screen.findByText(line("No owner"))).toBeInTheDocument();
 });
 
 test("the h1 is Holding, with no What I'm holding heading", async () => {
   vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
   render(<Holding member={me} returnTo="/holding" />);
   expect(screen.getByRole("heading", { level: 1, name: "Holding" })).toBeInTheDocument();
-  await screen.findByText("You're not holding anyone else's books.");
+  await screen.findByText("You aren’t holding anyone’s books.");
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   expect(screen.queryByRole("heading", { name: "What I'm holding" })).not.toBeInTheDocument();
 });
 

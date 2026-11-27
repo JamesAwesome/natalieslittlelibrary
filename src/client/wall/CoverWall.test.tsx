@@ -1,3 +1,4 @@
+import { createRef } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ShelfItem } from "../../shared/types";
@@ -42,6 +43,17 @@ test("shows the title as the h1 and the count line, and hides the count line whe
   wall({ items, incomplete: true });
   expect(screen.getByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
   expect(screen.queryByText(/\d+ books/)).toBeNull();
+});
+
+test("the title sits in bdi, and a heading ref makes the h1 focusable for the screen to move focus to", () => {
+  const ref = createRef<HTMLHeadingElement>();
+  const { unmount } = wall({ title: "Beach house" });
+  expect(screen.getByText("Beach house").tagName).toBe("BDI");
+  expect(screen.getByRole("heading", { level: 1 })).not.toHaveAttribute("tabindex");
+  unmount();
+  wall({ title: "Beach house", headingRef: ref });
+  expect(ref.current).toBe(screen.getByRole("heading", { level: 1, name: "Beach house" }));
+  expect(ref.current).toHaveAttribute("tabindex", "-1");
 });
 
 test("a friend's wall counts books without the lent-out part", () => {
