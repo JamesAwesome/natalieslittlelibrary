@@ -41,12 +41,19 @@ test("the bar is app chrome, so it does not print", () => {
   expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass("tab-bar", "app-chrome");
 });
 
-// Fires a click and reports whether the page's own handler took it over.
+// Fires a click and reports whether the page's own handler took it over. A listener on the document records
+// defaultPrevented as the component left it, then prevents the default so jsdom doesn't try to navigate.
 function tap(name: string, init: MouseEventInit = {}) {
   const link = screen.getByRole("link", { name });
-  const ev = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
-  fireEvent(link, ev);
-  return ev.defaultPrevented;
+  let prevented = false;
+  const record = (e: Event) => {
+    prevented = e.defaultPrevented;
+    e.preventDefault();
+  };
+  document.addEventListener("click", record, { once: true });
+  fireEvent(link, new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+  document.removeEventListener("click", record);
+  return prevented;
 }
 
 let scrollTo: ReturnType<typeof vi.fn>;

@@ -59,10 +59,16 @@ For back to top:
   `tabFor` maps the `pair` route to `"pair"`, no longer to `"more"`.
 - The order is Books, Holding, Pair, Friends, More. The tab bar grid has five
   columns.
-- As in mockup B, the Pair tab is a 40px accent disc holding a plus (paper on
-  accent: 6.81:1 light, 8.40:1 dark), with the label "Pair" in the accent
-  colour beneath it. On `/pair` it carries `aria-current="page"` like any
-  other tab; the disc already marks it **(call)**.
+- The Pair tab is an accent disc holding a plus (paper on accent: 6.81:1
+  light, 8.40:1 dark), with the label "Pair" beneath it. On `/pair` it carries
+  `aria-current="page"` like any other tab.
+- The disc is 32px, with an 18px plus, and sits inside the bar **(call)**.
+  With a 4rem bar, a 40px disc can't sit inside the bar and keep every label
+  on one baseline. The rejected alternatives were a raised 40px disc above
+  the bar, or a taller bar on every screen.
+- The label follows the normal tab colours: muted, and accent with weight 600
+  when current. Only the disc is always accent **(call)**. An always-accent
+  label made two tabs look current at once.
 - The whole tab is still at least 44px tall. At 320px each tab is 64px wide,
   and "Holding" must fit on one line.
 - The plus beside "My books" (`.wall-head` / `.wall-pair`) is removed, with
@@ -103,5 +109,3 @@ For back to top:
 
 - How `markAt` and `targetLetter` handle "↑", as long as a letter still maps
   to where the finger is.
-- Whether the Pair tab's disc rises above the bar's top edge (mockup B kept
-  it inside the bar).
