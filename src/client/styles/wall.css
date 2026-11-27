@@ -39,7 +39,9 @@ html:has(.wall[data-chips]) {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-1);
+  /* The rail's room (--wall-gutter, 0px without a rail) is for the grid and chips, not the title row: the plus
+     stays put when the wall finishes loading and the rail appears. */
+  margin: 0 calc(-1 * var(--wall-gutter)) var(--space-1) 0;
 }
 
 .wall-head > h1 {
@@ -47,8 +49,8 @@ html:has(.wall[data-chips]) {
   min-width: 0;
 }
 
-/* :is(:link, :visited) outranks the global link and visited colours (base.css). */
-a.wall-pair:is(:link, :visited) {
+/* Specificity (0,3,1) beats base.css's a:not(.button):visited (0,2,1), whatever the import order. */
+.wall a.wall-pair:is(:link, :visited) {
   flex: none;
   display: flex;
   align-items: center;
