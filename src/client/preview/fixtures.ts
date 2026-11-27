@@ -27,7 +27,12 @@ export const FAILED_LONG: FixtureBook = { ...NO_COVER_LONG, coverUrl: FAILED.cov
 const ann: Person = { id: "2", name: "Ann", pictureUrl: null };
 const sam: Person = { id: "3", name: "Sam", pictureUrl: null, removed: true };
 const natalie: Person = { id: "1", name: "Natalie", pictureUrl: null };
-export const WALL_COLLECTIONS: CollectionRef[] = [{ id: "k1", name: "Home library" }, { id: "k2", name: "Children’s shelf" }];
+// k3's name is 60 characters, the longest a collection may have.
+export const WALL_COLLECTIONS: CollectionRef[] = [
+  { id: "k1", name: "Home library" }, { id: "k2", name: "Children’s shelf" },
+  { id: "k3", name: "Russian, French and German novels in translation, mostly old" },
+  { id: "k4", name: "Poetry" }, { id: "k5", name: "Plays" }, { id: "k6", name: "Lent to the school" },
+];
 const WALL_BOOKS: [string, string, string | null][] = [
   ...LOADED.map((b): [string, string, string | null] => [b.title, b.authors[0], b.coverUrl]),
   [NO_COVER.title, NO_COVER.authors[0], null],
@@ -59,6 +64,7 @@ const OUT: Record<string, Holder> = {
   Walden: { kind: "member", person: ann },
 };
 const KIDS = new Set(["Little Women", "Treasure Island", "Kidnapped", "Kim", "Aesop’s Fables", "Gulliver’s Travels", "Robinson Crusoe"]);
+const TRANSLATED = new Set(["Anna Karenina", "War and Peace", "Crime and Punishment", "Les Misérables", "Madame Bovary", "Germinal", "Effi Briest", "Siddhartha"]);
 export const WALL: ShelfItem[] = WALL_BOOKS.map(([title, author, coverUrl], i) => ({
   copyId: `p${i + 1}`,
   book: { isbn: null, title, authors: [author], coverUrl },
@@ -66,5 +72,5 @@ export const WALL: ShelfItem[] = WALL_BOOKS.map(([title, author, coverUrl], i) =
   owner: natalie,
   holder: OUT[title] ?? { kind: "member", person: natalie },
   home: !OUT[title],
-  collection: KIDS.has(title) ? WALL_COLLECTIONS[1] : WALL_COLLECTIONS[0],
+  collection: KIDS.has(title) ? WALL_COLLECTIONS[1] : TRANSLATED.has(title) ? WALL_COLLECTIONS[2] : WALL_COLLECTIONS[0],
 }));

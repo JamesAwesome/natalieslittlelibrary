@@ -14,6 +14,9 @@
   --color-tile-ink: oklch(30% 0.03 60); /* 10.15:1 on tile */
   --color-focus: oklch(56% 0.13 45); /* 4.63:1 on paper, 4.11 paper-2, 3.70 ink, 3.96 alert-bg */
 
+  /* Alpha only, for mask-image; never drawn as a colour. */
+  --mask-solid: #000;
+
   --cover-shadow: 0 1px 2px oklch(20% 0.02 60 / 0.18), 0 4px 12px oklch(20% 0.02 60 / 0.14);
 
   --font-display: "Fraunces Variable", Georgia, serif;
@@ -30,6 +33,7 @@
   --space-8: 48px;
 
   /* 1.25 scale from a 16px body */
+  --text-xs: 0.64rem;
   --text-sm: 0.8rem;
   --text-base: 1rem;
   --text-lg: 1.25rem;

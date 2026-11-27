@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { CollectionRef, ShelfItem } from "../../shared/types";
 import { Cover, holderLabel, Name, personLabel } from "../screens/BookCard";
 import { AlphaRail } from "./AlphaRail";
@@ -41,15 +41,15 @@ export function CoverWall(props: Props) {
   const { kind, title, items, filter, onFilter, loading } = props;
   const owner = kind === "mine" || kind === "my-collection";
   const chips = kind === "mine" || kind === "friend";
-  const groups = groupByLetter(applyFilter(items, filter));
-  const shown = groups.reduce((n, g) => n + g.items.length, 0);
-  const rail = !loading && items.length > 0 && showRail(shown, groups.length);
+  const shown = applyFilter(items, filter);
+  const groups = groupByLetter(shown);
+  const rail = !loading && items.length > 0 && showRail(shown.length, groups.length);
   const pick = (letter: string) => document.getElementById(letterId(letter))?.scrollIntoView({ block: "start", behavior: "instant" });
 
   return (
     <div className="wall" data-chips={chips && !loading && items.length > 0 ? "" : undefined} data-rail={rail ? "" : undefined}>
       <h1>{title}</h1>
-      {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(items, owner)}</p>}
+      {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
       {props.top}
       {loading ? (
         <div className="wall-grid wall-skeleton" aria-hidden="true">
@@ -59,14 +59,7 @@ export function CoverWall(props: Props) {
         <>
           {chips && (
             <div className="wall-chips">
-              <div className="wall-status">
-                {STATUS[kind].map(([status, label]) => (
-                  <button key={status} type="button" className="chip" aria-pressed={filter.status === status}
-                    onClick={() => onFilter({ ...filter, status })}>
-                    <span className="chip-pill">{label}</span>
-                  </button>
-                ))}
-              </div>
+              <StatusChips kind={kind} filter={filter} onFilter={onFilter} />
               <CollectionMenu {...props} />
             </div>
           )}
@@ -86,6 +79,47 @@ export function CoverWall(props: Props) {
           {rail && <AlphaRail present={groups.map((g) => g.letter)} onPick={pick} />}
         </>
       )}
+    </div>
+  );
+}
+
+// Status toggles in a strip that scrolls sideways. The trailing edge fades while more chips lie past it, and the
+// pressed chip is scrolled into the strip (never the page) whenever the filter or the strip's width changes.
+function StatusChips({ kind, filter, onFilter }: { kind: "mine" | "friend"; filter: WallFilter; onFilter(f: WallFilter): void }) {
+  const strip = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const measure = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    const reveal = () => {
+      const chip = el.querySelector('[aria-pressed="true"]');
+      if (!chip) return;
+      const s = el.getBoundingClientRect();
+      const c = chip.getBoundingClientRect();
+      // The least scroll that brings the chip clear of the trailing fade (1.5rem in wall.css); none if it fits,
+      // so a strip that once had to scroll (fonts loading, a long collection name) settles back to its start.
+      const fade = 24;
+      const end = c.right - s.left + el.scrollLeft;
+      el.scrollLeft = Math.max(0, end - (s.right - s.left - fade));
+      measure();
+    };
+    reveal();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reveal);
+    ro?.observe(el);
+    return () => { el.removeEventListener("scroll", measure); ro?.disconnect(); };
+  }, [filter.status, filter.collectionId]);
+
+  return (
+    <div className="wall-status" ref={strip} data-more={more ? "" : undefined}>
+      {STATUS[kind].map(([status, label]) => (
+        <button key={status} type="button" className="chip" aria-pressed={filter.status === status}
+          onClick={() => onFilter({ ...filter, status })}>
+          <span className="chip-pill">{label}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -121,6 +155,12 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
 
   useEffect(() => {
     if (!open) return;
+    // The menu stops above the tab bar (or the screen's bottom) and scrolls inside itself.
+    const m = menu.current;
+    if (m) {
+      const floor = document.querySelector(".tab-bar")?.getBoundingClientRect().top ?? innerHeight;
+      m.style.maxHeight = `${Math.max(88, floor - m.getBoundingClientRect().top - 8)}px`;
+    }
     (entries()[0])?.focus();
     const outside = (e: Event) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("pointerdown", outside);
@@ -139,6 +179,11 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
     else if (e.key === "Home") move(0);
     else if (e.key === "End") move(-1);
   };
+  // Focus moving elsewhere (a screen reader, a script) closes it. A null target is a tap, which the pointerdown
+  // listener above handles; closing on it would unmount an item before Safari, which doesn't focus buttons, clicks it.
+  const onBlur = (e: FocusEvent) => {
+    if (e.relatedTarget instanceof Node && !root.current?.contains(e.relatedTarget)) setOpen(false);
+  };
   const choose = (collectionId: string | null) => {
     onFilter({ ...filter, collectionId });
     close(true);
@@ -151,11 +196,13 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
   );
 
   return (
-    <div className="wall-collection" ref={root}>
+    <div className="wall-collection" ref={root} onBlur={onBlur}>
       <button ref={button} type="button" className="chip" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
         data-active={picked ? "" : undefined} onClick={() => setOpen((o) => !o)}>
         <span className="chip-pill">
-          <span className="chip-label">{picked ? picked.name : "Collection"}</span>
+          {picked ? (
+            <span className="chip-label"><span className="visually-hidden">Collection:</span> {picked.name}</span>
+          ) : <span className="chip-label">Collection</span>}
           <svg className="chip-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
         </span>
       </button>

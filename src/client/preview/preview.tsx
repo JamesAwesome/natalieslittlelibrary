@@ -6,7 +6,7 @@ import { Book, Cover, type CoverSize } from "../screens/BookCard";
 import { TabBar } from "../TabBar";
 import "../styles/index.css";
 import { CoverWall, type WallKind } from "../wall/CoverWall";
-import { ALL } from "../wall/model";
+import { ALL, type Status, type WallFilter } from "../wall/model";
 import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, WALL, WALL_COLLECTIONS, type FixtureBook } from "./fixtures";
 
 const SIZES: CoverSize[] = ["wall", "row", "hero"];
@@ -64,12 +64,15 @@ function TabBarView() {
   );
 }
 
-// &kind=friend|holding|… picks another wall, &loading shows the skeleton, &empty shows an empty wall.
+// &kind=friend|holding|… picks another wall, &loading shows the skeleton, &empty shows an empty wall,
+// &status=out|home|unlabelled and &collection=<id> start with that filter.
 function WallView() {
   document.getElementById("root")?.classList.add("has-tab-bar");
   const params = new URLSearchParams(location.search);
   const kind = (params.get("kind") ?? "mine") as WallKind;
-  const [filter, setFilter] = useState(ALL);
+  const [filter, setFilter] = useState<WallFilter>({
+    status: (params.get("status") as Status | null) ?? ALL.status, collectionId: params.get("collection") ?? ALL.collectionId,
+  });
   return (
     <>
       <main>

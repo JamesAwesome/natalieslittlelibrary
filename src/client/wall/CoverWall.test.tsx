@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ShelfItem } from "../../shared/types";
 import { ann, item } from "../screens/shelfFixtures";
 import { CoverWall, type WallKind } from "./CoverWall";
@@ -26,6 +26,11 @@ const many = (n: number, letter?: string): ShelfItem[] =>
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+// A failed expectation must not leave a layout spy behind for the next test.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 test("shows the title as the h1 and the count line, and hides the count line when incomplete", () => {
@@ -209,14 +214,15 @@ test("your Collection menu ends with New collection…, which calls onNewCollect
 
 test("a friend's Collection menu has no New collection… and no Manage link", () => {
   wall({ kind: "friend", title: "Ann", filter: { status: "all", collectionId: "k1" } });
-  fireEvent.click(screen.getByRole("button", { name: "Home library" }));
+  fireEvent.click(screen.getByRole("button", { name: "Collection: Home library" }));
   const menu = screen.getByRole("menu");
   expect(entriesOf(menu).map((e) => e.textContent)).toEqual(["All collections", "Home library", "Kids"]);
 });
 
 test("with a collection picked, the button names it and your menu offers Manage {name}", () => {
   wall({ filter: { status: "all", collectionId: "k2" } });
-  const button = screen.getByRole("button", { name: "Kids" });
+  const button = screen.getByRole("button", { name: "Collection: Kids" });
+  expect(within(button).getByText("Collection:")).toHaveClass("visually-hidden");
   expect(button).toHaveAttribute("aria-haspopup", "menu");
   fireEvent.click(button);
   expect(screen.getByRole("menuitemradio", { name: "Kids" })).toHaveAttribute("aria-checked", "true");
@@ -261,6 +267,21 @@ test("arrow keys move through the menu", () => {
   expect(entries[entries.length - 1]).toHaveFocus();
 });
 
+test("a status chip stays pressed with a collection picked too", () => {
+  wall({ filter: { status: "home", collectionId: "k2" } });
+  expect(screen.getByRole("button", { name: "At home" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: "Collection: Kids" })).toBeInTheDocument();
+});
+
+test("the count line follows the filter", () => {
+  wall({ filter: { status: "out", collectionId: null }, items: [
+    item({ copyId: "c1", home: false, holder: { kind: "member", person: ann } }),
+    item({ copyId: "c2" }), item({ copyId: "c3" }),
+  ] });
+  expect(screen.getByText("1 book · 1 lent out")).toBeInTheDocument();
+});
+
 test("a filter that matches nothing says so and offers Show all", () => {
   const onFilter = vi.fn();
   wall({ onFilter, filter: { status: "out", collectionId: null } });
@@ -269,6 +290,61 @@ test("a filter that matches nothing says so and offers Show all", () => {
   fireEvent.click(screen.getByRole("button", { name: "Show all" }));
   expect(onFilter).toHaveBeenLastCalledWith(ALL);
   expect(screen.queryByText("Nothing here yet.")).toBeNull();
+});
+
+test("Show all clears a collection too", () => {
+  const onFilter = vi.fn();
+  wall({ onFilter, filter: { status: "out", collectionId: "k1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+  expect(onFilter).toHaveBeenLastCalledWith(ALL);
+});
+
+test("focus moving out of the menu closes it; a tap's null target leaves it to the outside-tap listener", () => {
+  wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  const first = entriesOf(screen.getByRole("menu"))[0];
+  fireEvent.blur(first, { relatedTarget: null });
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+  fireEvent.blur(first, { relatedTarget: screen.getByRole("button", { name: "All" }) });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+// Rectangles by class, for the layout jsdom doesn't do.
+const rects = (by: Record<string, Partial<DOMRect>>) =>
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const hit = Object.entries(by).find(([sel]) => this.matches(sel));
+    return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {}, ...hit?.[1] } as DOMRect;
+  });
+
+test("the menu stops above the tab bar and scrolls inside itself", () => {
+  const bar = document.body.appendChild(Object.assign(document.createElement("nav"), { className: "tab-bar" }));
+  const spy = rects({ ".tab-bar": { top: 400 }, ".wall-menu": { top: 100 } });
+  wall();
+  fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+  expect(screen.getByRole("menu").style.maxHeight).toBe("292px");
+  spy.mockRestore();
+  bar.remove();
+});
+
+test("the pressed chip is scrolled into the strip, clear of its fade", () => {
+  const spy = rects({ ".wall-status": { left: 0, right: 100 }, '[aria-pressed="true"]': { left: 150, right: 200 } });
+  const { container } = wall({ filter: { status: "unlabelled", collectionId: null } });
+  expect(container.querySelector<HTMLElement>(".wall-status")!.scrollLeft).toBe(124);
+  spy.mockRestore();
+});
+
+test("the strip's trailing edge fades only while more chips lie past it", () => {
+  const width = (v: number) => vi.spyOn(HTMLElement.prototype, v === 0 ? "clientWidth" : "scrollWidth", "get");
+  const client = width(0).mockReturnValue(200);
+  const scroll = width(1).mockReturnValue(300);
+  const { container, unmount } = wall();
+  expect(container.querySelector(".wall-status")).toHaveAttribute("data-more");
+  unmount();
+  scroll.mockReturnValue(200);
+  const again = wall();
+  expect(again.container.querySelector(".wall-status")).not.toHaveAttribute("data-more");
+  client.mockRestore();
+  scroll.mockRestore();
 });
 
 test("an empty wall shows empty, with no chips, count or rail", () => {
