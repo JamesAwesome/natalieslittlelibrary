@@ -1,8 +1,3 @@
-.copy-page button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .copy-page button,
 .copy-page a.button {
   min-height: 44px;
@@ -10,7 +5,7 @@
 
 .copy-page .move label {
   display: block;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .copy-page p,
@@ -23,13 +18,13 @@
   display: block;
   width: 100%;
   min-height: 44px;
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
   padding: 10px;
   font: inherit;
 }
 
 .copy-page button + button {
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 
 .copy-page input[type="text"] {
@@ -44,7 +39,7 @@
 }
 
 .pair-page button + button {
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 
 .pair-page button.link {
@@ -56,7 +51,7 @@
 
 .pair-page label {
   display: block;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .pair-page select,
@@ -70,7 +65,7 @@
 
 .pair-page .field-error {
   display: block;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--alert-fg);
 }
 
@@ -82,14 +77,9 @@
   min-height: 44px;
 }
 
-.labels-page button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .labels-page label {
   display: block;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .labels-page select,
@@ -103,9 +93,9 @@
 
 .labels-page fieldset {
   min-width: 0;
-  margin: 0 0 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--alert-bg);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-rule);
   border-radius: 6px;
 }
 
@@ -119,9 +109,9 @@
 
 .copy-page .label-code,
 .pair-page .label-code {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875rem;
-  color: var(--fg);
+  color: var(--color-ink);
 }
 
 .shelf-page h2,
@@ -139,22 +129,17 @@
   min-height: 44px;
 }
 
-.shelf-page button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .shelf-page button + button {
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 
 .shelf-page .controls button {
-  margin: 0 8px 8px 0;
+  margin: 0 var(--space-2) var(--space-2) 0;
 }
 
 .shelf-page .toggle {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   min-height: 44px;
 }
@@ -166,14 +151,14 @@
 
 .shelf-page label {
   display: block;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .shelf-page input[type="text"] {
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
   padding: 10px;
   font: inherit;
 }
@@ -189,21 +174,21 @@
 
 .shelf-page .plain-list,
 .shelf-list {
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
   padding: 0;
   list-style: none;
 }
 
 .shelf-page .plain-list li {
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .shelf-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: flex-start;
-  padding: 12px 0;
-  border-top: 1px solid var(--alert-bg);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-rule);
 }
 
 .shelf-row .cover {
@@ -217,11 +202,11 @@
 }
 
 .shelf-text p {
-  margin: 4px 0;
+  margin: var(--space-1) 0;
 }
 
 .shelf-text .authors {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .shelf-page .shelf-title {
@@ -232,11 +217,11 @@
 }
 
 .shelf-page .group {
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 .shelf-page .count {
-  opacity: 0.85;
+  color: var(--color-muted);
 }
 
 .import-page button,
@@ -253,7 +238,7 @@
 
 .import-page label {
   display: block;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 
 .import-page input[type="file"] {
@@ -272,7 +257,7 @@
 
 .import-page .field-error {
   display: block;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--alert-fg);
 }
 
