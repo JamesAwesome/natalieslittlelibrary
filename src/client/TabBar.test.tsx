@@ -2,9 +2,9 @@ import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { TabBar } from "./TabBar";
 
-const hrefs = [["Books", "/"], ["Holding", "/holding"], ["Friends", "/members"], ["More", "/more"]] as const;
+const hrefs = [["Books", "/"], ["Holding", "/holding"], ["Pair", "/pair"], ["Friends", "/members"], ["More", "/more"]] as const;
 
-test("four links in order, with their addresses", () => {
+test("five links in order, with their addresses", () => {
   render(<TabBar active={null} />);
   const links = within(screen.getByRole("navigation", { name: "Main" })).getAllByRole("link");
   expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual(hrefs.map(([a, b]) => [a, b]));
@@ -14,6 +14,12 @@ test("only the active tab is current", () => {
   render(<TabBar active="friends" />);
   const current = screen.getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
   expect(current.map((l) => l.textContent)).toEqual(["Friends"]);
+});
+
+test("Pair can be the current tab", () => {
+  render(<TabBar active="pair" />);
+  const current = screen.getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
+  expect(current.map((l) => l.textContent)).toEqual(["Pair"]);
 });
 
 test("none is current when active is null", () => {

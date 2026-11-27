@@ -16,6 +16,7 @@ const icons: Record<Tab, ReactNode> = {
       <path d="M4 13h4.5a1 1 0 0 1 1 .8 2.6 2.6 0 0 0 5 0 1 1 0 0 1 1-.8H20" />
     </>
   ),
+  pair: <path d="M12 5v14M5 12h14" />,
   friends: (
     <>
       <circle className="fill" cx="9" cy="8.5" r="3.2" />
@@ -33,12 +34,19 @@ const icons: Record<Tab, ReactNode> = {
   ),
 };
 
-const order: [Tab, string][] = [["books", "Books"], ["holding", "Holding"], ["friends", "Friends"], ["more", "More"]];
+const order: [Tab, string][] = [["books", "Books"], ["holding", "Holding"], ["pair", "Pair"], ["friends", "Friends"], ["more", "More"]];
 
 export function TabBar({ active }: { active: Tab | null }) {
   return (
     <nav aria-label="Main" className="tab-bar app-chrome">
-      {order.map(([tab, label]) => (
+      {order.map(([tab, label]) => tab === "pair" ? (
+        <a key={tab} href={tabRoot[tab].href} className="tab tab-pair" aria-current={tab === active ? "page" : undefined}>
+          <span className="tab-disc">
+            <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>
+          </span>
+          <span className="tab-label">{label}</span>
+        </a>
+      ) : (
         <a key={tab} href={tabRoot[tab].href} className="tab" aria-current={tab === active ? "page" : undefined}>
           <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>
           <span className="tab-label">{label}</span>

@@ -491,24 +491,17 @@ test("while loading it shows nine tile-shaped blocks, hidden, with no images, ch
   expect(skeleton.children).toHaveLength(9);
   expect(container.querySelector("img")).toBeNull();
   expect(screen.queryAllByRole("button")).toHaveLength(0);
-  // The only link while loading is the Pair a book plus beside the title.
-  expect(screen.getAllByRole("link")).toEqual([screen.getByRole("link", { name: "Pair a book" })]);
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
   expect(container.querySelector(".alpha-rail")).toBeNull();
   expect(screen.queryByText(/books ·|^\d+ books?$/)).toBeNull();
 });
 
-test("your own wall has a Pair a book link beside the title, loading, empty or full", () => {
-  for (const over of [{}, { items: [] }, { loading: true }]) {
-    const { unmount } = wall(over);
-    expect(screen.getByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
-    unmount();
-  }
-});
-
-test("no Pair a book link on a friend's wall, Holding or a collection", () => {
-  for (const kind of ["friend", "friend-collection", "holding", "my-collection"] as WallKind[]) {
-    const { unmount } = wall({ kind });
-    expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
-    unmount();
+test("no wall draws a Pair a book link", () => {
+  for (const kind of ["mine", "friend", "holding", "my-collection", "friend-collection"] as WallKind[]) {
+    for (const over of [{}, { loading: true }]) {
+      const { unmount } = wall({ kind, ...over });
+      expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
+      unmount();
+    }
   }
 });

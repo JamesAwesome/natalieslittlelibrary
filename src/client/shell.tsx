@@ -1,13 +1,14 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import type { Route } from "./route";
 
-export type Tab = "books" | "holding" | "friends" | "more";
+export type Tab = "books" | "holding" | "pair" | "friends" | "more";
 
 export const APP_NAME = "Natalie's Little Library";
 
 export const tabRoot: Record<Tab, { href: string; label: string }> = {
   books: { href: "/", label: "My books" },
   holding: { href: "/holding", label: "Holding" },
+  pair: { href: "/pair", label: "Pair a book" },
   friends: { href: "/members", label: "Friends" },
   more: { href: "/more", label: "More" },
 };
@@ -23,8 +24,9 @@ export function tabFor(route: Route): Tab | null {
     case "members":
     case "member":
       return "friends";
-    case "more":
     case "pair":
+      return "pair";
+    case "more":
     case "labels":
     case "import":
     case "people":
