@@ -82,6 +82,12 @@ cut or merge the entries whose shape has not recurred.
   colours. Click the link in the probe profile first, then sample rendered
   pixels. Then swap the two stylesheets' import order and sample again: if
   the colour changes, the win was source order on a specificity tie.
+- **"Nothing from the last item leaks into the next."** A screen that used to
+  navigate away after a save, and now resets in place, keeps whatever its
+  reset function doesn't list. Inventory every piece of state and every late
+  async answer that leaving the page used to throw away. Drive each one across
+  the reset with a deferred promise, and mutate each removal on its own.
+  (Pair kept `stale`, `linked` and `afterGone`'s late notice.)
 
 ## Standing facts about this codebase's tools
 
