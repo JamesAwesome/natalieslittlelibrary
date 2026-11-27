@@ -47,16 +47,24 @@ export function useWallPlace(
   collectionIds: string[],
 ): [WallFilter, (f: WallFilter) => void] {
   const [saved] = useState(() => loadPlace(key));
+  const droppedAtInit = useRef(false);
   const [filter, setFilterState] = useState<WallFilter>(() => {
     const f = saved?.filter ?? ALL;
     // Until the list is known, hold the collection; the ready effect settles it.
-    return f.collectionId !== null && collectionIds.length > 0 && !collectionIds.includes(f.collectionId)
-      ? { ...f, collectionId: null }
-      : f;
+    if (f.collectionId !== null && collectionIds.length > 0 && !collectionIds.includes(f.collectionId)) {
+      droppedAtInit.current = true;
+      return { ...f, collectionId: null };
+    }
+    return f;
   });
 
-  const latest = useRef({ filter, ready });
-  latest.current = { filter, ready };
+  const latest = useRef({ filter });
+  latest.current = { filter };
+  // Once the wall has rendered, a later refetch flipping `ready` back must not stop saves.
+  const everReady = useRef(false);
+  if (ready) everReady.current = true;
+  // The DOM is gone by the time an unmount cleanup runs, so window.scrollY would read clamped; track it as it moves.
+  const lastScroll = useRef(typeof window === "undefined" ? 0 : window.scrollY);
 
   useEffect(() => {
     try {
@@ -71,23 +79,35 @@ export function useWallPlace(
     if (!ready || restored.current) return;
     restored.current = true;
     const id = filter.collectionId;
-    if (id !== null && !collectionIds.includes(id)) setFilterState({ ...filter, collectionId: null });
-    if (saved && saved.scrollY > 0) window.scrollTo(0, saved.scrollY);
+    if (id !== null && !collectionIds.includes(id)) {
+      // The saved offset belonged to a different list: land at the top.
+      setFilterState({ ...filter, collectionId: null });
+      return;
+    }
+    if (saved && saved.scrollY > 0 && !droppedAtInit.current) {
+      lastScroll.current = saved.scrollY;
+      window.scrollTo(0, saved.scrollY);
+    }
     // Runs once, the first time the wall is ready.
   }, [ready]);
 
   useEffect(() => {
     const save = () => {
       // Before the wall has rendered, scrollY is 0 and would clobber the real place.
-      if (!latest.current.ready) return;
-      savePlace(key, { filter: latest.current.filter, scrollY: window.scrollY });
+      if (!everReady.current) return;
+      savePlace(key, { filter: latest.current.filter, scrollY: lastScroll.current });
+    };
+    const onScroll = () => {
+      lastScroll.current = window.scrollY;
     };
     const onHidden = () => {
       if (document.visibilityState === "hidden") save();
     };
+    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("pagehide", save);
     document.addEventListener("visibilitychange", onHidden);
     return () => {
+      window.removeEventListener("scroll", onScroll);
       window.removeEventListener("pagehide", save);
       document.removeEventListener("visibilitychange", onHidden);
       save();

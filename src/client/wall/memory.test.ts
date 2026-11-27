@@ -5,8 +5,16 @@ import { ALL } from "./model";
 
 const KEY = "wall:/shelf";
 
+const scrollYOwn = Object.getOwnPropertyDescriptor(window, "scrollY");
+
 beforeEach(() => sessionStorage.clear());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  if (scrollYOwn) Object.defineProperty(window, "scrollY", scrollYOwn);
+  else Reflect.deleteProperty(window, "scrollY");
+  Reflect.deleteProperty(document, "visibilityState");
+});
 
 test("round trips a place", () => {
   savePlace(KEY, { filter: { status: "out", collectionId: "c1" }, scrollY: 120 });
@@ -33,8 +41,12 @@ test("a missing, corrupt or wrongly shaped value gives null", () => {
 });
 
 test("storage that throws gives null and does not throw on save", () => {
-  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("full"); });
+  savePlace(KEY, { filter: ALL, scrollY: 10 });
+  expect(loadPlace(KEY)).not.toBeNull();
+  vi.stubGlobal("sessionStorage", {
+    getItem() { throw new DOMException("denied", "SecurityError"); },
+    setItem() { throw new DOMException("full", "QuotaExceededError"); },
+  });
   expect(loadPlace(KEY)).toBeNull();
   expect(() => savePlace(KEY, { filter: ALL, scrollY: 0 })).not.toThrow();
 });
@@ -108,6 +120,7 @@ test("saves the filter and scroll on pagehide, on hidden, and on unmount", () =>
   const { result, unmount } = renderHook(() => useWallPlace(KEY, true, ["c1"]));
   act(() => result.current[1]({ status: "out", collectionId: "c1" }));
   Object.defineProperty(window, "scrollY", { value: 300, configurable: true });
+  window.dispatchEvent(new Event("scroll"));
 
   window.dispatchEvent(new Event("pagehide"));
   expect(loadPlace(KEY)).toEqual({ filter: { status: "out", collectionId: "c1" }, scrollY: 300 });
@@ -122,9 +135,26 @@ test("saves the filter and scroll on pagehide, on hidden, and on unmount", () =>
   document.dispatchEvent(new Event("visibilitychange"));
   expect(loadPlace(KEY)).toBeNull();
 
+  // React has removed the DOM by unmount, so the page reads 0; the last real position must win.
+  Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
   unmount();
   expect(loadPlace(KEY)?.scrollY).toBe(300);
-  Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+});
+
+test("a refetch flipping ready back to false does not stop the pagehide save", () => {
+  const { result, rerender } = renderHook(({ ready }) => useWallPlace(KEY, ready, []), { initialProps: { ready: true } });
+  act(() => result.current[1]({ status: "home", collectionId: null }));
+  rerender({ ready: false });
+  window.dispatchEvent(new Event("pagehide"));
+  expect(loadPlace(KEY)?.filter.status).toBe("home");
+});
+
+test("a dropped collection keeps the status chip and lands at the top without scrolling", () => {
+  savePlace(KEY, { filter: { status: "out", collectionId: "gone" }, scrollY: 700 });
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const { result } = renderHook(() => useWallPlace(KEY, true, ["c1"]));
+  expect(result.current[0]).toEqual({ status: "out", collectionId: null });
+  expect(scrollTo).not.toHaveBeenCalled();
 });
 
 test("does not overwrite a saved place before the wall is ready", () => {
