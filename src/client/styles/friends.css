@@ -9,26 +9,56 @@
   border-top: 1px solid var(--color-rule);
 }
 
-.friend-row {
+/* Rows read like the More list: ink, never underlined, never the visited colour. */
+.shelf-page .friend-row,
+.shelf-page .friend-row:visited {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   min-height: 56px;
   padding: var(--space-2) 0;
+  color: var(--color-ink);
+  text-decoration: none;
 }
 
+@media (hover: hover) {
+  .shelf-page .friend-row:hover .friend-name-text {
+    text-decoration: underline;
+  }
+}
+
+.shelf-page .friend-row:active {
+  background: var(--color-paper-2);
+}
+
+/* One line each; a long name is cut with an ellipsis, and the removed-member note shrinks after it. */
 .friend-name {
+  display: flex;
   flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.friend-name-text {
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friend-name-note {
+  min-width: 0;
+  margin-left: 0.3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--color-muted);
 }
 
 .friend-row .count {
   flex: none;
   color: var(--color-muted);
   white-space: nowrap;
-  text-decoration: none;
 }
 
 .avatar {

@@ -92,7 +92,8 @@ function WallView() {
 function FriendsView() {
   document.getElementById("root")?.classList.add("has-tab-bar");
   const people = [
-    { id: "2", name: "Ann", pictureUrl: "data:image/png;base64,AAAA" },
+    { id: "2", name: "Ann", pictureUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#2a7f8f"/><circle cx="20" cy="16" r="7" fill="#f4d58d"/><rect x="8" y="26" width="24" height="14" rx="7" fill="#f4d58d"/></svg>')}` },
+    { id: "7", name: "Zed", pictureUrl: "data:image/png;base64,AAAA" },
     { id: "3", name: "Bob", pictureUrl: null },
     { id: "4", name: "W".repeat(60), pictureUrl: null },
     { id: "5", name: "Sam", pictureUrl: null, removed: true as const },

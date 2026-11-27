@@ -40,7 +40,10 @@ function FriendRow({ person, count }: { person: Person; count: number | undefine
     <li>
       <a className="friend-row" href={`/members/${encodeURIComponent(person.id)}`} aria-describedby={count === undefined ? undefined : countId}>
         <Avatar person={person} size={40} />
-        <span className="friend-name"><Name>{personLabel(person)}</Name></span>
+        <span className="friend-name">
+          <span className="friend-name-text"><Name>{person.name}</Name></span>
+          {person.removed && <>{" "}<span className="friend-name-note">(no longer a member)</span></>}
+        </span>
         {count !== undefined && <span id={countId} aria-hidden="true"><BookCount n={count} /></span>}
       </a>
     </li>
