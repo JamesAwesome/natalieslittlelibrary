@@ -19,7 +19,7 @@
   width: 100%;
   min-height: 44px;
   margin: var(--space-1) 0 var(--space-2);
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
@@ -30,7 +30,7 @@
 .copy-page input[type="text"] {
   box-sizing: border-box;
   width: 100%;
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
@@ -43,7 +43,7 @@
 }
 
 .pair-page button.link {
-  padding: 10px 0;
+  padding: var(--space-3) 0;
   background: none;
   color: var(--accent);
   text-decoration: underline;
@@ -59,14 +59,15 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
 .pair-page .field-error {
   display: block;
+  min-height: 1lh;
   margin: var(--space-1) 0 0;
-  color: var(--alert-fg);
+  color: var(--color-alert-ink);
 }
 
 .pair-page .refusal {
@@ -87,7 +88,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
@@ -159,7 +160,7 @@
   width: 100%;
   min-height: 44px;
   margin: var(--space-1) 0 var(--space-2);
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
@@ -246,14 +247,15 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  padding: 10px;
+  padding: var(--space-3);
   font: inherit;
 }
 
 .import-page .field-error {
   display: block;
+  min-height: 1lh;
   margin: var(--space-1) 0 0;
-  color: var(--alert-fg);
+  color: var(--color-alert-ink);
 }
 
 .import-page p,

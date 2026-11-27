@@ -51,7 +51,7 @@ button,
 a.button {
   display: inline-block;
   box-sizing: border-box;
-  padding: 10px var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 0;
   border-radius: 8px;
   background: var(--color-ink);
@@ -79,9 +79,23 @@ a.button:active {
   transform: translateY(1px);
 }
 
-button:disabled {
+a:not(.button):active {
+  text-decoration-thickness: 3px;
+  opacity: 0.75;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border: 2px solid var(--color-alert-ink);
 }
 
 @media (hover: hover) {
