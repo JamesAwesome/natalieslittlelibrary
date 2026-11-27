@@ -1,7 +1,9 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { Member, RefusalReason } from "../shared/types";
 import { getMe, logout } from "./api";
 import { matchRoute } from "./route";
+import { ShellContext, tabFor, type Tab } from "./shell";
+import { TabBar } from "./TabBar";
 import { CopyPage } from "./screens/CopyPage";
 import { Holding } from "./screens/Holding";
 import { Import } from "./screens/Import";
@@ -44,6 +46,17 @@ export function App() {
   const [member, setMember] = useState<Member | null | undefined>(undefined);
   const [trouble, setTrouble] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [tab, setTab] = useState<Tab | null>(() => tabFor(route));
+  const [signedOut, setSignedOut] = useState(false);
+  const shell = useMemo(() => ({ setTab, setSignedOut }), []);
+  const showBar = member !== undefined && member !== null && !signedOut && !trouble;
+
+  useEffect(() => {
+    if (!showBar) return;
+    const root = document.getElementById("root");
+    root?.classList.add("has-tab-bar");
+    return () => root?.classList.remove("has-tab-bar");
+  }, [showBar]);
 
   useEffect(() => {
     if (hadRefused) {
@@ -129,9 +142,10 @@ export function App() {
     );
 
   return (
-    <>
+    <ShellContext.Provider value={shell}>
       {refused !== null && <p role="alert" className="refusal app-chrome">{explain(refused)}</p>}
       <Suspense fallback={<p>Loading…</p>}>{screen}</Suspense>
-    </>
+      {showBar && <TabBar active={tab} />}
+    </ShellContext.Provider>
   );
 }

@@ -3,6 +3,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
+import { TabBar } from "../TabBar";
 import "../styles/index.css";
 import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, type FixtureBook } from "./fixtures";
 
@@ -48,7 +49,20 @@ function Covers() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers };
+function TabBarView() {
+  document.getElementById("root")?.classList.add("has-tab-bar");
+  return (
+    <>
+      <main className="preview">
+        <h1>Tab bar</h1>
+        {Array.from({ length: 30 }, (_, i) => <p key={i}>Filler line {i + 1}, so the bar sits over content.</p>)}
+      </main>
+      <TabBar active="holding" />
+    </>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers, tabbar: TabBarView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
@@ -297,4 +297,69 @@ test("the import screen is routed", async () => {
   at("/import");
   render(<App />);
   expect(await screen.findByLabelText(/StoryGraph export/)).toBeInTheDocument();
+});
+
+const main = () => screen.queryByRole("navigation", { name: "Main" });
+
+test("signed in at /holding, the Main navigation is there and Holding is current", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getHolding).mockResolvedValue({ items: [] });
+  at("/holding");
+  render(<App />);
+  const nav = await screen.findByRole("navigation", { name: "Main" });
+  expect(within(nav).getByRole("link", { name: "Holding" })).toHaveAttribute("aria-current", "page");
+  expect(within(nav).getAllByRole("link")).toHaveLength(4);
+});
+
+test("signed out at /, there is no Main navigation", async () => {
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("when the screen's load answers 401 and falls back to sign-in, the navigation goes away", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  // The module is auto-mocked, so the class the screen tests against is the mock; give it the status by hand.
+  vi.mocked(api.getHolding).mockRejectedValue(Object.assign(new api.ApiError(401, null), { status: 401 }));
+  at("/holding");
+  render(<App />);
+  await screen.findByRole("link", { name: "Sign in with Google" });
+  await waitFor(() => expect(main()).not.toBeInTheDocument());
+});
+
+test("while getMe is pending there is no navigation", () => {
+  vi.mocked(api.getMe).mockReturnValue(new Promise(() => {}));
+  at("/holding");
+  render(<App />);
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("a 503 from getMe shows no navigation", async () => {
+  const { ApiError } = await vi.importActual<typeof import("./api")>("./api");
+  vi.mocked(api.getMe).mockRejectedValue(new ApiError(503, "unavailable"));
+  render(<App />);
+  await screen.findByRole("alert");
+  expect(main()).not.toBeInTheDocument();
+});
+
+test("at /b/x no tab is current until the screen reports one", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.getLabel).mockReturnValue(new Promise(() => {}));
+  at("/b/x");
+  render(<App />);
+  const nav = await screen.findByRole("navigation", { name: "Main" });
+  for (const l of within(nav).getAllByRole("link")) expect(l).not.toHaveAttribute("aria-current");
+});
+
+test("#root reserves room for the bar only while the bar is shown", async () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  const { unmount } = render(<App />);
+  await screen.findByRole("navigation", { name: "Main" });
+  expect(root).toHaveClass("has-tab-bar");
+  unmount();
+  expect(root).not.toHaveClass("has-tab-bar");
+  root.remove();
 });

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { embeddedBrowser } from "../embedded";
+import { ShellContext } from "../shell";
 
 // No query or hash: the address is for sharing, not for carrying this visit's state.
 const address = () => location.origin + location.pathname;
@@ -28,6 +29,12 @@ function CopyLink() {
 }
 
 export function SignIn({ returnTo }: { returnTo: string }) {
+  // Signing in is a signed-out state: the shell hides the tab bar while this is on screen.
+  const { setSignedOut } = useContext(ShellContext);
+  useEffect(() => {
+    setSignedOut(true);
+    return () => setSignedOut(false);
+  }, [setSignedOut]);
   const app = embeddedBrowser(navigator.userAgent);
   if (app !== null) {
     return (
