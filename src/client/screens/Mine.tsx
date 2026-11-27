@@ -34,9 +34,16 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
   const [createAsked, setCreateAsked] = useState(0);
   const [creating, setCreating] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
+  const errorId = useId();
   useEffect(() => {
     if (createAsked > 0) nameInput.current?.focus();
   }, [createAsked]);
+  // Cancel closes the form clean and hands focus back to Collection ▾, where New collection… was.
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const [cancelled, setCancelled] = useState(0);
+  useEffect(() => {
+    if (cancelled > 0) menuButton.current?.focus();
+  }, [cancelled]);
   // The collection just made. It has no books, so the wall alone wouldn't show it happened; this line does,
   // and its Manage link takes focus as the form closes.
   const [created, setCreated] = useState<CollectionSummary | null>(null);
@@ -175,12 +182,22 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
       {creating && (
         <form className="new-collection" onSubmit={create}>
           <h2>New collection</h2>
-          {error !== undefined && <p role="alert" className="refusal">{error}</p>}
+          {/* The error has its slot under the field from the start (two lines, for the long one), so nothing moves. */}
           <label>
             Name
-            <input ref={nameInput} type="text" value={name} onChange={(e) => setName(e.target.value)} />
+            <input ref={nameInput} type="text" value={name} onChange={(e) => setName(e.target.value)}
+              aria-invalid={error ? true : undefined} aria-describedby={errorId} />
           </label>
-          <button type="submit" disabled={busy}>Create</button>
+          <span id={errorId} className="field-error long" aria-live="polite">{error}</span>
+          <p>
+            <button type="submit" disabled={busy}>Create</button>
+            <button type="button" disabled={busy} onClick={() => {
+              setCreating(false);
+              setName("");
+              setError(undefined);
+              setCancelled((n) => n + 1);
+            }}>Cancel</button>
+          </p>
         </form>
       )}
     </>
@@ -195,6 +212,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
       collections={wall?.collections ?? []}
       incomplete={(wall?.failed ?? 0) > 0}
       top={top}
+      menuButtonRef={menuButton}
       onNewCollection={() => {
         setCreated(null);
         setError(undefined);

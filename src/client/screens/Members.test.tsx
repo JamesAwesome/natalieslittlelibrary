@@ -77,7 +77,7 @@ test("coming back to a friend's wall restores the picked collection and the scro
 test("one of a friend's shelves failing shows the rest with an alert and Try again", async () => {
   annWall("k8");
   render(<Members id="2" member={me} returnTo="/members/2" />);
-  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn’t load.");
   expect(covers()).toEqual(["/copies/x"]);
   expect(screen.queryByText(/^\d+ books?$/)).not.toBeInTheDocument();
   annWall();
@@ -93,7 +93,7 @@ test("one failing shelf beside an empty one shows the alert, not the empty line"
     return shelfOf(beach, [], ann);
   });
   render(<Members id="2" member={me} returnTo="/members/2" />);
-  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn’t load.");
   expect(screen.queryByText("No books here yet.")).not.toBeInTheDocument();
 });
 
@@ -172,15 +172,37 @@ test("a lost session turns the h1 into the app name", async () => {
   expect(screen.queryByRole("heading", { name: "Friends" })).not.toBeInTheDocument();
 });
 
-test("a member page's h1 is the app name until the name is known, and when gone or failed", async () => {
+test("a member page's h1 is Friends until the name is known, and when gone or failed; the app name only signed out", async () => {
   vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
   const a = render(<Members id="2" member={me} returnTo="/members/2" />);
-  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Friends" })).toBeInTheDocument();
   a.unmount();
   vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(404, null));
-  render(<Members id="2" member={me} returnTo="/members/2" />);
+  const b = render(<Members id="2" member={me} returnTo="/members/2" />);
   await screen.findByText("That member isn't here.");
+  expect(screen.getByRole("heading", { level: 1, name: "Friends" })).toBeInTheDocument();
+  b.unmount();
+  vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(500, null));
+  const c = render(<Members id="2" member={me} returnTo="/members/2" />);
+  await screen.findByRole("button", { name: "Try again" });
+  expect(screen.getByRole("heading", { level: 1, name: "Friends" })).toBeInTheDocument();
+  c.unmount();
+  render(<Members id="2" member={null} returnTo="/members/2" />);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+test("a friend's name, once known, stays the h1 through a failed read and Try again", async () => {
+  annWall("k8");
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn’t load.");
+  expect(screen.getByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
+  vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(500, null));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("The library is having trouble right now. Please try again later.")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
+  vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
 });
 
 const bob = { id: "3", name: "Bob", pictureUrl: null };

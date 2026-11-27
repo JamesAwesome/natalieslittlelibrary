@@ -71,8 +71,7 @@
 }
 
 /* The shelf screens' forms and lists, also used in a wall's top and empty slots (never its chips or menu). */
-:is(.shelf-page, .wall-top, .wall-empty) h2,
-:is(.shelf-page, .wall-top, .wall-empty) h3 {
+:is(.shelf-page, .wall-top, .wall-empty) h2 {
   overflow-wrap: anywhere;
 }
 
@@ -94,18 +93,6 @@
   margin: 0 var(--space-2) var(--space-2) 0;
 }
 
-:is(.shelf-page, .wall-top, .wall-empty) .toggle {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  min-height: 44px;
-}
-
-:is(.shelf-page, .wall-top, .wall-empty) .toggle input {
-  width: 24px;
-  height: 24px;
-}
-
 :is(.shelf-page, .wall-top, .wall-empty) label {
   display: block;
   margin: 0 0 var(--space-1);
@@ -123,7 +110,15 @@
   padding: var(--space-3);
 }
 
-:is(.shelf-page, .wall-top, .wall-empty) h3 a,
+/* New collection's error slot sits right under its field, and takes the field's gap below. */
+.new-collection input[type="text"] {
+  margin-bottom: 0;
+}
+
+.new-collection .field-error {
+  margin-bottom: var(--space-2);
+}
+
 :is(.shelf-page, .wall-top, .wall-empty) .plain-list a,
 :is(.shelf-page, .wall-top, .wall-empty) p a:not(.button),
 .shelf-title {

@@ -20,7 +20,8 @@ html:has(.wall[data-chips]) {
 .wall {
   /* The chips row's height: a 44px target plus its padding. Headings and the rail sit below it. */
   --wall-chips-h: 0px;
-  /* Room on the right for the rail's 44px strip and any right safe-area inset, less the page's own padding. */
+  /* Room on the right for the rail's 44px strip and any right safe-area inset, less the page's own right padding
+     (which already covers the inset, or part of it). */
   --wall-gutter: 0px;
 }
 
@@ -29,7 +30,7 @@ html:has(.wall[data-chips]) {
 }
 
 .wall[data-rail] {
-  --wall-gutter: calc(44px + env(safe-area-inset-right, 0px) - var(--space-4));
+  --wall-gutter: calc(44px + env(safe-area-inset-right, 0px) - var(--page-pad-right));
   padding-right: var(--wall-gutter);
 }
 
@@ -51,10 +52,6 @@ html:has(.wall[data-chips]) {
 
 /* Nothing to show above the chips: no gap either. An empty status line still counts as nothing; it stays in the
    page (not display: none) so it is announced when it fills. */
-.wall-top:empty {
-  display: none;
-}
-
 .wall-top:not(:has(> :not(:empty))) {
   margin: 0;
 }
@@ -103,8 +100,8 @@ html:has(.wall[data-chips]) {
   box-sizing: border-box;
   height: var(--wall-chips-h);
   /* Bleed the paper to the page edges, so covers never show past it as they scroll under. */
-  margin: 0 calc(-1 * (var(--space-4) + var(--wall-gutter))) var(--space-2) calc(-1 * var(--space-4));
-  padding: 0 calc(var(--space-4) + var(--wall-gutter)) 0 var(--space-4);
+  margin: 0 calc(-1 * (var(--page-pad-right) + var(--wall-gutter))) var(--space-2) calc(-1 * var(--page-pad-left));
+  padding: 0 calc(var(--page-pad-right) + var(--wall-gutter)) 0 var(--page-pad-left);
   background: var(--color-paper);
   border-bottom: 1px solid var(--color-rule);
 }
@@ -206,11 +203,11 @@ html:has(.wall[data-chips]) {
 .wall-menu {
   position: absolute;
   top: 100%;
-  right: calc(var(--space-4) + var(--wall-gutter));
+  right: calc(var(--page-pad-right) + var(--wall-gutter));
   z-index: 3;
   box-sizing: border-box;
   min-width: 12rem;
-  max-width: calc(100% - 2 * var(--space-4) - var(--wall-gutter));
+  max-width: calc(100% - var(--page-pad-left) - var(--page-pad-right) - var(--wall-gutter));
   /* max-height is set on open, to the room above the tab bar. */
   overflow-y: auto;
   overscroll-behavior: contain;
