@@ -12,7 +12,7 @@
   --color-alert-ink: oklch(35% 0.12 35); /* 9.62:1 on alert-bg */
   --color-tile: oklch(90% 0.03 70); /* no-cover and failed tiles */
   --color-tile-ink: oklch(30% 0.03 60); /* 10.15:1 on tile */
-  --color-focus: oklch(47% 0.13 45); /* 6.81:1 on paper */
+  --color-focus: oklch(56% 0.13 45); /* 4.63:1 on paper, 4.11 paper-2, 3.70 ink, 3.96 alert-bg */
 
   --font-display: "Fraunces Variable", Georgia, serif;
   --font-body: "Geist Variable", system-ui, sans-serif;
@@ -68,6 +68,6 @@
     --color-alert-ink: oklch(90% 0.05 40); /* 11.20:1 on alert-bg */
     --color-tile: oklch(30% 0.03 65);
     --color-tile-ink: oklch(90% 0.03 70); /* 10.14:1 on tile */
-    --color-focus: oklch(76% 0.11 60); /* 8.40:1 on paper */
+    --color-focus: oklch(58% 0.11 60); /* 4.19:1 on paper, 3.73 paper-2, 3.70 ink, 3.47 alert-bg */
   }
 }

@@ -6,10 +6,6 @@ a:not(.button):visited {
   color: var(--color-link-visited);
 }
 
-a:not(.button):hover {
-  text-decoration-thickness: 2px;
-}
-
 html,
 body {
   overflow-x: clip;
@@ -69,7 +65,10 @@ a.button {
 }
 
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   transition: none;
@@ -86,6 +85,10 @@ button:disabled {
 }
 
 @media (hover: hover) {
+  a:not(.button):hover {
+    text-decoration-thickness: 2px;
+  }
+
   button:hover:not(:disabled),
   a.button:hover {
     opacity: 0.88;
@@ -146,11 +149,11 @@ button:disabled {
 
 .history li {
   padding: var(--space-2) 0;
-  border-top: 1px solid var(--alert-bg);
+  border-top: 1px solid var(--color-rule);
 }
 
 .when {
-  opacity: 0.75;
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
