@@ -1046,7 +1046,7 @@ test("a scan that lands in the picked collection comes back to scanning, and opt
   await click("stub label");
   await findPara("Paired Dune.");
   expect(assign).not.toHaveBeenCalled();
-  expect(screen.queryByText(/it stays there/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/It stays in/)).not.toBeInTheDocument();
 });
 
 test("the stored pick is preselected", async () => {
@@ -1562,8 +1562,6 @@ test("the label just paired, still in view, is not sent for the next book", asyn
   await toConfirm();
   await click("Yes");
   await waitFor(() => expect(wantOf()).toBe("label"));
-  await sleep(50);
-  expect(wantOf()).toBe("label");
   expect(api.addCopy).toHaveBeenCalledTimes(1);
 });
 
@@ -1631,4 +1629,134 @@ test.each(["?label=T7K2Q9XZMB", "?label=nonsense"])("%s still ends on the book's
   expect(api.addCopy).toHaveBeenCalledTimes(1);
   expect(screen.queryByText(/^Paired/)).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "See it" })).not.toBeInTheDocument();
+});
+
+// ---- Pair faster: fix round 1 ----
+
+const sentCodes = () => vi.mocked(api.addCopy).mock.calls.map((c) => c[0].code);
+const GONE_ONE = "That collection was just deleted, so this goes in Home library.";
+
+test.each([
+  ["a save refused because the collection was deleted", async () => {
+    vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+    await toPicker();
+    mineIs([col("h", "Home library", true)]);
+    await click("stub label");
+    await screen.findByText(GONE_ONE);
+  }],
+  ["a label read while New collection… is picked", async () => {
+    await toPicker("new");
+    await click("stub label");
+    await screen.findByText("Create the new collection first, or pick another.");
+  }],
+])("after %s, Start over forgets the label: the next book asks for a scan", async (_n, arrange) => {
+  await arrange();
+  const before = sentCodes().length;
+  await click("Start over");
+  vi.mocked(api.lookupBook).mockResolvedValue({ book: emma });
+  await click("stub isbn");
+  await screen.findByText("Is this the book?");
+  await click("Yes");
+  await screen.findByText("Now scan a blank label.");
+  expect(wantOf()).toBe("label");
+  expect(screen.queryByRole("button", { name: "Use this label" })).not.toBeInTheDocument();
+  expect(sentCodes().length).toBe(before);
+});
+
+test("?label=: Start over keeps the code from the address", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(LINKED);
+  await toConfirm();
+  await click("Start over");
+  await toConfirm();
+  await click("Yes");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+});
+
+test("after Use this label pairs, the next book asks for a scan, not the same label", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+  await toPicker();
+  mineIs([col("h", "Home library", true)]);
+  await click("stub label");
+  await screen.findByText(GONE_ONE);
+  await click("Use this label");
+  await findPara("Paired Dune.");
+  await toConfirm();
+  await click("Yes");
+  await screen.findByText("Now scan a blank label.");
+  expect(wantOf()).toBe("label");
+  expect(screen.queryByRole("button", { name: "Use this label" })).not.toBeInTheDocument();
+  expect(api.addCopy).toHaveBeenCalledTimes(2);
+});
+
+test("?label= refused, then another label read, still ends on the book's page", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(409, "label-in-use")).mockResolvedValue({ ...copy, code: "mmmmmmmmmm" });
+  show(LINKED);
+  await toConfirm();
+  await click("Yes");
+  await screen.findByText("That label is already on a book. Use a blank one.");
+  await click("stub other label");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/mmmmmmmmmm"));
+  expect(screen.queryByText(/^Paired/)).not.toBeInTheDocument();
+});
+
+test("'used last is gone' is not shown again for the next book", async () => {
+  localStorage.setItem("nll.pair-collection.1", "deleted");
+  mineIs(two);
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await toConfirm();
+  await click("Yes");
+  await screen.findByLabelText("Collection");
+  expect(para("The collection you used last is gone, so this goes in Home library.")).toBeInTheDocument();
+  await click("stub label");
+  await findPara("Paired Dune.");
+  await toConfirm();
+  await click("Yes");
+  await screen.findByLabelText("Collection");
+  expect(queryPara("The collection you used last is gone, so this goes in Home library.")).not.toBeInTheDocument();
+});
+
+test("a late 'collection deleted' answer does not land on the next book", async () => {
+  vi.mocked(api.addCopy).mockRejectedValueOnce(refuse(404, "not-found")).mockResolvedValue(copy);
+  await toPicker();
+  const slow = deferred<Awaited<ReturnType<typeof api.myCollections>>>();
+  vi.mocked(api.myCollections).mockReturnValueOnce(slow.promise);
+  await click("stub label");
+  await click("Use this label");
+  await findPara("Paired Dune.");
+  await act(async () => slow.resolve({ owner, collections: [col("h", "Home library", true), col("k", "Kitchen")] }));
+  await sleep(20);
+  expect(wantOf()).toBe("isbn");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("the note's status region is there, empty, while saving, and is the one that fills", async () => {
+  let release: (c: CopyView) => void = () => {};
+  vi.mocked(api.addCopy).mockReturnValue(new Promise((r) => (release = r)));
+  show();
+  await pairOnce();
+  await screen.findByText("Saving…");
+  const region = screen.getByRole("status");
+  expect(region).toBeEmptyDOMElement();
+  release(copy);
+  await findPara("Paired Dune.");
+  expect(screen.getByRole("status")).toBe(region);
+  expect(region).toHaveTextContent("Paired Dune.");
+});
+
+test("a refused camera is not asked for again after each book", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue({ ...copy, book: emma });
+  show();
+  await click("stub denied");
+  const denied = "Camera access was refused. You can allow it in your browser's settings, or type instead.";
+  expect(screen.getByText(denied)).toBeInTheDocument();
+  await userEvent.type(screen.getByLabelText("Title"), "Emma");
+  await click("Continue");
+  await userEvent.type(await screen.findByLabelText("Or type the code printed under it"), "t7k2q9xzmb");
+  await click("Use this code");
+  await findPara("Paired Emma.");
+  expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
+  expect(screen.getByText(denied)).toBeInTheDocument();
+  expect(screen.getByLabelText("Title")).toHaveValue("");
 });

@@ -101,6 +101,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [last, setLast] = useState<{ title: string; authors: string[]; coverUrl: string | null; label: string; stays: string | null } | null>(null);
   const [count, setCount] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  // A camera the person refused is not asked for again after each book.
+  const cameraDenied = useRef(false);
   const inFlight = useRef(false);
   // A refused label still in front of the camera must not be saved again until another is read or typed.
   const refused = useRef<string | null>(null);
@@ -192,6 +194,11 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   // A new copy cannot be filed while the member's collections are unknown: they may have several.
   const unknown = (p: Pending) => p.stays === null && cols === null;
 
+  const onProblem = (p: ScannerProblem) => {
+    if (p === "denied") cameraDenied.current = true;
+    setProblem(p);
+  };
+
   const go = (next: Step) => {
     setProblem(null);
     setStep(next);
@@ -209,6 +216,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setSimilar([]);
     setAfter(null);
     setToReplace(null);
+    // A code held for the last book is not used for the next, unless it came from the address.
+    if (!fromLabel) setLinked(null);
     refused.current = null;
     setNotice(undefined);
     go("isbn");
@@ -271,14 +280,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       }
       if (collectionId !== undefined && member !== null && stayed === null) writePick(member.id, collectionId);
       if (loops) {
+        // The page stays open, so a stale answer must not leave it unable to save.
+        inFlight.current = false;
         if (mine === seq.current && live.current) {
           // Back to the barcode for the next book. The label just used stays refused: it may still be in front of the camera.
           startOver();
           refused.current = label;
           setLinked(null);
+          setStale(false);
+          if (cameraDenied.current) setProblem("denied");
           setLast({ title: saved.book.title, authors: saved.book.authors, coverUrl: saved.book.coverUrl, label, stays: stayed?.name ?? null });
           setCount((n) => n + 1);
-          inFlight.current = false;
           heading.current?.focus();
         }
         return;
@@ -350,8 +362,9 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   }
 
   async function afterGone() {
+    const mine = seq.current;
     const list = await loadCollections(true);
-    if (list === LOST || !live.current) return;
+    if (list === LOST || mine !== seq.current || !live.current) return;
     if (list !== null && list.length >= 2) setNotice("That collection was just deleted. Pick another.");
     else if (list !== null && list.length === 1) setNotice(`That collection was just deleted, so this goes in ${list[0].name}.`);
     else setNotice("That collection was just deleted.");
@@ -496,7 +509,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {/* Mounted empty on every step, so it is announced when it fills; it shows only on the barcode step. */}
       {loops && (
-        <div role="status" className="pair-done">
+        <div role="status" aria-live="polite" className="pair-done">
           {step === "isbn" && last !== null && (
             <>
               <Cover url={last.coverUrl} title={last.title} authors={last.authors} size="row" />
@@ -513,7 +526,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
         <>
           <p>{last !== null ? "Scan the barcode on the back of the next book." : "Scan the barcode on the back of the book."}</p>
           {unavailable ? <p>{problemText[problem]}</p> : (
-            <Scanner key="isbn" want="isbn" onProblem={setProblem} onRead={(r) => {
+            <Scanner key="isbn" want="isbn" onProblem={onProblem} onRead={(r) => {
               if (r.kind !== "isbn") return;
               void look(r.isbn);
             }} />
@@ -632,7 +645,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           ) : (
             <>
               {unavailable ? <p>{problemText[problem]}</p> : (
-                <Scanner key="label" want="label" onProblem={setProblem} onRead={(r) => {
+                <Scanner key="label" want="label" onProblem={onProblem} onRead={(r) => {
                   if (r.kind !== "label") return;
                   const c = parseLabelLink(r.code);
                   if (c === null || c === refused.current) return;
