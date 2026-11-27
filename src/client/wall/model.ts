@@ -18,13 +18,15 @@ export function groupByLetter<T extends { book: { title: string } }>(items: T[])
   const byLetter = new Map<string, T[]>();
   for (const it of items) {
     const l = letterOf(it.book.title);
-    byLetter.set(l, [...(byLetter.get(l) ?? []), it]);
+    const bucket = byLetter.get(l);
+    if (bucket) bucket.push(it);
+    else byLetter.set(l, [it]);
   }
   const tie = (x: T) => (x as { copyId?: string }).copyId ?? "";
   return RAIL_MARKS.filter((l) => byLetter.has(l)).map((letter) => ({
     letter,
     items: byLetter.get(letter)!.sort((a, b) =>
-      collator.compare(sortKey(a.book.title), sortKey(b.book.title)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0)),
+      collator.compare(sortKey(a.book.title.trim()), sortKey(b.book.title.trim())) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0)),
   }));
 }
 
@@ -45,6 +47,7 @@ export function applyFilter(items: ShelfItem[], f: WallFilter): ShelfItem[] {
 export const RAIL_MARKS: readonly string[] = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"];
 
 export function markAt(offsetY: number, height: number): string {
+  if (!(height > 0)) return RAIL_MARKS[0];
   const i = Math.floor((offsetY / height) * RAIL_MARKS.length);
   return RAIL_MARKS[Math.min(RAIL_MARKS.length - 1, Math.max(0, i))];
 }

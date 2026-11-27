@@ -44,9 +44,17 @@ describe("groupByLetter", () => {
     await import("./model");
     expect(seen).toEqual(["en"]);
   });
-  test("order matches English, not Swedish, for Ä and Z", () => {
-    const g = groupByLetter([titled("1", "Zebra"), titled("2", "Ärlig")]);
-    expect(g.map((x) => x.letter)).toEqual(["A", "Z"]);
+  test("sorts by the article-free key, so The Call of the Wild precedes Cello", () => {
+    const g = groupByLetter([titled("1", "Cello"), titled("2", "The Call of the Wild")]);
+    expect(g[0].items.map((i) => i.copyId)).toEqual(["2", "1"]);
+  });
+  test("leading whitespace is ignored when sorting", () => {
+    const g = groupByLetter([titled("1", "Ham"), titled("2", "  The Hobbit")]);
+    expect(g[0].items.map((i) => i.copyId)).toEqual(["1", "2"]);
+  });
+  test("case does not split ties; copyId decides", () => {
+    const g = groupByLetter([titled("b", "dune"), titled("a", "Dune")]);
+    expect(g[0].items.map((i) => i.copyId)).toEqual(["a", "b"]);
   });
 });
 
@@ -71,6 +79,7 @@ describe("applyFilter", () => {
     expect(ids({ status: "all", collectionId: "k2" })).toEqual(["3", "4"]);
     expect(ids({ status: "out", collectionId: "k2" })).toEqual(["4"]);
     expect(ids({ status: "all", collectionId: "nope" })).toEqual([]);
+    expect(ids({ status: "home", collectionId: "k2" })).toEqual(["3"]);
   });
 });
 
@@ -86,12 +95,18 @@ describe("rail", () => {
     expect(markAt(269, 270)).toBe("#");
     expect(markAt(-5, 270)).toBe("A");
     expect(markAt(999, 270)).toBe("#");
+    expect(markAt(9.9, 270)).toBe("A");
+    expect(markAt(10, 270)).toBe("B");
+    expect(markAt(15, 270)).toBe("B");
+    expect(markAt(0, 0)).toBe("A");
   });
   test("targetLetter", () => {
     expect(targetLetter("C", ["A", "D"])).toBe("D");
     expect(targetLetter("D", ["A", "D"])).toBe("D");
     expect(targetLetter("Z", ["A", "D"])).toBe("D");
     expect(targetLetter("A", [])).toBeNull();
+    expect(targetLetter("A", ["A", "D"])).toBe("A");
+    expect(targetLetter("B", ["D", "C"])).toBe("C");
   });
   test("showRail", () => {
     expect(showRail(25, 2)).toBe(true);
