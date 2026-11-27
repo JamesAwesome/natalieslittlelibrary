@@ -36,3 +36,17 @@ export function contrast(fg: string, bg: string): number {
   const b = luminance(bg);
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
+
+/** Converts `oklch(L% C H)` to a `#rrggbb` sRGB hex, clipping any out-of-gamut channel. */
+export function toHex(value: string): string {
+  const encode = (x: number) => {
+    const c = Math.min(1, Math.max(0, x));
+    return c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  };
+  return (
+    "#" +
+    linearRgb(value)
+      .map((x) => Math.round(encode(x) * 255).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}

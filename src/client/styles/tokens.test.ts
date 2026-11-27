@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { contrast, inGamut } from "./oklch";
+import { contrast, inGamut, toHex } from "./oklch";
 
 const css = readFileSync(resolve(process.cwd(), "src/client/styles/tokens.css"), "utf8");
 
@@ -20,6 +20,14 @@ describe("oklch contrast", () => {
     const r = contrast("oklch(20% 0.012 60)", "oklch(98% 0.005 75)");
     expect(r).toBeGreaterThan(17.0);
     expect(r).toBeLessThan(17.2);
+  });
+});
+
+describe("toHex", () => {
+  it("converts known colours", () => {
+    expect(toHex("oklch(100% 0 0)")).toBe("#ffffff");
+    expect(toHex("oklch(0% 0 0)")).toBe("#000000");
+    expect(toHex("oklch(62.8% 0.2577 29.23)")).toBe("#ff0000");
   });
 });
 
