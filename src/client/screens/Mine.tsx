@@ -166,11 +166,11 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
           )}
         </>
       )}
+      {/* In place from the start, so screen readers announce it when it fills. */}
+      <p role="status" className="wall-status-line">{created && <>Created <Name>{created.name}</Name>.</>}</p>
       {created && (
-        <>
-          <p role="status">Created <Name>{created.name}</Name>.</p>
-          <p><a ref={manageCreated} href={`/collections/${encodeURIComponent(created.id)}`}>Manage <Name>{created.name}</Name></a></p>
-        </>
+        // One span inside: the link is inline-flex, which would make the bdi its own item and drop the space.
+        <p><a ref={manageCreated} href={`/collections/${encodeURIComponent(created.id)}`}><span>Manage <Name>{created.name}</Name></span></a></p>
       )}
       {creating && (
         <form className="new-collection" onSubmit={create}>

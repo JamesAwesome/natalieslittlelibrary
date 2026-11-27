@@ -191,6 +191,8 @@ test("New collection… reveals the create form and puts the cursor in it", asyn
   setup();
   show();
   expect(await screen.findByRole("link", book("c"))).toBeInTheDocument();
+  // The status line is there, empty, before anything is created, so it is announced when it fills.
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
   expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   await openCreate();
   expect(screen.getByRole("heading", { level: 2, name: "New collection" })).toBeInTheDocument();
@@ -211,11 +213,14 @@ test("creating a collection sends one request, trimmed, re-reads, and says it wo
   const manage = screen.getByRole("link", { name: "Manage Cabin" });
   expect(manage).toHaveAttribute("href", "/collections/k3");
   expect(manage).toHaveFocus();
+  // The link is inline-flex: its label must be one span, or "Manage" and the name lose the space between them.
+  expect(manage.children).toHaveLength(1);
+  expect(manage.firstElementChild?.tagName).toBe("SPAN");
   expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   // Opening the form again starts clean, without the old confirmation.
   await openCreate();
   expect(screen.getByLabelText("Name")).toHaveValue("");
-  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
 });
 
 test("an empty wall still offers New collection…, and it creates", async () => {

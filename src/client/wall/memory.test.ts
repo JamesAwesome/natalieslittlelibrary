@@ -205,12 +205,27 @@ test.each([
   expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, after + 400);
 });
 
-test("above the chips row when leaving lands at the top if that space has shrunk away", () => {
-  savePlace(KEY, { filter: ALL, scrollY: 100, anchor: -300 });
-  anchorAt(() => 280);
+test("left from the top, it comes back at the top even with more above the chips now", () => {
+  let chipsTop = 97;
+  anchorAt(() => chipsTop);
   const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const first = renderHook(() => useWallPlace(KEY, true, []));
+  setScrollY(0);
+  window.dispatchEvent(new Event("pagehide"));
+  expect(loadPlace(KEY)).toEqual({ filter: ALL, scrollY: 0, anchor: -97 });
+  first.unmount();
+  // A request (or an alert) now sits above the chips.
+  chipsTop = 190;
   renderHook(() => useWallPlace(KEY, true, []));
   expect(scrollTo).not.toHaveBeenCalled();
+});
+
+test("left above the chips row but scrolled, it returns to that page offset, not one measured from the chips", () => {
+  savePlace(KEY, { filter: ALL, scrollY: 60, anchor: -37 });
+  anchorAt(() => 190);
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  renderHook(() => useWallPlace(KEY, true, []));
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 60);
 });
 
 test("with no anchor on the page, the saved page offset is the fallback", () => {

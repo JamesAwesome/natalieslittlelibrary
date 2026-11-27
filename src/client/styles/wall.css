@@ -49,9 +49,18 @@ html:has(.wall[data-chips]) {
   margin: 0 0 var(--space-3);
 }
 
-/* Nothing to show above the chips: no gap either. */
+/* Nothing to show above the chips: no gap either. An empty status line still counts as nothing; it stays in the
+   page (not display: none) so it is announced when it fills. */
 .wall-top:empty {
   display: none;
+}
+
+.wall-top:not(:has(> :not(:empty))) {
+  margin: 0;
+}
+
+.wall-top .wall-status-line:empty {
+  margin: 0;
 }
 
 /* "1 request": a full-width bar that opens the list under it. Ink on paper-2: 15.20:1 light, 13.82:1 dark. */

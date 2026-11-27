@@ -103,8 +103,10 @@ export function useWallPlace(
       return;
     }
     if (saved && !droppedAtInit.current) {
-      // Against the chips row where it is now; the page offset only when there is no anchor to measure from.
-      const top = saved.anchor === undefined ? null : anchorTop();
+      // Against the chips row where it is now, when you left at or below it. Left above it (at the top, say), the
+      // page offset stands: whatever new appeared above the chips (a request, an alert) must stay in view.
+      // With no anchor to measure from, the page offset too.
+      const top = saved.anchor === undefined || saved.anchor < 0 ? null : anchorTop();
       const y = top === null ? saved.scrollY : Math.max(0, Math.round(top + (saved.anchor ?? 0)));
       if (top !== null) lastAnchor.current = saved.anchor ?? null;
       if (y > 0) {
