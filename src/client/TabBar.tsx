@@ -39,19 +39,15 @@ const order: [Tab, string][] = [["books", "Books"], ["holding", "Holding"], ["pa
 export function TabBar({ active }: { active: Tab | null }) {
   return (
     <nav aria-label="Main" className="tab-bar app-chrome">
-      {order.map(([tab, label]) => tab === "pair" ? (
-        <a key={tab} href={tabRoot[tab].href} className="tab tab-pair" aria-current={tab === active ? "page" : undefined}>
-          <span className="tab-disc">
-            <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>
-          </span>
-          <span className="tab-label">{label}</span>
-        </a>
-      ) : (
-        <a key={tab} href={tabRoot[tab].href} className="tab" aria-current={tab === active ? "page" : undefined}>
-          <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>
-          <span className="tab-label">{label}</span>
-        </a>
-      ))}
+      {order.map(([tab, label]) => {
+        const icon = <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>;
+        return (
+          <a key={tab} href={tabRoot[tab].href} className={tab === "pair" ? "tab tab-pair" : "tab"} aria-current={tab === active ? "page" : undefined}>
+            {tab === "pair" ? <span className="tab-disc">{icon}</span> : icon}
+            <span className="tab-label">{label}</span>
+          </a>
+        );
+      })}
     </nav>
   );
 }

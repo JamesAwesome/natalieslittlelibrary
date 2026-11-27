@@ -45,28 +45,33 @@
   font-weight: 600;
 }
 
-.tab-bar .tab-pair,
-.tab-bar .tab-pair[aria-current="page"],
-.tab-bar .tab-pair:visited {
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
+/* The Pair disc takes the room of a 24px icon, so every tab's label shares one baseline, and sits wholly inside the bar.
+   Measured in a 4rem bar (1px hairline on top): the tab's content is 8px padding, 24px icon, 4px gap, a 15.34px label
+   and 8px padding, centred in 63.3px, so the icon spans 10 to 34px below the hairline and the label starts at 38px.
+   A disc of D px with margins mt and mb (D + mt + mb = 24) then spans 10 + mt to 34 - mb. With D = 32, mt = -7 and
+   mb = -1 it spans 3 to 35px: 3px clear of the hairline and 3px clear of the label. D = 40 could not fit (it needs
+   44px between the hairline and the label, and there are 38). The disc is always accent; the label follows the other
+   tabs' colours, accent only when current. */
 .tab-disc {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 40px;
-  height: 40px;
-  /* Takes the room of a 24px icon, so Pair's label lines up with the others; the disc spills into the tab's padding, mostly upward. */
-  margin: -10px 0 -2px;
+  width: 32px;
+  height: 32px;
+  margin: -7px 0 -1px;
   border-radius: 50%;
   background: var(--color-accent);
   color: var(--color-paper);
 }
 
 .tab-disc .tab-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.tab-icon {
   width: 22px;
   height: 22px;
   stroke-width: 2.2;
