@@ -118,7 +118,7 @@ built and released as v0.4.0: print at once, past sheets, the owner's code,
 replace a label.
 
 Second release (owner tools, `docs/superpowers/specs/2026-11-26-owner-tools-design.md`):
-built, not yet released: lending to a member or a named person, giving,
+built and released as v0.5.0 (2026-11-26): lending to a member or a named person, giving,
 requests and approval, release and take, the People page, and tombstones for
 removed members.
 
