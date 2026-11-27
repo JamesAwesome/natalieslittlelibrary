@@ -88,6 +88,13 @@ cut or merge the entries whose shape has not recurred.
   async answer that leaving the page used to throw away. Drive each one across
   the reset with a deferred promise, and mutate each removal on its own.
   (Pair kept `stale`, `linked` and `afterGone`'s late notice.)
+- **"The label lines up and the decoration stays inside the bar."** Eyeballed
+  crops at two widths can't settle a claim that is off by a pixel or two.
+  Measure with `getBoundingClientRect` against the container's border box,
+  across width × scheme × root font size × safe-area inset
+  (`Emulation.setSafeAreaInsetsOverride`). Then do the arithmetic to see
+  whether all the constraints can hold at once. For the 40px Pair disc in a
+  4rem bar, they couldn't.
 
 ## Standing facts about this codebase's tools
 
