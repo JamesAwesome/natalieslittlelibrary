@@ -102,13 +102,20 @@ textarea {
   background: var(--color-paper);
   color: var(--color-ink);
   font: inherit;
-  transition: background-color var(--dur-micro) var(--ease-out);
 }
 
 input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"]):active:not(:disabled),
 select:active:not(:disabled),
 textarea:active:not(:disabled) {
   background: var(--color-paper-2);
+}
+
+@media (hover: hover) {
+  input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="number"]):hover:not(:disabled):not([aria-invalid="true"]),
+  select:hover:not(:disabled):not([aria-invalid="true"]),
+  textarea:hover:not(:disabled):not([aria-invalid="true"]) {
+    border-color: var(--color-ink);
+  }
 }
 
 input[aria-invalid="true"],
@@ -128,13 +135,18 @@ input[type="file"] {
   color: var(--color-ink);
 }
 
-/* The field-error slot is always drawn, empty or not, so an error never moves what is below it. */
+/* The field-error slot is always drawn, empty or not, so a short error does not move what is below it. */
 .field-error {
   display: block;
   min-height: 1lh;
   margin: var(--space-1) 0 0;
   color: var(--color-alert-ink);
   overflow-wrap: anywhere;
+}
+
+/* The collection-name message wraps to two lines on a phone, so its slot reserves both. */
+.field-error.long {
+  min-height: 2lh;
 }
 
 fieldset {

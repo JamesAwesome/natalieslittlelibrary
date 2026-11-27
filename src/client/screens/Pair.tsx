@@ -575,7 +575,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
                     <label htmlFor="pair-new-name">Name</label>
                     <input id="pair-new-name" type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
                       aria-invalid={newError ? true : undefined} aria-describedby="pair-new-name-error" />
-                    <span id="pair-new-name-error" className="field-error">{newError}</span>
+                    <span id="pair-new-name-error" className="field-error long">{newError}</span>
                   </p>
                   <p><button type="button" onClick={() => void create()}>Create</button></p>
                 </div>

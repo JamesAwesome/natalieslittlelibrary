@@ -291,7 +291,7 @@ export function Import({ member, returnTo }: { member: Member | null; returnTo: 
                     <label htmlFor="import-new-name">Name</label>
                     <input id="import-new-name" type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
                       aria-invalid={newError ? true : undefined} aria-describedby="import-new-name-error" />
-                    <span id="import-new-name-error" className="field-error">{newError}</span>
+                    <span id="import-new-name-error" className="field-error long">{newError}</span>
                   </p>
                   <p><button type="button" onClick={() => void create()}>Create</button></p>
                 </div>

@@ -2,6 +2,9 @@
 :is(.pair-page, .labels-page, .import-page) label {
   display: block;
   margin: 0 0 var(--space-1);
+}
+
+:is(.pair-page, .labels-page, .import-page) label:not(:has(input, select, textarea)) {
   font-weight: 500;
 }
 
@@ -106,6 +109,9 @@
 :is(.shelf-page, .wall-top, .wall-empty) label {
   display: block;
   margin: 0 0 var(--space-1);
+}
+
+:is(.shelf-page, .wall-top, .wall-empty) label:not(:has(input, select, textarea)) {
   font-weight: 500;
 }
 

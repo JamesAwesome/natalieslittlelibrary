@@ -417,3 +417,17 @@ test("signed out, the h1 is the app name, not the import title", () => {
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Import from StoryGraph" })).not.toBeInTheDocument();
 });
+
+test("the new collection name field is invalid only while its error shows, and the slot is always there", async () => {
+  collections([home]);
+  const user = setupUser();
+  show();
+  await choose(user);
+  await user.selectOptions(await screen.findByLabelText("Into"), "new");
+  const name = screen.getByLabelText("Name");
+  expect(name).not.toHaveAttribute("aria-invalid");
+  expect(document.getElementById(name.getAttribute("aria-describedby") ?? "")).toHaveTextContent("");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+  expect(name).toHaveAttribute("aria-invalid", "true");
+  expect(name).toHaveAccessibleDescription("A collection name is 1 to 60 characters, with no control characters.");
+});
