@@ -101,3 +101,16 @@ test("a refused link says so, closes the confirm and reloads", async () => {
   expect(screen.queryByText(/^Link Sarah to Sam/)).not.toBeInTheDocument();
   expect(api.listPeople).toHaveBeenCalledTimes(2);
 });
+
+test("the h1 is People, with no second People heading", async () => {
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [sarah] });
+  show();
+  expect(screen.getByRole("heading", { level: 1, name: "People" })).toBeInTheDocument();
+  await screen.findByRole("heading", { name: "Sarah" });
+  expect(screen.getAllByRole("heading", { name: "People" })).toHaveLength(1);
+});
+
+test("signed out, the h1 is the app name", () => {
+  render(<People member={null} returnTo="/people" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});

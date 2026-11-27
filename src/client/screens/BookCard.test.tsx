@@ -106,3 +106,11 @@ test("the no-cover tile shows the title and the first author only", () => {
   expect(container.querySelector(".cover-tile-author")).toHaveTextContent("Anon");
   expect(screen.queryByText("Second")).toBeNull();
 });
+
+test("Book's title is an h2 unless asked for an h1", () => {
+  const { rerender } = render(<Book title="Dune" authors={[]} coverUrl={null} />);
+  expect(screen.getByRole("heading", { level: 2, name: "Dune" })).toBeInTheDocument();
+  rerender(<Book title="Dune" authors={[]} coverUrl={null} headingLevel={1} />);
+  expect(screen.getByRole("heading", { level: 1, name: "Dune" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+});

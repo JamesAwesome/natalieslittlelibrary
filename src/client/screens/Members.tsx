@@ -3,6 +3,7 @@ import { listMembers, memberCollections } from "../api";
 import { BackLink } from "./BackLink";
 import { Name } from "./BookCard";
 import { BookCount } from "./ShelfList";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useLoaded } from "./useLoaded";
@@ -27,7 +28,11 @@ function Page({ member, returnTo, id }: Props) {
   );
   return (
     <div className="shelf-page">
-      <h1>Natalie's Little Library</h1>
+      <h1>
+        {member === null || state.status === "lost" ? APP_NAME
+          : state.status === "ok" && state.data.owner !== null ? <Name>{state.data.owner.name}</Name>
+          : "Friends"}
+      </h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
       ) : state.status === "gone" ? (
@@ -37,7 +42,6 @@ function Page({ member, returnTo, id }: Props) {
       ) : state.status === "ok" ? (
         state.data.owner === null ? (
           <>
-            <h2>Friends' shelves</h2>
             {others(state.data.people, member.id).length === 0 ? (
               <p>No one else is here yet.</p>
             ) : (
@@ -50,7 +54,6 @@ function Page({ member, returnTo, id }: Props) {
           </>
         ) : (
           <>
-            <h2><Name>{state.data.owner.name}</Name></h2>
             {state.data.collections.length === 0 ? (
               <p>No collections yet.</p>
             ) : (

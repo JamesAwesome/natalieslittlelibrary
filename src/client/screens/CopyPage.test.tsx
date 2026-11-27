@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { CopyView, LabelView } from "../../shared/types";
 import * as api from "../api";
+import { ShellContext, type Tab } from "../shell";
 import { CopyPage } from "./CopyPage";
 
 vi.mock("../api", async () => {
@@ -85,7 +86,7 @@ test("public shows the book, the prompt and the sign-in link; cover has empty al
 test("a missing cover is a placeholder, not an image", async () => {
   vi.mocked(api.getLabel).mockResolvedValue(publicView);
   const { container } = show(null);
-  await screen.findByRole("heading", { name: "Dune" });
+  await screen.findByRole("heading", { level: 1, name: "Dune" });
   expect(container.querySelector("img")).toBeNull();
   expect(container.querySelector("[data-state=none]")).not.toBeNull();
   expect(screen.queryByText("Cover didn’t load")).toBeNull();
@@ -863,4 +864,106 @@ test("on a label page, Release re-reads the page so Take appears", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Release" }));
   expect(await screen.findByText("No one owns this book.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Take this book" })).toBeInTheDocument();
+});
+
+const APP = "Natalie's Little Library";
+const h1 = (name: string) => screen.getByRole("heading", { level: 1, name });
+
+test("h1 is the book's title for a public view, with no second heading", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(publicView);
+  show(null);
+  await screen.findByRole("heading", { level: 1, name: "Dune" });
+  expect(screen.queryByRole("heading", { level: 2, name: "Dune" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: APP })).not.toBeInTheDocument();
+});
+
+test("h1 is the book's title for a copy view", async () => {
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView()));
+  show();
+  await screen.findByRole("heading", { level: 1, name: "Dune" });
+  expect(screen.queryByRole("heading", { name: APP })).not.toBeInTheDocument();
+});
+
+test.each<[string, LabelView]>([
+  ["unknown", { kind: "unknown" }],
+  ["retired", { kind: "retired" } as LabelView],
+  ["blank", { kind: "blank", code: "abc" }],
+])("h1 is the app name for a %s label", async (_, view) => {
+  vi.mocked(api.getLabel).mockResolvedValue(view);
+  show();
+  await waitFor(() => expect(vi.mocked(api.getLabel)).toHaveBeenCalled());
+  await screen.findByRole("heading", { level: 1, name: APP });
+  expect(h1(APP)).toBeInTheDocument();
+});
+
+test("h1 is the app name while loading, when gone and when failed", async () => {
+  vi.mocked(api.getLabel).mockReturnValue(new Promise(() => {}));
+  const a = show();
+  expect(h1(APP)).toBeInTheDocument();
+  a.unmount();
+  vi.mocked(api.getCopy).mockRejectedValue(new api.ApiError(404, null));
+  const b = render(<CopyPage copyId="c1" member={me} returnTo="/copies/c1" />);
+  await screen.findByText("That book isn't here.");
+  expect(h1(APP)).toBeInTheDocument();
+  b.unmount();
+  vi.mocked(api.getLabel).mockRejectedValue(new Error("boom"));
+  show();
+  await screen.findByText("The library is having trouble right now. Please try again later.");
+  expect(h1(APP)).toBeInTheDocument();
+});
+
+async function tabFor(view: LabelView, signedIn = true) {
+  const setTab = vi.fn<(t: Tab | null) => void>();
+  vi.mocked(api.getLabel).mockResolvedValue(view);
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [] });
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: me2, collections: [] });
+  render(
+    <ShellContext.Provider value={{ setTab, setSignedOut: vi.fn() }}>
+      <CopyPage code="abc" member={signedIn ? me : null} returnTo="/b/abc" />
+    </ShellContext.Provider>,
+  );
+  expect(setTab).not.toHaveBeenCalled();
+  await waitFor(() => expect(setTab).toHaveBeenCalled());
+  return setTab;
+}
+
+test("a copy I own reports the books tab, once", async () => {
+  const setTab = await tabFor(asCopy(copyView({ owner: me2, holder: { kind: "member", person: bob } })));
+  expect(setTab.mock.calls).toEqual([["books"]]);
+});
+
+test("a copy I hold but don't own reports the holding tab", async () => {
+  const setTab = await tabFor(asCopy(copyView({ owner: ann, holder: { kind: "member", person: me2 } })));
+  expect(setTab.mock.calls).toEqual([["holding"]]);
+});
+
+test("a copy that is someone else's and with someone else reports the friends tab", async () => {
+  const setTab = await tabFor(asCopy(copyView({ owner: ann, holder: { kind: "member", person: bob } })));
+  expect(setTab.mock.calls).toEqual([["friends"]]);
+});
+
+test("a copy held by a placeholder person is not mine to hold", async () => {
+  const setTab = await tabFor(asCopy(copyView({ owner: ann, holder: { kind: "person", id: "me-id-1", name: "Natalie" } })));
+  expect(setTab.mock.calls).toEqual([["friends"]]);
+});
+
+test.each<[string, LabelView]>([
+  ["unknown", { kind: "unknown" }],
+  ["retired", { kind: "retired" } as LabelView],
+  ["blank", { kind: "blank", code: "abc" }],
+])("a %s label reports the books tab", async (_, view) => {
+  const setTab = await tabFor(view);
+  expect(setTab.mock.calls).toEqual([["books"]]);
+});
+
+test("signed out, the page never reports a tab", async () => {
+  const setTab = vi.fn();
+  vi.mocked(api.getLabel).mockResolvedValue(asCopy(copyView()));
+  render(
+    <ShellContext.Provider value={{ setTab, setSignedOut: vi.fn() }}>
+      <CopyPage code="abc" member={null} returnTo="/b/abc" />
+    </ShellContext.Provider>,
+  );
+  await screen.findByRole("heading", { level: 1, name: "Dune" });
+  expect(setTab).not.toHaveBeenCalled();
 });

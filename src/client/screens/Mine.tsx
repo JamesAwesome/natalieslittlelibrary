@@ -4,6 +4,7 @@ import { cleanCollectionName } from "../../shared/collectionName";
 import { ApiError, approveRequest, createCollection, declineRequest, getShelf, listRequests, myCollections } from "../api";
 import { Name, personLabel } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
@@ -98,7 +99,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
 
   return (
     <div className="shelf-page">
-      <h1>Natalie's Little Library</h1>
+      <h1>{member === null || state.status === "lost" ? APP_NAME : "My books"}</h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
       ) : state.status === "failed" || state.status === "gone" ? (
@@ -134,7 +135,6 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
               </ul>
             </section>
           )}
-          <h2>My books</h2>
           {state.data.length === 0 ? (
             <p>
               No books yet. <a href="/pair">Pair a book</a> or <a href="/import">import from StoryGraph</a>.

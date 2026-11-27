@@ -1468,3 +1468,11 @@ test.each(["__proto__", "constructor", "", "new", "undefined", "toString"])("a s
   await click("stub label");
   await waitFor(() => expect(api.addCopy).toHaveBeenCalledWith(expect.objectContaining({ collectionId: "h" })));
 });
+
+test("the h1 is Pair a book, or the app name when signed out", () => {
+  const { unmount } = show();
+  expect(screen.getByRole("heading", { level: 1, name: "Pair a book" })).toBeInTheDocument();
+  unmount();
+  show("", null);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});

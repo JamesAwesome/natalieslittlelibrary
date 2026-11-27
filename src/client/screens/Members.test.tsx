@@ -61,3 +61,21 @@ test("long unbroken names sit in bdi", async () => {
   render(<Members member={me} returnTo="/members" />);
   expect((await screen.findByText("W".repeat(80))).tagName).toBe("BDI");
 });
+
+test("the list's h1 is Friends and the member page's h1 is the member's name", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [natalie, ann] });
+  const { unmount } = render(<Members member={me} returnTo="/members" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Friends" })).toBeInTheDocument();
+  await screen.findByRole("link", { name: "Ann" });
+  expect(screen.queryByRole("heading", { name: "Friends' shelves" })).not.toBeInTheDocument();
+  unmount();
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [] });
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Ann" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+});
+
+test("signed out, the h1 is the app name", () => {
+  render(<Members member={null} returnTo="/members" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});

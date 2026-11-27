@@ -242,7 +242,7 @@ test("signed in at /, the My books screen shows and More does not", async () => 
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
   render(<App />);
-  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
 });
 
@@ -252,7 +252,7 @@ test("/mine rewrites the address to / and shows My books", async () => {
   vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
   at("/mine");
   render(<App />);
-  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
   expect(replace).toHaveBeenCalledWith(null, "", "/");
 });
 
@@ -262,7 +262,7 @@ test("/mine still renders if replaceState throws", async () => {
   vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
   at("/mine");
   render(<App />);
-  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
 });
 
 test("signed out at /more shows sign-in and no tab bar", async () => {

@@ -4,6 +4,7 @@ import { cleanPersonName } from "../../shared/name";
 import { ApiError, linkPerson, listMembers, listPeople, renamePerson } from "../api";
 import { Name, personLabel } from "./BookCard";
 import { ShelfList } from "./ShelfList";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
@@ -100,14 +101,13 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
 
   return (
     <div className="shelf-page">
-      <h1>Natalie's Little Library</h1>
+      <h1>{member === null || state.status === "lost" ? APP_NAME : "People"}</h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />
       ) : state.status === "failed" || state.status === "gone" ? (
         <Trouble onRetry={retry} />
       ) : state.status === "ok" ? (
         <>
-          <h2>People</h2>
           {error !== undefined && <p role="alert" className="refusal">{error}</p>}
           {state.data.length === 0 ? <p>You haven't lent a book to anyone without an account yet.</p> : state.data.map(one)}
         </>

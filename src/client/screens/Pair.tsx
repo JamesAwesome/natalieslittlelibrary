@@ -6,6 +6,7 @@ import { parseLabelLink } from "../../shared/labelCode";
 import { addCopy, ApiError, createCollection, getCandidates, getCopy, labelCopy, lookupBook, myCollections, relabelCopy } from "../api";
 import { Scanner, type ScannerProblem } from "../scanner";
 import { Book, Name } from "./BookCard";
+import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 
 const problemText: Record<ScannerProblem, string> = {
@@ -457,11 +458,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     }
   }
 
-  const heading = <h1>Natalie's Little Library</h1>;
   if (member === null || lost) {
     return (
       <div className="pair-page">
-        {heading}
+        <h1>{APP_NAME}</h1>
         <SignIn returnTo={returnTo} />
       </div>
     );
@@ -470,7 +470,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const unavailable = problem !== null;
   return (
     <div className="pair-page">
-      {heading}
+      <h1>Pair a book</h1>
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {step === "isbn" && (
         <>

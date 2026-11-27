@@ -5,6 +5,7 @@ import { ApiError, deleteCollection, getShelf, makeDefault, renameCollection } f
 import { BackLink } from "./BackLink";
 import { Name } from "./BookCard";
 import { BookCount, ShelfList } from "./ShelfList";
+import { APP_NAME, useTab } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
 import { useGuard } from "./useGuard";
@@ -25,6 +26,7 @@ function Page({ id, member, returnTo }: Props) {
   const [deleted, setDeleted] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const { busy, guard, live } = useGuard();
+  useTab(member !== null && state.status === "ok" ? (state.data.owner.id === member.id ? "books" : "friends") : undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const [renamed, setRenamed] = useState(0);
   useEffect(() => {
@@ -73,7 +75,6 @@ function Page({ id, member, returnTo }: Props) {
     return (
       <>
         {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
-        <h2 ref={heading} tabIndex={-1}><Name>{collection.name}</Name></h2>
         <p>Owned by <Name>{owner.name}</Name> &middot; <BookCount n={collection.count} /></p>
         {isOwner && !renaming && !confirming && (
           <p className="controls">
@@ -116,7 +117,9 @@ function Page({ id, member, returnTo }: Props) {
 
   return (
     <div className="shelf-page">
-      <h1>Natalie's Little Library</h1>
+      {member !== null && state.status === "ok"
+        ? <h1 ref={heading} tabIndex={-1}><Name>{state.data.collection.name}</Name></h1>
+        : <h1>{APP_NAME}</h1>}
       {body()}
     </div>
   );

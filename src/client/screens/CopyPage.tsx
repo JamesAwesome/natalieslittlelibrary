@@ -5,6 +5,7 @@ import {
   releaseCopy, requestCopy, returnCopy, withdrawRequest,
 } from "../api";
 import { Book, holderLabel, Name, personLabel } from "./BookCard";
+import { APP_NAME, useTab, type Tab } from "../shell";
 import { LendBox } from "./LendBox";
 import { SignIn } from "./SignIn";
 
@@ -98,7 +99,7 @@ function Copy(props: {
   const mayAsk = (a: "lend" | "give" | "release") => copy.actions.includes(a) && step === undefined;
   return (
     <>
-      <Book {...copy.book} />
+      <Book {...copy.book} headingLevel={1} />
       {copy.ownerCode !== null && <p className="label-code">Label {copy.ownerCode}</p>}
       {copy.owner ? (
         <p>Owned by <Name>{personLabel(copy.owner)}</Name>{copy.collection && <> &middot; <Name>{copy.collection.name}</Name></>}</p>
@@ -244,6 +245,16 @@ function Page(props: Props) {
   const inFlight = useRef(false);
   const live = useRef(true);
 
+  // Decided once the view is in: a copy is under Books if mine, Holding if I have it, Friends otherwise.
+  let tab: Tab | undefined;
+  if (member !== null && !lost && view !== undefined) {
+    if (view.kind !== "copy") tab = "books";
+    else if (view.copy.owner?.id === member.id) tab = "books";
+    else if (view.copy.holder?.kind === "member" && view.copy.holder.person.id === member.id) tab = "holding";
+    else tab = "friends";
+  }
+  useTab(tab);
+
   const load = useCallback(async () => {
     setFailed(false);
     try {
@@ -357,7 +368,7 @@ function Page(props: Props) {
     }
   }
 
-  const heading = <h1>Natalie's Little Library</h1>;
+  const heading = <h1>{APP_NAME}</h1>;
   if (failed) {
     return (
       <div className="copy-page">
@@ -380,7 +391,7 @@ function Page(props: Props) {
   const signedIn = member !== null && !lost;
   return (
     <div className="copy-page">
-      {heading}
+      {view.kind !== "copy" && view.kind !== "public" && heading}
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
       {view.kind === "retired" && <p>This label has been replaced.</p>}
@@ -394,7 +405,7 @@ function Page(props: Props) {
       )}
       {view.kind === "public" && (
         <>
-          <Book {...view.book} />
+          <Book {...view.book} headingLevel={1} />
           <p>Sign in to see who has this book or to take it.</p>
           <SignIn returnTo={returnTo} />
         </>
