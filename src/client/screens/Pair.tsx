@@ -574,8 +574,8 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
                   <p>
                     <label htmlFor="pair-new-name">Name</label>
                     <input id="pair-new-name" type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                      aria-invalid={newError ? true : undefined} aria-describedby={newError ? "pair-new-name-error" : undefined} />
-                    {newError && <span id="pair-new-name-error" className="field-error">{newError}</span>}
+                      aria-invalid={newError ? true : undefined} aria-describedby="pair-new-name-error" />
+                    <span id="pair-new-name-error" className="field-error">{newError}</span>
                   </p>
                   <p><button type="button" onClick={() => void create()}>Create</button></p>
                 </div>
@@ -661,8 +661,8 @@ function TypeForm(props: { typed: Typed; isbn: string | null; onSubmit: (t: Type
       <p>
         <label htmlFor="pair-title">Title</label>
         <input id="pair-title" type="text" maxLength={MAX_TITLE} value={title} onChange={(e) => setTitle(e.target.value)}
-          aria-invalid={errors.title ? true : undefined} aria-describedby={errors.title ? "pair-title-error" : undefined} />
-        {errors.title && <span id="pair-title-error" className="field-error">{errors.title}</span>}
+          aria-invalid={errors.title ? true : undefined} aria-describedby="pair-title-error" />
+        <span id="pair-title-error" className="field-error">{errors.title}</span>
       </p>
       <p>
         <label htmlFor="pair-author">Author</label>
@@ -671,8 +671,8 @@ function TypeForm(props: { typed: Typed; isbn: string | null; onSubmit: (t: Type
       <p>
         <label htmlFor="pair-isbn">ISBN (optional)</label>
         <input id="pair-isbn" type="text" inputMode="numeric" value={raw} onChange={(e) => setRaw(e.target.value)}
-          aria-invalid={errors.isbn ? true : undefined} aria-describedby={errors.isbn ? "pair-isbn-error" : undefined} />
-        {errors.isbn && <span id="pair-isbn-error" className="field-error">{errors.isbn}</span>}
+          aria-invalid={errors.isbn ? true : undefined} aria-describedby="pair-isbn-error" />
+        <span id="pair-isbn-error" className="field-error">{errors.isbn}</span>
       </p>
       <p><button type="submit">Continue</button></p>
     </form>
@@ -698,8 +698,8 @@ function CodeForm(props: { onCode: (code: string) => void }) {
         <label htmlFor="pair-code">Or type the code printed under it</label>
         <input id="pair-code" type="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={raw}
           onChange={(e) => setRaw(e.target.value)} aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "pair-code-error" : undefined} />
-        {error && <span id="pair-code-error" className="field-error">{error}</span>}
+          aria-describedby="pair-code-error" />
+        <span id="pair-code-error" className="field-error">{error}</span>
       </p>
       <p><button type="submit">Use this code</button></p>
     </form>

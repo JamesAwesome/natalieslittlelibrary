@@ -1,5 +1,41 @@
-.pair-page button {
+/* Shared form layout for the tool screens: label above, control full width, 44px tall. */
+:is(.pair-page, .labels-page, .import-page) label {
+  display: block;
+  margin: 0 0 var(--space-1);
+  font-weight: 500;
+}
+
+:is(.pair-page, .labels-page, .import-page) :is(select, input[type="text"]) {
+  width: 100%;
   min-height: 44px;
+  padding: var(--space-3);
+}
+
+:is(.pair-page, .labels-page, .import-page) button {
+  min-height: 44px;
+}
+
+:is(.pair-page, .labels-page, .import-page) :is(p, li) {
+  overflow-wrap: anywhere;
+}
+
+:is(.pair-page, .labels-page, .import-page) .toggle {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 44px;
+}
+
+:is(.pair-page, .labels-page, .import-page) .toggle input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+
+:is(.pair-page, .labels-page, .import-page) .toggle label {
+  margin: 0;
+  font-weight: 400;
 }
 
 .pair-page button + button {
@@ -9,59 +45,12 @@
 .pair-page button.link {
   padding: var(--space-3) 0;
   background: none;
-  color: var(--accent);
+  color: var(--color-accent);
   text-decoration: underline;
-}
-
-.pair-page label {
-  display: block;
-  margin: 0 0 var(--space-1);
-}
-
-.pair-page select,
-.pair-page input[type="text"] {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 44px;
-  padding: var(--space-3);
-  font: inherit;
-}
-
-.pair-page .field-error {
-  display: block;
-  min-height: 1lh;
-  margin: var(--space-1) 0 0;
-  color: var(--color-alert-ink);
 }
 
 .pair-page .refusal {
   overflow-wrap: anywhere;
-}
-
-.labels-page button {
-  min-height: 44px;
-}
-
-.labels-page label {
-  display: block;
-  margin: 0 0 var(--space-1);
-}
-
-.labels-page select,
-.labels-page input[type="text"] {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 44px;
-  padding: var(--space-3);
-  font: inherit;
-}
-
-.labels-page fieldset {
-  min-width: 0;
-  margin: 0 0 var(--space-4);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-rule);
-  border-radius: 6px;
 }
 
 .labels-page ul.refusal {
@@ -117,6 +106,7 @@
 :is(.shelf-page, .wall-top, .wall-empty) label {
   display: block;
   margin: 0 0 var(--space-1);
+  font-weight: 500;
 }
 
 :is(.shelf-page, .wall-top, .wall-empty) input[type="text"] {
@@ -125,7 +115,6 @@
   min-height: 44px;
   margin: var(--space-1) 0 var(--space-2);
   padding: var(--space-3);
-  font: inherit;
 }
 
 :is(.shelf-page, .wall-top, .wall-empty) h3 a,
@@ -184,11 +173,6 @@
   color: var(--color-muted);
 }
 
-.import-page button,
-.import-page a.button {
-  min-height: 44px;
-}
-
 .import-page a.button {
   display: inline-flex;
   align-items: center;
@@ -196,30 +180,13 @@
   overflow-wrap: anywhere;
 }
 
-.import-page label {
-  display: block;
-  margin: 0 0 var(--space-1);
+.import-page a.button {
+  min-height: 44px;
 }
 
 .import-page input[type="file"] {
   max-width: 100%;
   min-height: 44px;
-}
-
-.import-page select,
-.import-page input[type="text"] {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 44px;
-  padding: var(--space-3);
-  font: inherit;
-}
-
-.import-page .field-error {
-  display: block;
-  min-height: 1lh;
-  margin: var(--space-1) 0 0;
-  color: var(--color-alert-ink);
 }
 
 .import-page p,

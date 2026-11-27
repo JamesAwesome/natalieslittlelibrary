@@ -1,6 +1,6 @@
 // Development only: screens and parts rendered from fixtures, with no API.
 // Open /src/client/preview/preview.html?view=<name>. Not linked from the app and not in the production build.
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
 import { BookBack, Copy, PublicBook } from "../screens/CopyPage";
@@ -159,7 +159,35 @@ function BookView() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { book: BookView, friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView };
+// The shared form controls in every state, as the tool screens use them.
+function FormsView() {
+  const focused = useRef<HTMLInputElement>(null);
+  useEffect(() => focused.current?.focus(), []);
+  return (
+    <main className="preview pair-page labels-page import-page">
+      <h1>Form controls</h1>
+      <p><label htmlFor="f-default">Default</label><input id="f-default" type="text" defaultValue="The Secret Garden" /><span className="field-error" id="f-default-e" /></p>
+      <p><label htmlFor="f-focus">Focused (focus-visible)</label><input id="f-focus" ref={focused} type="text" defaultValue="Frances Hodgson Burnett" /><span className="field-error" /></p>
+      <p><label htmlFor="f-disabled">Disabled</label><input id="f-disabled" type="text" disabled defaultValue="Not now" /><span className="field-error" /></p>
+      <p><label htmlFor="f-invalid">Invalid</label><input id="f-invalid" type="text" aria-invalid="true" aria-describedby="f-invalid-e" defaultValue="12345" /><span className="field-error" id="f-invalid-e">That isn’t a book ISBN.</span></p>
+      <p><label htmlFor="f-select">Select</label><select id="f-select" defaultValue="b"><option value="a">Rectangle</option><option value="b">Round</option></select><span className="field-error" /></p>
+      <p><label htmlFor="f-select-d">Select, disabled</label><select id="f-select-d" disabled><option>Letter</option></select><span className="field-error" /></p>
+      <p><label htmlFor="f-select-i">Select, invalid</label><select id="f-select-i" aria-invalid="true" aria-describedby="f-select-ie"><option>Pick one</option></select><span className="field-error" id="f-select-ie">Choose a collection.</span></p>
+      <fieldset>
+        <legend>If the print lands off the sheet</legend>
+        <p><label htmlFor="f-nudge">Nudge right/left</label><select id="f-nudge"><option>0 mm</option></select></p>
+      </fieldset>
+      <p className="toggle"><input id="f-check" type="checkbox" defaultChecked /><label htmlFor="f-check">Also print labels already on my books</label></p>
+      <p className="toggle"><input id="f-check2" type="checkbox" /><label htmlFor="f-check2">Unchecked</label></p>
+      <p className="toggle"><input id="f-check3" type="checkbox" disabled /><label htmlFor="f-check3">Disabled</label></p>
+      <p><button type="button">Button</button><button type="button" disabled>Disabled</button></p>
+      <p role="alert" className="refusal">Couldn’t make labels. Try again.</p>
+      <p className="label-code">Label 4F7K2</p>
+    </main>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { book: BookView, friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView, forms: FormsView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 

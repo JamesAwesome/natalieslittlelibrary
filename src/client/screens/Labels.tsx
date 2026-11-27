@@ -271,7 +271,7 @@ export function Labels(props: { member: Member | null; returnTo: string }) {
           {listFailed && <p role="alert" className="refusal">Couldn't load your previous sheets.</p>}
           {sheets.length > 0 && (
             <>
-              <p>
+              <p className="toggle">
                 <input id="labels-mine" type="checkbox" checked={includeMine} onChange={(e) => setIncludeMine(e.target.checked)} />
                 <label htmlFor="labels-mine">Also print labels already on my books</label>
               </p>
