@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { tabRoot, type Tab } from "./shell";
 
 // One hand-drawn set: 24x24, 1.6 stroke, round caps and joins. The .fill shapes fill in on the active tab.
@@ -36,13 +36,22 @@ const icons: Record<Tab, ReactNode> = {
 
 const order: [Tab, string][] = [["books", "Books"], ["holding", "Holding"], ["pair", "Pair"], ["friends", "Friends"], ["more", "More"]];
 
+// Tapping the tab you're on, on that tab's own page, scrolls to the top instead of reloading.
+function scrollToTop(tab: Tab, active: Tab | null, e: MouseEvent<HTMLAnchorElement>) {
+  if (tab !== active || location.pathname !== tabRoot[tab].href) return;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({ top: 0, behavior: reduce ? "instant" : "smooth" });
+}
+
 export function TabBar({ active }: { active: Tab | null }) {
   return (
     <nav aria-label="Main" className="tab-bar app-chrome">
       {order.map(([tab, label]) => {
         const icon = <svg className="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{icons[tab]}</svg>;
         return (
-          <a key={tab} href={tabRoot[tab].href} className={tab === "pair" ? "tab tab-pair" : "tab"} aria-current={tab === active ? "page" : undefined}>
+          <a key={tab} onClick={(e) => scrollToTop(tab, active, e)} href={tabRoot[tab].href} className={tab === "pair" ? "tab tab-pair" : "tab"} aria-current={tab === active ? "page" : undefined}>
             {tab === "pair" ? <span className="tab-disc">{icon}</span> : icon}
             <span className="tab-label">{label}</span>
           </a>
