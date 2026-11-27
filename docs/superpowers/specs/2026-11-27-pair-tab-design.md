@@ -32,7 +32,7 @@ books", and a way back to the top of a long wall.
 ## Anti-goals
 
 - A tab label that is cut off or wraps at 320px.
-- A rail mark below 44px tall, or a rail whose letters drift from where the
+- A rail narrower than 44px, or a rail whose letters drift from where the
   finger is.
 - A floating button over the covers.
 

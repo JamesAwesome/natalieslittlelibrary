@@ -32,6 +32,7 @@ beforeEach(() => {
 // A failed expectation must not leave a layout spy behind for the next test.
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 test("shows the title as the h1 and the count line, and hides the count line when incomplete", () => {
@@ -492,7 +493,6 @@ test("the rail's top band scrolls the page to the top instantly", () => {
   rail.getBoundingClientRect = () => ({ top: 0, height: 280, bottom: 280, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
   fireEvent.pointerDown(rail, { clientY: 5, pointerId: 1 });
   expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "instant" });
-  vi.unstubAllGlobals();
 });
 
 test("while loading it shows nine tile-shaped blocks, hidden, with no images, chips or rail", () => {

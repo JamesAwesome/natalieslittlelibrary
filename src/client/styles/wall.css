@@ -478,6 +478,15 @@ html:has(.wall[data-chips]) {
 /* A short screen (a phone in landscape) leaves under 20px a mark: draw the arrow and every other letter, and a dot between.
    The strip still divides into 28 equal bands, so the finger maps to marks exactly as before. */
 @media (max-height: 33rem) {
+  /* Bands are 6-9px here, so the arrow's and A's glyph boxes (taller than a band) would run into each other: the arrow
+     is smaller and rides up into the gap above the strip, off A. Only its glyph moves; its band, and so the finger's
+     mapping, does not. */
+  .alpha-rail-mark:first-child {
+    align-items: flex-start;
+    font-size: calc(var(--text-xs) * 0.7);
+    transform: translateY(-0.4rem);
+  }
+
   .alpha-rail-mark:nth-child(odd):not(:first-child) {
     font-size: 0;
   }

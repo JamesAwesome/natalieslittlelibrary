@@ -92,3 +92,12 @@ test("dragging from the top band to B and back calls onTop twice and onPick for 
   expect(onPick).toHaveBeenCalledTimes(1);
   expect(onPick).toHaveBeenCalledWith("B");
 });
+
+test("dragging from the top band straight down into A picks A once, after one onTop", () => {
+  const { rail, onPick, onTop } = setup(["A", "B"]);
+  fireEvent.pointerDown(rail, { clientY: 105, pointerId: 1 });
+  fireEvent.pointerMove(rail, { clientY: 115, pointerId: 1 }); // offset 15: A
+  expect(onTop).toHaveBeenCalledTimes(1);
+  expect(onPick).toHaveBeenCalledTimes(1);
+  expect(onPick).toHaveBeenCalledWith("A");
+});
