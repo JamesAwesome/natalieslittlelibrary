@@ -38,7 +38,7 @@ vi.mock("../scanner", () => ({
 
 const me = { id: "1", name: "Natalie", email: "n@example.com", pictureUrl: null, isAdmin: true };
 const book: BookInfo = { isbn: "9780000000002", title: "Dune", authors: ["Frank Herbert"], coverUrl: null };
-const copy = { copyId: "c1", code: "t7k2q9xzmb" } as CopyView;
+const copy = { copyId: "c1", code: "t7k2q9xzmb", book, collection: null } as CopyView;
 const assign = vi.fn();
 const col = (id: string, name: string, isDefault = false): CollectionSummary => ({ id, name, isDefault, count: 1, unlabelled: 0 });
 const two = [col("h", "Home library", true), col("g", "Garage")];
@@ -93,7 +93,7 @@ test("signed out shows only the sign-in link", () => {
   expect(screen.queryByTestId("scanner")).not.toBeInTheDocument();
 });
 
-test("happy path saves by ISBN once and goes to the book's page", async () => {
+test("happy path saves by ISBN once and comes back to scanning", async () => {
   vi.mocked(api.addCopy).mockResolvedValue(copy);
   show();
   expect(screen.getByText("Scan the barcode on the back of the book.")).toBeInTheDocument();
@@ -107,7 +107,8 @@ test("happy path saves by ISBN once and goes to the book's page", async () => {
   expect(wantOf()).toBe("label");
   expect(api.addCopy).not.toHaveBeenCalled();
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(api.addCopy).toHaveBeenCalledTimes(1);
   expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002" });
 });
@@ -303,7 +304,8 @@ test("a double tap on the final step sends one request", async () => {
   await userEvent.dblClick(use);
   expect(api.addCopy).toHaveBeenCalledTimes(1);
   release(copy);
-  await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
 });
 
 test("Start over is absent on step 1 and clears everything from step 2 on", async () => {
@@ -368,7 +370,8 @@ test("a miss, a title, and without a linked label the title goes to the label st
   await click("Continue");
   expect(screen.getByText("Now scan a blank label.")).toBeInTheDocument();
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalled());
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(saved()).toStrictEqual([{ code: "t7k2q9xzmb", title: "Home Made", authors: [] }]);
   expect(api.lookupBook).toHaveBeenCalledTimes(1);
 });
@@ -424,7 +427,8 @@ test("an ISBN that was never confirmed is never sent", async () => {
   await userEvent.type(screen.getByLabelText("Title"), "Home Made");
   await click("Continue");
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalled());
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(saved()[0]).toStrictEqual({ code: "t7k2q9xzmb", title: "Home Made", authors: [] });
 });
 
@@ -532,7 +536,8 @@ test("an imported copy with the same ISBN is shown even when the lookup misses, 
   expect(para("It stays in Imported.")).toBeInTheDocument();
   expect(screen.queryByLabelText("Collection")).not.toBeInTheDocument();
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalled());
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(api.addCopy).toHaveBeenCalledTimes(1);
   expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002" });
 });
@@ -548,7 +553,8 @@ test("a title match after a lookup offers the copies, and picking one labels tha
   await click(/^This one/);
   expect(para("It stays in Imported.")).toBeInTheDocument();
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(api.labelCopy).toHaveBeenCalledWith("c5", "t7k2q9xzmb");
   expect(api.addCopy).not.toHaveBeenCalled();
 });
@@ -1014,7 +1020,7 @@ test("with two collections the picker lists them default first plus New collecti
   expect(localStorage.getItem("nll.pair-collection.1")).toBe("g");
 });
 
-test("a scan that finds an imported copy tells you it stays where it was, and does not navigate", async () => {
+test("a scan that finds an imported copy tells you it stays where it was, and comes back to scanning", async () => {
   mineIs(two);
   vi.mocked(api.addCopy).mockResolvedValue({ ...copy, collection: { id: "h", name: "Home library" } });
   show();
@@ -1022,12 +1028,13 @@ test("a scan that finds an imported copy tells you it stays where it was, and do
   await click("Yes");
   await userEvent.selectOptions(await screen.findByLabelText("Collection"), "g");
   await click("stub label");
-  expect(await screen.findByText((_, el) => el?.tagName === "P" && el.textContent === "This book was already in Home library; it stays there.")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open it" })).toHaveAttribute("href", "/b/t7k2q9xzmb");
+  expect(await findPara("Paired Dune. It stays in Home library.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See it" })).toHaveAttribute("href", "/b/t7k2q9xzmb");
+  expect(wantOf()).toBe("isbn");
   expect(assign).not.toHaveBeenCalled();
 });
 
-test("a scan that lands in the picked collection navigates as before, and options carry dir=auto", async () => {
+test("a scan that lands in the picked collection comes back to scanning, and options carry dir=auto", async () => {
   mineIs(two);
   vi.mocked(api.addCopy).mockResolvedValue({ ...copy, collection: { id: "g", name: "Garage" } });
   show();
@@ -1037,7 +1044,8 @@ test("a scan that lands in the picked collection navigates as before, and option
   expect(screen.getByRole("option", { name: "Garage" })).toHaveAttribute("dir", "auto");
   await userEvent.selectOptions(select, "g");
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalled());
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(screen.queryByText(/it stays there/)).not.toBeInTheDocument();
 });
 
@@ -1133,7 +1141,8 @@ test("localStorage that throws still lets a book be saved", async () => {
   await click("Yes");
   await screen.findByLabelText("Collection");
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(api.addCopy).toHaveBeenCalledWith({ code: "t7k2q9xzmb", isbn: "9780000000002", collectionId: "h" });
 });
 
@@ -1452,7 +1461,8 @@ test("nothing is remembered after a save with no picker", async () => {
   await toConfirm();
   await click("Yes");
   await click("stub label");
-  await waitFor(() => expect(assign).toHaveBeenCalled());
+  await findPara("Paired Dune.");
+  expect(assign).not.toHaveBeenCalled();
   expect(localStorage.getItem("nll.pair-collection.1")).toBeNull();
 });
 
@@ -1506,4 +1516,119 @@ test("the new collection name field is invalid only while its error shows, and t
   await click("Create");
   expect(name).toHaveAttribute("aria-invalid", "true");
   expect(name).toHaveAccessibleDescription("A collection name is 1 to 60 characters, with no control characters.");
+});
+
+// ---- Pair faster: plain /pair comes back to scanning ----
+
+const emma: BookInfo = { isbn: "9780000000002", title: "Emma", authors: ["Jane Austen"], coverUrl: null };
+
+async function pairOnce(label = "stub label") {
+  await toConfirm();
+  await click("Yes");
+  await click(label);
+}
+
+test("plain /pair: a save comes back to the barcode step with a note, a link and a count", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue({ ...copy, book, collection: null });
+  show();
+  await pairOnce();
+  await waitFor(() => expect(wantOf()).toBe("isbn"));
+  expect(assign).not.toHaveBeenCalled();
+  expect(para("Paired Dune.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "See it" })).toHaveAttribute("href", "/b/t7k2q9xzmb");
+  expect(para("1 paired this time")).toBeInTheDocument();
+  expect(para("Scan the barcode on the back of the next book.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Done" })).toHaveAttribute("href", "/");
+  expect(screen.getByRole("heading", { level: 1, name: "Pair a book" })).toHaveFocus();
+});
+
+test("a second pair replaces the note and counts two", async () => {
+  vi.mocked(api.addCopy).mockResolvedValueOnce(copy).mockResolvedValueOnce({ ...copy, copyId: "c2", code: "mmmmmmmmmm", book: emma });
+  show();
+  await pairOnce();
+  await findPara("Paired Dune.");
+  await pairOnce("stub other label");
+  expect(await findPara("Paired Emma.")).toBeInTheDocument();
+  expect(queryPara("Paired Dune.")).not.toBeInTheDocument();
+  expect(para("2 paired this time")).toBeInTheDocument();
+});
+
+test("the label just paired, still in view, is not sent for the next book", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show();
+  await pairOnce();
+  await findPara("Paired Dune.");
+  mockOnMount = { want: "label", reading: { kind: "label", code: "t7k2q9xzmb" } };
+  await toConfirm();
+  await click("Yes");
+  await waitFor(() => expect(wantOf()).toBe("label"));
+  await sleep(50);
+  expect(wantOf()).toBe("label");
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+});
+
+test("nothing typed for the last book is left in the form for the next", async () => {
+  vi.mocked(api.addCopy).mockResolvedValue({ ...copy, book: emma });
+  show();
+  await click("No barcode? Type it in");
+  await userEvent.type(screen.getByLabelText("Title"), "Emma");
+  await userEvent.type(screen.getByLabelText("Author"), "Jane Austen");
+  await click("Continue");
+  await click("stub label");
+  await findPara("Paired Emma.");
+  expect(wantOf()).toBe("isbn");
+  await click("No barcode? Type it in");
+  expect(screen.getByLabelText("Title")).toHaveValue("");
+  expect(screen.getByLabelText("Author")).toHaveValue("");
+});
+
+test("a book picked from Is it one of these? comes back to scanning too", async () => {
+  vi.mocked(api.getCandidates).mockImplementation(async (q) => (q.title !== undefined ? { sameIsbn: null, similar: [item("c5", "Dune")] } : { sameIsbn: null, similar: [] }));
+  vi.mocked(api.labelCopy).mockResolvedValue({ ...copy, copyId: "c5" });
+  show();
+  await toConfirm();
+  await click("Yes");
+  await click(/^This one/);
+  await click("stub label");
+  await waitFor(() => expect(wantOf()).toBe("isbn"));
+  expect(assign).not.toHaveBeenCalled();
+  expect(api.labelCopy).toHaveBeenCalledWith("c5", "t7k2q9xzmb");
+  expect(para("Paired Dune.")).toBeInTheDocument();
+});
+
+test("a double tap on the last step saves once and counts once", async () => {
+  let release: (c: CopyView) => void = () => {};
+  vi.mocked(api.addCopy).mockReturnValue(new Promise((r) => (release = r)));
+  show();
+  await toConfirm();
+  await click("Yes");
+  await userEvent.type(screen.getByLabelText("Or type the code printed under it"), "t7k2q9xzmb");
+  await userEvent.dblClick(screen.getByRole("button", { name: "Use this code" }));
+  release(copy);
+  await findPara("Paired Dune.");
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+  expect(para("1 paired this time")).toBeInTheDocument();
+});
+
+test("?copy= still ends on the book's page", async () => {
+  vi.mocked(api.getCopy).mockResolvedValue({ ...copy, code: null, book, actions: ["label"] } as CopyView);
+  vi.mocked(api.labelCopy).mockResolvedValue(copy);
+  show("?copy=c1");
+  await screen.findByText("Now scan a blank label.");
+  await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  expect(screen.queryByText(/^Paired/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "See it" })).not.toBeInTheDocument();
+});
+
+test.each(["?label=T7K2Q9XZMB", "?label=nonsense"])("%s still ends on the book's page", async (search) => {
+  vi.mocked(api.addCopy).mockResolvedValue(copy);
+  show(search);
+  await toConfirm();
+  await click("Yes");
+  if (search === "?label=nonsense") await click("stub label");
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("/b/t7k2q9xzmb"));
+  expect(api.addCopy).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/^Paired/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "See it" })).not.toBeInTheDocument();
 });

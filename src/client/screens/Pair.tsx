@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { BookInfo, CollectionSummary, Member, ShelfItem } from "../../shared/types";
+import type { BookInfo, CollectionSummary, CopyView, Member, ShelfItem } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
 import { toIsbn13 } from "../../shared/isbn";
 import { parseLabelLink } from "../../shared/labelCode";
 import { addCopy, ApiError, createCollection, getCandidates, getCopy, labelCopy, lookupBook, myCollections, relabelCopy } from "../api";
 import { Scanner, type ScannerProblem } from "../scanner";
-import { Book, Name } from "./BookCard";
+import { Book, Cover, Name } from "./BookCard";
 import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 
@@ -68,6 +68,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [copyId] = useState<string | null>(() => new URLSearchParams(location.search).get("copy"));
   // With replace=1 the copy already has a label, and the one read takes its place.
   const [replace] = useState(() => copyId !== null && new URLSearchParams(location.search).get("replace") === "1");
+  // A ?label= link came from a book's page, even when its code doesn't parse.
+  const [fromLabel] = useState(() => new URLSearchParams(location.search).get("label") !== null);
+  // Plain /pair comes back to scanning after each save; a pair started from a book or a label ends on the book's page.
+  const loops = copyId === null && !fromLabel;
   const [step, setStep] = useState<Step>(copyId !== null ? "copyloading" : "isbn");
   const [forCopy, setForCopy] = useState<{ title: string; authors: string[]; coverUrl: string | null } | null>(null);
   const [imported, setImported] = useState<ShelfItem | null>(null);
@@ -93,6 +97,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [stays, setStays] = useState<{ name: string; label: string } | null>(null);
   // The label read and the payload it was read for, held together until the person confirms the replace.
   const [toReplace, setToReplace] = useState<{ label: string; p: Pending } | null>(null);
+  // The book just paired on plain /pair, and how many this visit.
+  const [last, setLast] = useState<{ title: string; authors: string[]; coverUrl: string | null; label: string; stays: string | null } | null>(null);
+  const [count, setCount] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
   const inFlight = useRef(false);
   // A refused label still in front of the camera must not be saved again until another is read or typed.
   const refused = useRef<string | null>(null);
@@ -253,14 +261,28 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     go("saving");
     try {
       let stayed: { name: string } | null = null;
-      if ("replacing" in p.how) await relabelCopy(p.how.copyId, label, p.how.replacing);
-      else if ("copyId" in p.how) await labelCopy(p.how.copyId, label);
+      let saved: CopyView;
+      if ("replacing" in p.how) saved = await relabelCopy(p.how.copyId, label, p.how.replacing);
+      else if ("copyId" in p.how) saved = await labelCopy(p.how.copyId, label);
       else {
-        const saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
+        saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
         // A scan that found an imported copy labels it where it is; the collection that was picked did not apply.
         if (collectionId !== undefined && saved.collection != null && saved.collection.id !== collectionId) stayed = { name: saved.collection.name };
       }
       if (collectionId !== undefined && member !== null && stayed === null) writePick(member.id, collectionId);
+      if (loops) {
+        if (mine === seq.current && live.current) {
+          // Back to the barcode for the next book. The label just used stays refused: it may still be in front of the camera.
+          startOver();
+          refused.current = label;
+          setLinked(null);
+          setLast({ title: saved.book.title, authors: saved.book.authors, coverUrl: saved.book.coverUrl, label, stays: stayed?.name ?? null });
+          setCount((n) => n + 1);
+          inFlight.current = false;
+          heading.current?.focus();
+        }
+        return;
+      }
       if (stayed !== null) {
         if (mine === seq.current && live.current) setStays({ name: stayed.name, label });
         return;
@@ -470,11 +492,26 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const unavailable = problem !== null;
   return (
     <div className="pair-page">
-      <h1>Pair a book</h1>
+      <h1 ref={heading} tabIndex={-1}>Pair a book</h1>
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
+      {/* Mounted empty on every step, so it is announced when it fills; it shows only on the barcode step. */}
+      {loops && (
+        <div role="status" className="pair-done">
+          {step === "isbn" && last !== null && (
+            <>
+              <Cover url={last.coverUrl} title={last.title} authors={last.authors} size="row" />
+              <div className="pair-done-text">
+                <p>Paired <Name>{last.title}</Name>.{last.stays !== null && <> It stays in <Name>{last.stays}</Name>.</>}</p>
+                <p className="pair-tally">{count} paired this time</p>
+              </div>
+              <a href={`/b/${last.label}`}>See it</a>
+            </>
+          )}
+        </div>
+      )}
       {step === "isbn" && (
         <>
-          <p>Scan the barcode on the back of the book.</p>
+          <p>{last !== null ? "Scan the barcode on the back of the next book." : "Scan the barcode on the back of the book."}</p>
           {unavailable ? <p>{problemText[problem]}</p> : (
             <Scanner key="isbn" want="isbn" onProblem={setProblem} onRead={(r) => {
               if (r.kind !== "isbn") return;
@@ -484,6 +521,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           {unavailable ? <TypeForm typed={typed} isbn={isbn} onSubmit={onTyped} /> : (
             <p><button type="button" className="link" onClick={() => go("type")}>No barcode? Type it in</button></p>
           )}
+          {last !== null && <p><a href="/">Done</a></p>}
         </>
       )}
       {step === "looking" && <p>Looking that up…</p>}
