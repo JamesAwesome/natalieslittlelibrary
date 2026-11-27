@@ -98,6 +98,28 @@ test("Holding reads 'From Ann', or 'No owner' when there is none", () => {
   expect(screen.getByText(line("No owner"))).toBeInTheDocument();
 });
 
+test("Holding names a removed owner as such", () => {
+  wall({ kind: "holding", title: "Holding", items: [item({ copyId: "c1", owner: sam, home: false })] });
+  expect(screen.getByText(line("From Sam (no longer a member)"))).toBeInTheDocument();
+});
+
+test("a placeholder person holding your book reads 'With Grandad'", () => {
+  wall({ items: [item({ copyId: "c1", home: false, holder: { kind: "person", id: "p1", name: "Grandad" } })] });
+  expect(screen.getByText(line("With Grandad"))).toBeInTheDocument();
+});
+
+test("your own collection reads like your wall: 'With Ann' and the lent-out count", () => {
+  wall({ kind: "my-collection", title: "Kids", items: [item({ copyId: "c1", home: false, holder: { kind: "member", person: ann } })] });
+  expect(screen.getByText(line("With Ann"))).toBeInTheDocument();
+  expect(screen.getByText("1 book · 1 lent out")).toBeInTheDocument();
+});
+
+test("a friend's collection reads 'Out' and counts books only", () => {
+  wall({ kind: "friend-collection", title: "Ann’s shelf", items: [item({ copyId: "c1", home: false, holder: { kind: "member", person: ann } })] });
+  expect(screen.getByText(line("Out"))).toBeInTheDocument();
+  expect(screen.getByText("1 book")).toBeInTheDocument();
+});
+
 test("a friend's wall reads 'Out' when a book is not at home, and nothing when it is", () => {
   wall({ kind: "friend", title: "Ann", items: [
     item({ copyId: "c1", home: false, holder: { kind: "member", person: ann } }),
@@ -217,6 +239,15 @@ test("Escape and a click outside close the menu", () => {
   fireEvent.click(button);
   fireEvent.pointerDown(screen.getByRole("heading", { level: 1 }));
   expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("Tab closes the menu and leaves focus on the button", () => {
+  wall();
+  const button = screen.getByRole("button", { name: "Collection" });
+  fireEvent.click(button);
+  fireEvent.keyDown(entriesOf(screen.getByRole("menu"))[0], { key: "Tab" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(button).toHaveFocus();
 });
 
 test("arrow keys move through the menu", () => {
