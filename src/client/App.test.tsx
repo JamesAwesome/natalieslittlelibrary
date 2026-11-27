@@ -363,3 +363,22 @@ test("#root reserves room for the bar only while the bar is shown", async () => 
   expect(root).not.toHaveClass("has-tab-bar");
   root.remove();
 });
+
+test.each([
+  ["an unknown label", "/b/zzz", () => vi.mocked(api.getLabel).mockResolvedValue({ kind: "unknown" })],
+  ["a label still loading", "/b/zzz", () => vi.mocked(api.getLabel).mockReturnValue(new Promise(() => {}))],
+  ["an unknown path", "/nope", () => {}],
+])("signed out on %s: no navigation and no room reserved", async (_name, path, setup) => {
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  setup();
+  at(path);
+  const { unmount } = render(<App />);
+  await waitFor(() => expect(api.getMe).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(main()).not.toBeInTheDocument();
+  expect(root).not.toHaveClass("has-tab-bar");
+  unmount();
+  root.remove();
+});

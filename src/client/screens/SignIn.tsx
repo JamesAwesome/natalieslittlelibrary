@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useLayoutEffect, useState } from "react";
 import { embeddedBrowser } from "../embedded";
 import { ShellContext } from "../shell";
 
@@ -31,7 +31,8 @@ function CopyLink() {
 export function SignIn({ returnTo }: { returnTo: string }) {
   // Signing in is a signed-out state: the shell hides the tab bar while this is on screen.
   const { setSignedOut } = useContext(ShellContext);
-  useEffect(() => {
+  // A layout effect, so the bar and the sign-in link never share a painted frame.
+  useLayoutEffect(() => {
     setSignedOut(true);
     return () => setSignedOut(false);
   }, [setSignedOut]);

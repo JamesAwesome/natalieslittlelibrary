@@ -57,3 +57,18 @@
 .tab[aria-current="page"] .tab-icon .fill {
   fill: currentColor;
 }
+
+/* Keyboard focus and scrolled-to targets must land above the fixed bar, not behind it. */
+html:has(#root.has-tab-bar) {
+  scroll-padding-bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-2));
+}
+
+@media print {
+  .tab-bar {
+    display: none;
+  }
+
+  #root.has-tab-bar {
+    padding-bottom: 0;
+  }
+}
