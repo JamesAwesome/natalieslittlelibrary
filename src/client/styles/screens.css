@@ -119,6 +119,14 @@
   margin-bottom: var(--space-2);
 }
 
+/* Beside the rail, a wall's top is 60px narrower than the screen (the tool screens' column is 32px narrower), so on a
+   phone under 22rem the collection-name message takes three lines there: the slot reserves three. */
+@media (width < 22rem) {
+  .wall[data-rail] .new-collection .field-error.long {
+    min-height: 3lh;
+  }
+}
+
 :is(.shelf-page, .wall-top, .wall-empty) .plain-list a,
 :is(.shelf-page, .wall-top, .wall-empty) p a:not(.button),
 .shelf-title {
