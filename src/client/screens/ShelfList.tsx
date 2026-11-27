@@ -32,6 +32,3 @@ export function ShelfList(props: { items: ShelfItem[]; viewerId?: string; showOw
   );
 }
 
-export function BookCount({ n }: { n: number }) {
-  return <span className="count">{n} {n === 1 ? "book" : "books"}</span>;
-}

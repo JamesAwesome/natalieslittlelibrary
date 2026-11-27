@@ -3,8 +3,9 @@ import type { Member, Shelf as ShelfData } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
 import { ApiError, deleteCollection, getShelf, makeDefault, renameCollection } from "../api";
 import { BackLink } from "./BackLink";
-import { Name } from "./BookCard";
-import { BookCount, ShelfList } from "./ShelfList";
+import { CoverWall } from "../wall/CoverWall";
+import { useWallPlace, wallKey } from "../wall/memory";
+import { Name, personLabel } from "./BookCard";
 import { APP_NAME, useTab } from "../shell";
 import { SignIn } from "./SignIn";
 import { Trouble } from "./Trouble";
@@ -29,6 +30,8 @@ function Page({ id, member, returnTo }: Props) {
   useTab(member !== null && state.status === "ok" ? (state.data.owner.id === member.id ? "books" : "friends") : undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const [renamed, setRenamed] = useState(0);
+  const ready = member !== null && state.status === "ok";
+  const [filter, setFilter] = useWallPlace(wallKey(), ready, []);
   useEffect(() => {
     if (renamed > 0) heading.current?.focus();
   }, [renamed]);
@@ -64,18 +67,26 @@ function Page({ id, member, returnTo }: Props) {
     change(() => renameCollection(id, clean.name), { "name-taken": "You already have a collection called that." }, () => { setRenaming(false); setRenamed((n) => n + 1); });
   }
 
-  const body = () => {
-    if (member === null || state.status === "lost") return <SignIn returnTo={returnTo} />;
-    if (state.status === "gone") return deleted ? <p ref={(el) => el?.focus()} tabIndex={-1}>Deleted. <a href="/mine">Back to my books</a></p> : <><p>That collection isn't here.</p><BackLink /></>;
-    if (state.status === "failed") return <Trouble onRetry={retry} />;
-    if (state.status !== "ok") return null;
-    const { collection, owner, items } = state.data;
-    const isOwner = owner.id === member.id;
+  // Not the wall: the page as it was, under the app name.
+  const page = (children: React.ReactNode) => (
+    <div className="shelf-page">
+      <h1>{APP_NAME}</h1>
+      {children}
+    </div>
+  );
+  if (member === null || state.status === "lost") return page(<SignIn returnTo={returnTo} />);
+  if (state.status === "gone") return page(deleted ? <p ref={(el) => el?.focus()} tabIndex={-1}>Deleted. <a href="/mine">Back to my books</a></p> : <><p>That collection isn't here.</p><BackLink /></>);
+  if (state.status === "failed") return page(<Trouble onRetry={retry} />);
+
+  const shelf = state.status === "ok" ? state.data : null;
+  const isOwner = shelf !== null && shelf.owner.id === member.id;
+  const top = shelf && (() => {
+    const { collection, owner, items } = shelf;
     const canDelete = isOwner && !collection.isDefault && collection.count === 0 && items.length === 0;
     return (
       <>
         {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
-        <p>Owned by <Name>{owner.name}</Name> &middot; <BookCount n={collection.count} /></p>
+        <p>Owned by <Name>{personLabel(owner)}</Name></p>
         {isOwner && !renaming && !confirming && (
           <p className="controls">
             <button type="button" disabled={busy} onClick={() => { setName(collection.name); setRenaming(true); setNotice(undefined); }}>Rename</button>
@@ -110,17 +121,22 @@ function Page({ id, member, returnTo }: Props) {
             <button type="button" disabled={busy} onClick={() => setConfirming(false)}>Keep it</button>
           </div>
         )}
-        {items.length === 0 ? <p>No books here yet.</p> : <ShelfList items={items} viewerId={member.id} />}
       </>
     );
-  };
+  })();
 
+  // Loading and loaded are the same wall, so the h1 (and its ref) stays one element as the name arrives.
   return (
-    <div className="shelf-page">
-      {member !== null && state.status === "ok"
-        ? <h1 ref={heading} tabIndex={-1}><Name>{state.data.collection.name}</Name></h1>
-        : <h1>{APP_NAME}</h1>}
-      {body()}
-    </div>
+    <CoverWall
+      kind={isOwner ? "my-collection" : "friend-collection"}
+      title={shelf ? shelf.collection.name : APP_NAME}
+      headingRef={heading}
+      loading={!ready}
+      items={shelf?.items ?? []}
+      top={top}
+      filter={filter}
+      onFilter={setFilter}
+      empty={<p>No books here yet.</p>}
+    />
   );
 }

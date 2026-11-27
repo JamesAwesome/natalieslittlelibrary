@@ -19,6 +19,8 @@ beforeEach(() => {
   vi.stubGlobal("location", { pathname: "/", search: "", hash: "", reload, assign });
   // This runtime's own localStorage is not usable and warns when touched (the labels page reads it).
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+  // Walls save their place per path as they unmount; each test starts with none.
+  sessionStorage.clear();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -318,9 +320,9 @@ test("the shelf screens are routed", async () => {
   vi.mocked(api.memberCollections).mockResolvedValue({ owner: { id: "2", name: "Ann", pictureUrl: null }, collections: [] });
   vi.mocked(api.getShelf).mockRejectedValue(Object.assign(new api.ApiError(404, null), { status: 404 }));
   for (const [path, text] of [
-    ["/holding", "You're not holding anyone else's books."],
+    ["/holding", "You aren’t holding anyone’s books."],
     ["/members", "No one else is here yet."],
-    ["/members/2", "No collections yet."],
+    ["/members/2", "No books here yet."],
     ["/collections/k1", "That collection isn't here."],
   ] as const) {
     at(path);

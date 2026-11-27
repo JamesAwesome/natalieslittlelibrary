@@ -1,11 +1,14 @@
 // Development only: screens and parts rendered from fixtures, with no API.
 // Open /src/client/preview/preview.html?view=<name>. Not linked from the app and not in the production build.
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
+import { FriendRows } from "../screens/Members";
 import { TabBar } from "../TabBar";
 import "../styles/index.css";
-import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, type FixtureBook } from "./fixtures";
+import { CoverWall, type WallKind } from "../wall/CoverWall";
+import { ALL, type Status, type WallFilter } from "../wall/model";
+import { FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG, WALL, WALL_COLLECTIONS, type FixtureBook } from "./fixtures";
 
 const SIZES: CoverSize[] = ["wall", "row", "hero"];
 const STATES: [string, FixtureBook][] = [
@@ -62,7 +65,49 @@ function TabBarView() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers, tabbar: TabBarView };
+// &kind=friend|holding|… picks another wall, &loading shows the skeleton, &empty shows an empty wall,
+// &status=out|home|unlabelled and &collection=<id> start with that filter.
+function WallView() {
+  document.getElementById("root")?.classList.add("has-tab-bar");
+  const params = new URLSearchParams(location.search);
+  const kind = (params.get("kind") ?? "mine") as WallKind;
+  const [filter, setFilter] = useState<WallFilter>({
+    status: (params.get("status") as Status | null) ?? ALL.status, collectionId: params.get("collection") ?? ALL.collectionId,
+  });
+  return (
+    <>
+      <main>
+        <CoverWall
+          kind={kind} title={kind === "holding" ? "Holding" : kind === "mine" ? "My books" : "Ann"}
+          items={params.has("empty") ? [] : WALL} collections={WALL_COLLECTIONS} filter={filter} onFilter={setFilter}
+          onNewCollection={() => {}} loading={params.has("loading")}
+          empty={<p>You haven’t added any books yet.</p>}
+        />
+      </main>
+      <TabBar active="books" />
+    </>
+  );
+}
+
+function FriendsView() {
+  document.getElementById("root")?.classList.add("has-tab-bar");
+  const people = [
+    { id: "2", name: "Ann", pictureUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#2a7f8f"/><circle cx="20" cy="16" r="7" fill="#f4d58d"/><rect x="8" y="26" width="24" height="14" rx="7" fill="#f4d58d"/></svg>')}` },
+    { id: "7", name: "Zed", pictureUrl: "data:image/png;base64,AAAA" },
+    { id: "3", name: "Bob", pictureUrl: null },
+    { id: "4", name: "W".repeat(60), pictureUrl: null },
+    { id: "5", name: "Sam", pictureUrl: null, removed: true as const },
+    { id: "6", name: "Émile", pictureUrl: null },
+  ];
+  return (
+    <>
+      <main><div className="shelf-page"><h1>Friends</h1><FriendRows people={people} counts={{ "2": 12, "3": 1, "4": 0, "5": 3 }} /></div></main>
+      <TabBar active="friends" />
+    </>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 

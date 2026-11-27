@@ -3,18 +3,27 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
 import { Mine } from "./Mine";
-import { item, me, shelfOf, summary } from "./shelfFixtures";
+import { ann, item, me, shelfOf, summary } from "./shelfFixtures";
 
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
   return { ...actual, listRequests: vi.fn(), approveRequest: vi.fn(), declineRequest: vi.fn(), myCollections: vi.fn(), getShelf: vi.fn(), createCollection: vi.fn() };
 });
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  // The wall saves its chips per path as it unmounts; each test starts with none.
+  sessionStorage.clear();
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 const home = summary({ id: "k1", name: "Home library", isDefault: true, count: 2, unlabelled: 1 });
 const beach = summary({ id: "k2", name: "Beach house", count: 1 });
 const homeItems = [item({ copyId: "a" }), item({ copyId: "b", labelled: false })];
-const beachItems = [item({ copyId: "c" })];
+const beachItems = [item({ copyId: "c", collection: { id: "k2", name: "Beach house" }, home: false, holder: { kind: "member", person: ann } })];
+
+// A cover's link is named by its title, then its authors.
+const book = (id: string) => ({ name: `Book ${id}, An Author` });
+const covers = () => screen.queryAllByRole("link", { name: /^Book .*, An Author$/ }).map((l) => l.getAttribute("href"));
 
 function setup(collections = [home, beach]) {
   vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
@@ -24,36 +33,90 @@ function setup(collections = [home, beach]) {
 }
 const show = () => render(<Mine member={me} returnTo="/mine" />);
 
-test("groups collections in order with counts, headings link to shelves", async () => {
+// The create form is behind Collection ▾ → New collection…
+async function openCreate() {
+  await userEvent.click(await screen.findByRole("button", { name: "Collection" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "New collection…" }));
+}
+
+test("/ shows My books as a wall of every collection's covers, merged", async () => {
   setup();
   show();
-  const headings = await screen.findAllByRole("heading", { level: 2 });
-  expect(headings.map((h) => h.textContent)).toEqual(["Home library", "Beach house", "New collection"]);
-  expect(within(headings[0]).getByRole("link")).toHaveAttribute("href", "/collections/k1");
-  expect(screen.getByText("1 without a label")).toBeInTheDocument();
-  expect(screen.getByText("2 books")).toBeInTheDocument();
-  expect(screen.getByText("1 book")).toBeInTheDocument();
-  expect(screen.getAllByRole("link", { name: /^Book / })).toHaveLength(3);
-  expect(screen.getByRole("link", { name: "Put a label on it" })).toHaveAttribute("href", "/pair?copy=b");
+  expect(await screen.findByRole("link", book("c"))).toHaveAttribute("href", "/copies/c");
+  expect(screen.getByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  expect(covers()).toEqual(["/copies/a", "/copies/b", "/copies/c"]);
+  expect(screen.getByText("3 books · 1 lent out")).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "With Ann")).toBeInTheDocument();
+  for (const name of ["All", "At home", "Lent out", "No label"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+  expect(api.getShelf).toHaveBeenCalledTimes(2);
 });
 
-test("the unlabelled toggle filters every group", async () => {
+test("the No label chip replaces the old toggle", async () => {
   setup();
   show();
-  await screen.findByText("Beach house");
-  await userEvent.click(screen.getByRole("checkbox", { name: "Show only books without a label" }));
-  expect(screen.getAllByRole("link", { name: /^Book / }).map((l) => l.textContent)).toEqual(["Book b"]);
-  await userEvent.click(screen.getByRole("checkbox"));
-  expect(screen.getAllByRole("link", { name: /^Book / })).toHaveLength(3);
+  await screen.findByRole("link", book("c"));
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "No label" }));
+  expect(covers()).toEqual(["/copies/b"]);
 });
 
-test("no collections: the empty message with pair and import links", async () => {
+test("Collection ▾ lists my collections and Manage goes to the picked one's page", async () => {
+  setup();
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Collection" }));
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Beach house" }));
+  expect(covers()).toEqual(["/copies/c"]);
+  await userEvent.click(screen.getByRole("button", { name: "Collection: Beach house" }));
+  expect(screen.getByRole("menuitem", { name: "Manage Beach house" })).toHaveAttribute("href", "/collections/k2");
+});
+
+test("the wall waits for the requests read, so the bar never shifts the covers after they land", async () => {
+  setup();
+  let answer: (v: { requests: never[] }) => void = () => {};
+  vi.mocked(api.listRequests).mockReturnValue(new Promise((r) => { answer = r; }));
+  show();
+  await waitFor(() => expect(api.getShelf).toHaveBeenCalledTimes(2));
+  await act(async () => {});
+  expect(covers()).toEqual([]);
+  expect(screen.getByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  await act(async () => answer({ requests: [] }));
+  expect(covers()).toHaveLength(3);
+});
+
+test("coming back restores the chips and scroll once the wall, requests and all, has loaded", async () => {
+  setup();
+  sessionStorage.setItem(`wall:${location.pathname}`, JSON.stringify({ filter: { status: "all", collectionId: "k2" }, scrollY: 300 }));
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  let answer: (v: { requests: never[] }) => void = () => {};
+  vi.mocked(api.listRequests).mockReturnValue(new Promise((r) => { answer = r; }));
+  show();
+  await waitFor(() => expect(api.getShelf).toHaveBeenCalledTimes(2));
+  await act(async () => {});
+  expect(scrollTo).not.toHaveBeenCalled();
+  await act(async () => answer({ requests: [] }));
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 300);
+  expect(screen.getByRole("button", { name: "Collection: Beach house" })).toBeInTheDocument();
+  expect(covers()).toEqual(["/copies/c"]);
+  scrollTo.mockRestore();
+});
+
+test("no collections: the empty line with pair, import, friends and holding links", async () => {
   setup([]);
   show();
-  expect(await screen.findByText(/No books yet\./)).toBeInTheDocument();
+  expect(await screen.findByText("You haven’t added any books yet.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
-  expect(screen.getByRole("link", { name: "import from StoryGraph" })).toHaveAttribute("href", "/import");
-  expect(screen.getByRole("heading", { name: "New collection" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Import from StoryGraph" })).toHaveAttribute("href", "/import");
+  expect(screen.getByRole("link", { name: "Friends" })).toHaveAttribute("href", "/members");
+  expect(screen.getByRole("link", { name: "Holding" })).toHaveAttribute("href", "/holding");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("collections with no books in them are the same empty wall", async () => {
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [home] });
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(home, []));
+  show();
+  expect(await screen.findByText("You haven’t added any books yet.")).toBeInTheDocument();
 });
 
 test("a collection that vanished between reads is left out, not an error", async () => {
@@ -63,21 +126,128 @@ test("a collection that vanished between reads is left out, not an error", async
     return shelfOf(home, homeItems);
   });
   show();
-  await screen.findByText("Home library");
-  expect(screen.queryByText("Beach house")).not.toBeInTheDocument();
+  await screen.findByRole("link", book("a"));
+  expect(covers()).toEqual(["/copies/a", "/copies/b"]);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByText("2 books")).toBeInTheDocument();
 });
 
-test("creating a collection sends one request, trimmed, and re-reads", async () => {
+test("one failing shelf: the rest show, with an alert and Try again and no count line", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k2") throw new api.ApiError(500, null);
+    return shelfOf(home, homeItems);
+  });
+  show();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(covers()).toEqual(["/copies/a", "/copies/b"]);
+  expect(screen.queryByText(/^\d+ books?/)).not.toBeInTheDocument();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => (id === "k1" ? shelfOf(home, homeItems) : shelfOf(beach, beachItems)));
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("link", book("c"))).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByText("3 books · 1 lent out")).toBeInTheDocument();
+});
+
+test("one failing shelf beside an empty one doesn't claim there are no books", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k2") throw new api.ApiError(500, null);
+    return shelfOf(home, []);
+  });
+  show();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(screen.queryByText("You haven’t added any books yet.")).not.toBeInTheDocument();
+});
+
+test("every shelf failing is trouble", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  expect(await screen.findByRole("alert")).toHaveTextContent("having trouble");
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+});
+
+test("a 401 on any one shelf goes to sign-in", async () => {
+  setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k2") throw new api.ApiError(401, null);
+    return shelfOf(home, homeItems);
+  });
+  show();
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+  expect(covers()).toEqual([]);
+});
+
+test("a 404 from myCollections is trouble, not the empty wall", async () => {
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
+  vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(404, null));
+  show();
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByText("You haven’t added any books yet.")).not.toBeInTheDocument();
+});
+
+test("New collection… reveals the create form and puts the cursor in it", async () => {
+  setup();
+  show();
+  expect(await screen.findByRole("link", book("c"))).toBeInTheDocument();
+  // The status line is there, empty, before anything is created, so it is announced when it fills.
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  await openCreate();
+  expect(screen.getByRole("heading", { level: 2, name: "New collection" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Name")).toHaveFocus();
+});
+
+test("creating a collection sends one request, trimmed, re-reads, and says it worked", async () => {
   setup();
   vi.mocked(api.createCollection).mockResolvedValue(summary({ id: "k3", name: "Cabin" }));
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   await userEvent.type(screen.getByLabelText("Name"), "  Cabin ");
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
   expect(api.createCollection).toHaveBeenCalledExactlyOnceWith("Cabin");
   await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("status")).toHaveTextContent("Created Cabin.");
+  expect(within(screen.getByRole("status")).getByText("Cabin").tagName).toBe("BDI");
+  const manage = screen.getByRole("link", { name: "Manage Cabin" });
+  expect(manage).toHaveAttribute("href", "/collections/k3");
+  expect(manage).toHaveFocus();
+  // The link is inline-flex: its label must be one span, or "Manage" and the name lose the space between them.
+  expect(manage.children).toHaveLength(1);
+  expect(manage.firstElementChild?.tagName).toBe("SPAN");
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  // Opening the form again starts clean, without the old confirmation.
+  await openCreate();
   expect(screen.getByLabelText("Name")).toHaveValue("");
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+});
+
+test("an empty wall still offers New collection…, and it creates", async () => {
+  setup([]);
+  vi.mocked(api.createCollection).mockResolvedValue(summary({ id: "k3", name: "Cabin" }));
+  show();
+  expect(await screen.findByText("You haven’t added any books yet.")).toBeInTheDocument();
+  await openCreate();
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
+  expect(api.createCollection).toHaveBeenCalledExactlyOnceWith("Cabin");
+  expect(await screen.findByRole("status")).toHaveTextContent("Created Cabin.");
+  expect(screen.getByRole("link", { name: "Manage Cabin" })).toHaveAttribute("href", "/collections/k3");
+});
+
+test("a long collection name sits in bdi in the menu and the picked chip", async () => {
+  const long = summary({ id: "k2", name: "W".repeat(70), count: 1 });
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [long] });
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(long, [item({ copyId: "w", collection: { id: "k2", name: long.name } })]));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Collection" }));
+  const radio = screen.getByRole("menuitemradio", { name: long.name });
+  expect(within(radio).getByText(long.name).tagName).toBe("BDI");
+  await userEvent.click(radio);
+  const chip = screen.getByRole("button", { name: `Collection: ${long.name}` });
+  expect(within(chip).getByText(long.name).tagName).toBe("BDI");
 });
 
 test("a double tap sends one request", async () => {
@@ -85,7 +255,7 @@ test("a double tap sends one request", async () => {
   let finish: (v: ReturnType<typeof summary>) => void = () => {};
   vi.mocked(api.createCollection).mockReturnValue(new Promise((r) => { finish = r; }));
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   await userEvent.type(screen.getByLabelText("Name"), "Cabin");
   const button = screen.getByRole("button", { name: "Create" });
   await act(async () => {
@@ -100,7 +270,7 @@ test("name-taken shows its message and re-reads the list", async () => {
   setup();
   vi.mocked(api.createCollection).mockRejectedValue(new api.ApiError(409, "name-taken"));
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   await userEvent.type(screen.getByLabelText("Name"), "beach HOUSE");
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
   expect(await screen.findByText("You already have a collection called that.")).toBeInTheDocument();
@@ -110,25 +280,36 @@ test("name-taken shows its message and re-reads the list", async () => {
 test("an invalid name is stopped before any request", async () => {
   setup();
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
-  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(await screen.findByRole("alert")).toHaveTextContent("A collection name is 1 to 60 characters, with no control characters.");
   expect(api.createCollection).not.toHaveBeenCalled();
+});
+
+test("any other failure says something went wrong", async () => {
+  setup();
+  vi.mocked(api.createCollection).mockRejectedValue(new api.ApiError(500, null));
+  show();
+  await openCreate();
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong. Try again.");
 });
 
 test("a 401 while creating shows sign-in with no stale controls", async () => {
   setup();
   vi.mocked(api.createCollection).mockRejectedValue(new api.ApiError(401, null));
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   await userEvent.type(screen.getByLabelText("Name"), "Cabin");
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Fmine");
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  expect(screen.queryByText("Beach house")).not.toBeInTheDocument();
+  expect(covers()).toEqual([]);
 });
 
-test("a 401 on load, and a 401 on the re-read after a refusal, show sign-in", async () => {
+test("a 401 on load shows sign-in", async () => {
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
   vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(401, null));
   show();
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
@@ -139,7 +320,7 @@ test("a 401 on the re-read after name-taken shows sign-in", async () => {
   setup();
   vi.mocked(api.createCollection).mockRejectedValue(new api.ApiError(409, "name-taken"));
   show();
-  await screen.findByText("Beach house");
+  await openCreate();
   vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(401, null));
   await userEvent.type(screen.getByLabelText("Name"), "Cabin");
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -155,84 +336,66 @@ test("signed out: only the sign-in link", () => {
 });
 function show_(m: typeof me | null) { render(<Mine member={m} returnTo="/mine" />); }
 
-test("collection names render in bdi", async () => {
-  const long = summary({ id: "k2", name: "W".repeat(70), count: 0 });
-  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [long] });
-  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(long, []));
-  show();
-  expect((await screen.findByText("W".repeat(70))).tagName).toBe("BDI");
-});
-
-test("a group's heading and count come from its own shelf read, not the summary", async () => {
-  setup();
-  const fresh = summary({ id: "k2", name: "Beach cabin", count: 3, unlabelled: 2 });
-  vi.mocked(api.getShelf).mockImplementation(async (id) =>
-    id === "k1" ? shelfOf(home, homeItems) : shelfOf(fresh, [item({ copyId: "x" }), item({ copyId: "y" }), item({ copyId: "z" })]));
-  show();
-  expect(await screen.findByRole("link", { name: "Beach cabin" })).toBeInTheDocument();
-  expect(screen.queryByText("Beach house")).not.toBeInTheDocument();
-  expect(screen.getByText("3 books")).toBeInTheDocument();
-  expect(screen.getByText("2 without a label")).toBeInTheDocument();
-});
-
-test("one failing shelf shows trouble for that group only, the others stay, and Try again re-reads", async () => {
-  setup();
-  vi.mocked(api.getShelf).mockImplementation(async (id) => {
-    if (id === "k2") throw new api.ApiError(500, null);
-    return shelfOf(home, homeItems);
-  });
-  show();
-  expect(await screen.findByRole("alert")).toHaveTextContent("having trouble");
-  expect(screen.getByRole("link", { name: "Book a" })).toBeInTheDocument();
-  expect(screen.getByText("Beach house").tagName).toBe("BDI");
-  vi.mocked(api.getShelf).mockImplementation(async (id) => (id === "k1" ? shelfOf(home, homeItems) : shelfOf(beach, beachItems)));
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByRole("link", { name: "Book c" })).toBeInTheDocument();
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-});
-
-test("a 401 on any one shelf goes to sign-in", async () => {
-  setup();
-  vi.mocked(api.getShelf).mockImplementation(async (id) => {
-    if (id === "k2") throw new api.ApiError(401, null);
-    return shelfOf(home, homeItems);
-  });
-  show();
-  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
-  expect(screen.queryByText("Home library")).not.toBeInTheDocument();
-});
-
-test("a 404 from myCollections is trouble, not 'No books yet'", async () => {
-  vi.mocked(api.myCollections).mockRejectedValue(new api.ApiError(404, null));
-  show();
-  expect(await screen.findByRole("alert")).toBeInTheDocument();
-  expect(screen.queryByText(/No books yet/)).not.toBeInTheDocument();
-});
-
 const ask = { copyId: "r1", book: { isbn: null, title: "Wanted", authors: [], coverUrl: null }, by: { id: "2", name: "Ann", pictureUrl: null }, at: 1 };
+const asked = (t: string) => (_: string, el: Element | null) => el?.tagName === "P" && el.textContent === t;
 
-// Approve asks first; the second Approve is the confirmation.
+// The bar opens the list; Approve asks first, and the second Approve is the confirmation.
+async function openRequests() {
+  await userEvent.click(await screen.findByRole("button", { name: /^\d+ requests?$/ }));
+}
 async function approve() {
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
 }
 
-test("open requests sit under the title and above the collections and are answered in place", async () => {
+test("open requests show as a bar between the title and the chips, and it opens the list", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
+  show();
+  const bar = await screen.findByRole("button", { name: "1 request" });
+  expect(bar).toHaveAttribute("aria-expanded", "false");
+  const title = screen.getByRole("heading", { level: 1, name: "My books" });
+  const chip = screen.getByRole("button", { name: "All" });
+  expect(title.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(bar.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  await userEvent.click(bar);
+  expect(bar).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("list", { name: "Requests" })).toHaveAttribute("id", bar.getAttribute("aria-controls"));
+  expect(screen.getByRole("link", { name: "Wanted" })).toHaveAttribute("href", "/copies/r1");
+  expect(screen.getByText(asked("Ann asked to keep this"))).toBeInTheDocument();
+  await userEvent.click(bar);
+  expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+});
+
+test("two requests say so", async () => {
+  setup();
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask, { ...ask, copyId: "r2" }] });
+  show();
+  expect(await screen.findByRole("button", { name: "2 requests" })).toBeInTheDocument();
+});
+
+test("no requests, no bar", async () => {
+  setup();
+  show();
+  await screen.findByRole("link", book("c"));
+  expect(screen.queryByRole("button", { name: /request/ })).not.toBeInTheDocument();
+});
+
+test("approving asks first, then answers in place", async () => {
   setup();
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
   vi.mocked(api.approveRequest).mockResolvedValue({} as never);
   show();
-  expect(await screen.findByRole("link", { name: "Wanted" })).toHaveAttribute("href", "/copies/r1");
-  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).toBeInTheDocument();
-  const order = screen.getAllByRole("heading").map((h) => h.textContent);
-  expect(order.indexOf("My books")).toBeLessThan(order.indexOf("Requests"));
-  expect(order.indexOf("Requests")).toBeLessThan(order.indexOf("Home library"));
+  await openRequests();
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
-  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Let Ann keep Wanted?")).toBeInTheDocument();
+  expect(screen.getByText(asked("Let Ann keep Wanted?"))).toBeInTheDocument();
   expect(api.approveRequest).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Approve" }));
   expect(api.approveRequest).toHaveBeenCalledExactlyOnceWith("r1");
-  await waitFor(() => expect(screen.queryByText((_, el) => el?.tagName === "P" && el.textContent === "Ann asked to keep this")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText(asked("Ann asked to keep this"))).not.toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: /request/ })).not.toBeInTheDocument();
   expect(api.listRequests).toHaveBeenCalledTimes(2);
 });
 
@@ -241,27 +404,29 @@ test("declining sends decline", async () => {
   vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
   vi.mocked(api.declineRequest).mockResolvedValue({} as never);
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Decline" }));
   expect(api.declineRequest).toHaveBeenCalledExactlyOnceWith("r1");
 });
 
-test("a failed requests load says so in place of the section and leaves the shelves", async () => {
+test("a failed requests load says so in place of the bar and leaves the wall", async () => {
   setup();
   vi.mocked(api.listRequests).mockRejectedValue(new api.ApiError(500, null));
   show();
-  expect(await screen.findByText("Beach house")).toBeInTheDocument();
   expect(await screen.findByText("Couldn't load requests.")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Requests" })).not.toBeInTheDocument();
+  expect(covers()).toHaveLength(3);
+  expect(screen.queryByRole("button", { name: /request/ })).not.toBeInTheDocument();
 });
 
 test("Cancel on the approve step answers nothing and brings the buttons back", async () => {
   setup();
   vi.mocked(api.listRequests).mockResolvedValue({ requests: [ask] });
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Approve" }));
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(api.approveRequest).not.toHaveBeenCalled();
-  expect(screen.queryByText("Let Ann keep Wanted?")).not.toBeInTheDocument();
+  expect(screen.queryByText(asked("Let Ann keep Wanted?"))).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
 });
 
@@ -279,7 +444,8 @@ test("declining does not re-read the shelves", async () => {
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockResolvedValue({ requests: [] });
   vi.mocked(api.declineRequest).mockResolvedValue({} as never);
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Decline" }));
   await waitFor(() => expect(api.listRequests).toHaveBeenCalledTimes(2));
   expect(api.myCollections).toHaveBeenCalledTimes(1);
 });
@@ -298,7 +464,8 @@ test("a 401 on the requests re-read goes to sign-in", async () => {
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockRejectedValue(new api.ApiError(401, null));
   vi.mocked(api.declineRequest).mockResolvedValue({} as never);
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Decline" }));
   expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
 });
 
@@ -317,7 +484,8 @@ test("a failed re-read after an answer shows the alert", async () => {
   vi.mocked(api.listRequests).mockResolvedValueOnce({ requests: [ask] }).mockRejectedValue(new api.ApiError(500, null));
   vi.mocked(api.declineRequest).mockResolvedValue({} as never);
   show();
-  await userEvent.click(await screen.findByRole("button", { name: "Decline" }));
+  await openRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Decline" }));
   expect(await screen.findByText("Something went wrong. Try again.")).toBeInTheDocument();
 });
 
@@ -331,10 +499,12 @@ test("not-allowed says it was already answered and the row goes after the reload
   await waitFor(() => expect(screen.queryByRole("link", { name: "Wanted" })).not.toBeInTheDocument());
 });
 
-test("the h1 is My books, or the app name when signed out", async () => {
+test("the h1 is My books, once", async () => {
   setup();
   show();
   expect(await screen.findByRole("heading", { level: 1, name: "My books" })).toBeInTheDocument();
+  await screen.findByRole("link", book("c"));
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   expect(screen.queryByRole("heading", { level: 2, name: "My books" })).not.toBeInTheDocument();
 });
 
@@ -343,12 +513,18 @@ test("signed out, the h1 is the app name", () => {
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
 });
 
-test("headings run h1, then h2 for requests, collections and the new-collection form", async () => {
+test("headings run h1, then a letter h2 for each group", async () => {
   setup();
+  vi.mocked(api.getShelf).mockImplementation(async (id) =>
+    id === "k1"
+      ? shelfOf(home, [item({ copyId: "a", book: { isbn: null, title: "Dune", authors: ["An Author"], coverUrl: null } })])
+      : shelfOf(beach, [item({ copyId: "c", book: { isbn: null, title: "Emma", authors: ["An Author"], coverUrl: null } })]));
   show();
-  await screen.findByRole("heading", { level: 2, name: "Home library" });
+  await screen.findByRole("link", { name: "Emma, An Author" });
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["D", "E"]);
   expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
-  expect(screen.getByRole("heading", { level: 2, name: "New collection" })).toBeInTheDocument();
+  const wall = screen.getByRole("heading", { level: 1 }).parentElement!;
+  expect(within(wall).getAllByRole("listitem")).toHaveLength(2);
 });
 
 test("a lost session turns the h1 into the app name", async () => {

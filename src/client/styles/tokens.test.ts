@@ -40,6 +40,7 @@ describe.each([
 
   it("keeps text at 4.5:1 or better", () => {
     expect(c("ink", "paper")).toBeGreaterThanOrEqual(4.5);
+    expect(c("ink", "paper-2")).toBeGreaterThanOrEqual(4.5);
     expect(c("muted", "paper")).toBeGreaterThanOrEqual(4.5);
     expect(c("muted", "paper-2")).toBeGreaterThanOrEqual(4.5);
     expect(c("accent", "paper")).toBeGreaterThanOrEqual(4.5);
@@ -48,6 +49,10 @@ describe.each([
     expect(c("alert-ink", "alert-bg")).toBeGreaterThanOrEqual(4.5);
     expect(c("paper", "ink")).toBeGreaterThanOrEqual(4.5);
     expect(c("tile-ink", "tile")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps an avatar initial (paper on an accent disc) at 4.5:1", () => {
+    expect(c("paper", "accent")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("keeps the other rendered text pairs at 4.5:1", () => {

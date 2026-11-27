@@ -1,0 +1,81 @@
+/* The Friends list: a picture or initial, a name, a book count. Rows are at least 44px with a hairline between. */
+.friend-list {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.friend-list li + li {
+  border-top: 1px solid var(--color-rule);
+}
+
+/* Rows read like the More list: ink, never underlined, never the visited colour. */
+.shelf-page .friend-row,
+.shelf-page .friend-row:visited {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) 0;
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .shelf-page .friend-row:hover .friend-name-text {
+    text-decoration: underline;
+  }
+}
+
+.shelf-page .friend-row:active {
+  background: var(--color-paper-2);
+}
+
+/* One line each; a long name is cut with an ellipsis, and the removed-member note shrinks after it. */
+.friend-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.friend-name-text {
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friend-name-note {
+  min-width: 0;
+  margin-left: var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.friend-row .count {
+  flex: none;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.avatar {
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* paper on accent is 6.81:1 in light and 8.40:1 in dark (tokens.test.ts) */
+.avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1;
+}

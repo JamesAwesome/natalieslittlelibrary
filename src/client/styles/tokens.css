@@ -1,7 +1,7 @@
 :root {
   /* Light: near-white paper, warm greys, rust highlighter. Ratios are WCAG 2.1. */
   --color-paper: oklch(98% 0.005 75);
-  --color-paper-2: oklch(94% 0.008 75); /* chips, tiles */
+  --color-paper-2: oklch(94% 0.008 75); /* chips, tiles; ink on paper-2 15.20:1 */
   --color-ink: oklch(20% 0.012 60); /* 17.11:1 on paper; paper on ink 17.11:1 */
   --color-muted: oklch(47% 0.012 60); /* 6.46:1 on paper, 5.74:1 on paper-2 */
   --color-accent: oklch(47% 0.13 45); /* rust, 6.81:1 on paper, 6.05:1 on paper-2 */
@@ -13,6 +13,9 @@
   --color-tile: oklch(90% 0.03 70); /* no-cover and failed tiles */
   --color-tile-ink: oklch(30% 0.03 60); /* 10.15:1 on tile */
   --color-focus: oklch(56% 0.13 45); /* 4.63:1 on paper, 4.11 paper-2, 3.70 ink, 3.96 alert-bg */
+
+  /* Alpha only, for mask-image; never drawn as a colour. */
+  --mask-solid: #000;
 
   --cover-shadow: 0 1px 2px oklch(20% 0.02 60 / 0.18), 0 4px 12px oklch(20% 0.02 60 / 0.14);
 
@@ -30,6 +33,7 @@
   --space-8: 48px;
 
   /* 1.25 scale from a 16px body */
+  --text-xs: 0.64rem;
   --text-sm: 0.8rem;
   --text-base: 1rem;
   --text-lg: 1.25rem;
@@ -59,7 +63,7 @@
   :root {
     /* Dark: warm brown evening shelf, amber highlighter. */
     --color-paper: oklch(19% 0.015 55);
-    --color-paper-2: oklch(24% 0.016 55);
+    --color-paper-2: oklch(24% 0.016 55); /* ink on paper-2 13.82:1 */
     --color-ink: oklch(94% 0.015 75); /* 15.50:1 on paper; paper on ink 15.50:1 */
     --color-muted: oklch(74% 0.03 70); /* 7.99:1 on paper, 7.13:1 on paper-2 */
     --color-accent: oklch(76% 0.11 60); /* amber, 8.40:1 on paper, 7.49:1 on paper-2 */
