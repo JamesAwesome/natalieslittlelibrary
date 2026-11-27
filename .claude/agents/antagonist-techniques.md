@@ -95,6 +95,12 @@ cut or merge the entries whose shape has not recurred.
   (`Emulation.setSafeAreaInsetsOverride`). Then do the arithmetic to see
   whether all the constraints can hold at once. For the 40px Pair disc in a
   4rem bar, they couldn't.
+- **"Drawing every other mark keeps the drawn glyphs apart."** When a mark is
+  added to a thinned list, check that the drawn marks are still apart, not
+  only which marks are drawn. Measure each drawn mark's text box
+  (`Range.getBoundingClientRect` on its contents) against its band at the
+  shortest landscape heights. A new first mark on the rail put "↑" next to
+  "A", and at 568×320 their boxes overlapped by 6.6px.
 
 ## Standing facts about this codebase's tools
 
