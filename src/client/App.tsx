@@ -7,7 +7,7 @@ import { TabBar } from "./TabBar";
 import { CopyPage } from "./screens/CopyPage";
 import { Holding } from "./screens/Holding";
 import { Import } from "./screens/Import";
-import { Home } from "./screens/Home";
+import { More } from "./screens/More";
 import { Members } from "./screens/Members";
 import { Mine } from "./screens/Mine";
 import { People } from "./screens/People";
@@ -66,6 +66,13 @@ export function App() {
         // An odd path (e.g. "//x") can make this throw; the page must still render.
       }
     }
+    if (route.name === "mine") {
+      try {
+        history.replaceState(null, "", "/");
+      } catch {
+        // The page must still render if the address can't be rewritten.
+      }
+    }
     let live = true;
     getMe().then(
       (m) => live && setMember(m),
@@ -78,7 +85,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [hadRefused, cleanUrl]);
+  }, [hadRefused, cleanUrl, route.name]);
 
   useEffect(() => {
     // A page restored from the back-forward cache keeps old state; start it afresh.
@@ -102,8 +109,8 @@ export function App() {
   if (member === undefined) return <h1>Natalie's Little Library</h1>;
 
   const screen =
-    route.name === "home" ? (
-      <Home
+    route.name === "more" ? (
+      <More
         member={member}
         returnTo={returnTo}
         notice={notice}
@@ -123,7 +130,7 @@ export function App() {
       <Pair member={member} returnTo={returnTo} />
     ) : route.name === "labels" ? (
       <Labels member={member} returnTo={returnTo} />
-    ) : route.name === "mine" ? (
+    ) : route.name === "home" || route.name === "mine" ? (
       <Mine member={member} returnTo={returnTo} />
     ) : route.name === "shelf" ? (
       <Shelf id={route.id} member={member} returnTo={returnTo} />

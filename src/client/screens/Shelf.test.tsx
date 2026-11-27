@@ -194,7 +194,7 @@ test("navigating to another shelf starts from nothing (open rename form, notice)
 test("the not-found page has a way back", async () => {
   vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(404, null));
   show();
-  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/mine");
+  expect(await screen.findByRole("link", { name: "Back to my books" })).toHaveAttribute("href", "/");
 });
 
 test("after a rename focus moves to the heading", async () => {

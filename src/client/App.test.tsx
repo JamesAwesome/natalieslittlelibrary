@@ -39,10 +39,11 @@ test("while loading shows only the heading", () => {
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
-test("signed in shows the name", async () => {
+test("signed in at /more shows the name", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
-  expect(await screen.findByText("Hi, Natalie")).toBeInTheDocument();
+  expect(await screen.findByText((_, el) => el?.tagName === "P" && el.textContent === "Hi, Natalie")).toBeInTheDocument();
 });
 
 test("a failed getMe is treated as signed out", async () => {
@@ -76,6 +77,7 @@ test("returnTo is the bare path when refused was the only parameter", async () =
 });
 
 test("sign out reloads only after the API call resolves", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   let finish!: () => void;
   vi.mocked(api.logout).mockReturnValue(new Promise<void>((r) => { finish = r; }));
@@ -88,12 +90,13 @@ test("sign out reloads only after the API call resolves", async () => {
 });
 
 test("a failed sign-out says so, stays signed in, and does not reload", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   vi.mocked(api.logout).mockRejectedValue(new Error("offline"));
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't sign out. Check your connection and try again.");
-  expect(screen.getByText("Hi, Natalie")).toBeInTheDocument();
+  expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Hi, Natalie")).toBeInTheDocument();
   expect(reload).not.toHaveBeenCalled();
 });
 
@@ -226,10 +229,45 @@ test("an unknown path renders the not-found screen", async () => {
   expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
 });
 
-test("signed in, the home screen links to pairing and labels", async () => {
+test("signed in at /more, the screen links to pairing", async () => {
+  at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
   expect(await screen.findByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
+});
+
+test("signed in at /, the My books screen shows and More does not", async () => {
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+});
+
+test("/mine rewrites the address to / and shows My books", async () => {
+  const replace = vi.spyOn(history, "replaceState");
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  at("/mine");
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+  expect(replace).toHaveBeenCalledWith(null, "", "/");
+});
+
+test("/mine still renders if replaceState throws", async () => {
+  vi.spyOn(history, "replaceState").mockImplementation(() => { throw new DOMException("no", "SecurityError"); });
+  vi.mocked(api.getMe).mockResolvedValue(natalie);
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [] });
+  at("/mine");
+  render(<App />);
+  expect(await screen.findByRole("heading", { level: 2, name: "My books" })).toBeInTheDocument();
+});
+
+test("signed out at /more shows sign-in and no tab bar", async () => {
+  at("/more");
+  render(<App />);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toHaveAttribute("href", "/auth/login?returnTo=%2Fmore");
+  expect(main()).not.toBeInTheDocument();
 });
 
 test.each([401, 500, 502])("a %i from getMe is signed out, not the trouble message", async (status) => {
@@ -278,7 +316,6 @@ test("the shelf screens are routed", async () => {
   vi.mocked(api.memberCollections).mockResolvedValue({ owner: { id: "2", name: "Ann", pictureUrl: null }, collections: [] });
   vi.mocked(api.getShelf).mockRejectedValue(Object.assign(new api.ApiError(404, null), { status: 404 }));
   for (const [path, text] of [
-    ["/mine", "My books"],
     ["/holding", "You're not holding anyone else's books."],
     ["/members", "No one else is here yet."],
     ["/members/2", "No collections yet."],

@@ -1,1 +1,1 @@
-export const BackLink = () => <p><a href="/mine">Back to my books</a></p>;
+export const BackLink = () => <p><a href="/">Back to my books</a></p>;
