@@ -66,3 +66,10 @@ test("a failed load keeps the Holding title; signed out uses the app name", asyn
   render(<Holding member={null} returnTo="/holding" />);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
 });
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.getHolding).mockRejectedValue(new api.ApiError(401, null));
+  render(<Holding member={me} returnTo="/holding" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Holding" })).not.toBeInTheDocument();
+});

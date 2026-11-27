@@ -58,7 +58,7 @@ export function People({ member, returnTo }: { member: Member | null; returnTo: 
     const mine = step !== null && step.id === p.id ? step : null;
     return (
       <section key={p.id} className="group">
-        <h3><Name>{p.name}</Name></h3>
+        <h2><Name>{p.name}</Name></h2>
         {p.linked && <p>Linked to <Name>{personLabel(p.linked)}</Name></p>}
         {mine?.kind === "rename" ? (
           <form onSubmit={(e) => { e.preventDefault(); {

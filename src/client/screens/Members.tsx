@@ -31,7 +31,8 @@ function Page({ member, returnTo, id }: Props) {
       <h1>
         {member === null || state.status === "lost" ? APP_NAME
           : state.status === "ok" && state.data.owner !== null ? <Name>{state.data.owner.name}</Name>
-          : "Friends"}
+          : id === undefined ? "Friends"
+          : APP_NAME}
       </h1>
       {member === null || state.status === "lost" ? (
         <SignIn returnTo={returnTo} />

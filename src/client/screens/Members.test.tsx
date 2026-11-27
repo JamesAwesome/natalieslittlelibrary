@@ -79,3 +79,21 @@ test("signed out, the h1 is the app name", () => {
   render(<Members member={null} returnTo="/members" />);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
 });
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.listMembers).mockRejectedValue(new api.ApiError(401, null));
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Friends" })).not.toBeInTheDocument();
+});
+
+test("a member page's h1 is the app name until the name is known, and when gone or failed", async () => {
+  vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
+  const a = render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  a.unmount();
+  vi.mocked(api.memberCollections).mockRejectedValue(new api.ApiError(404, null));
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  await screen.findByText("That member isn't here.");
+  expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});

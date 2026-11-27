@@ -114,3 +114,17 @@ test("signed out, the h1 is the app name", () => {
   render(<People member={null} returnTo="/people" />);
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
 });
+
+test("a lost session turns the h1 into the app name", async () => {
+  vi.mocked(api.listPeople).mockRejectedValue(new api.ApiError(401, null));
+  show();
+  expect(await screen.findByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "People" })).not.toBeInTheDocument();
+});
+
+test("each person's name is an h2 under the h1", async () => {
+  vi.mocked(api.listPeople).mockResolvedValue({ people: [sarah] });
+  show();
+  expect(await screen.findByRole("heading", { level: 2, name: "Sarah" })).toBeInTheDocument();
+  expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
+});

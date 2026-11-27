@@ -967,3 +967,8 @@ test("signed out, the page never reports a tab", async () => {
   await screen.findByRole("heading", { level: 1, name: "Dune" });
   expect(setTab).not.toHaveBeenCalled();
 });
+
+test("a book at home (holder is the owner, both me) reports books, not holding", async () => {
+  const setTab = await tabFor(asCopy(copyView({ owner: me2, holder: { kind: "member", person: me2 }, home: true })));
+  expect(setTab.mock.calls).toEqual([["books"]]);
+});
