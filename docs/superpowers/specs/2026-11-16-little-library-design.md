@@ -1,8 +1,8 @@
 # Natalie's Little Library: design
 
-Date: 2026-11-16. Status: draft for James's approval.
+Date: 2026-11-16. Status: draft for the maintainer's approval.
 
-Lines marked **(call)** are choices made by the designer, not by James or
+Lines marked **(call)** are choices made by the designer, not by the maintainer or
 Natalie. Everything unmarked is what they said they want.
 
 ## Why
@@ -61,14 +61,14 @@ this exists to prevent.
 
 - We print our own, on off-the-shelf blank label sheets. Labels are blank and
   interchangeable; binding to a copy happens by scanning.
-- The default label is 1×1 inch (James's decision). The sheet is picked from a
+- The default label is 1×1 inch (decided by the maintainer). The sheet is picked from a
   list of common pre-cut sheets, or entered as a custom one, and the code is
   scaled to fit the label. A nudge setting corrects for printer alignment.
 - A label's content is `https://<domain>/b/<code>`. The code is random and
   unguessable, because scanning a label is what lets a person in. **(call: 10
   characters from an alphabet without lookalikes, about 50 bits.)**
 - The domain is one configuration value. It starts as `books.waffle.haus` and
-  may become a dedicated domain. James has not committed. Test labels printed
+  may become a dedicated domain. That has not been committed to. Test labels printed
   against the first domain must keep working, so the old hostname has to
   redirect if the domain changes. **The domain must be settled before the big
   print run.**
@@ -108,7 +108,7 @@ marked owned and in a physical format are kept, and only title, authors, ISBN,
 and format leave the browser. Each becomes an unlabelled copy she owns, so her
 collection is visible at once and a barcode scan should find its copy. Whether
 it does depends on the edition StoryGraph recorded matching the barcode on the
-physical book, which is unverified. James dropped the test of this on ten real books, so the
+physical book, which is unverified. The test of this on ten real books was dropped, so the
 import must not depend on it.
 Counted from the current export: 290 rows marked owned, of which 240 are
 hardcover or paperback (4 without an ISBN), 42 are digital or audio and are
@@ -148,7 +148,7 @@ holding it until someone else scans it. Any member can adopt an ownerless copy
 with one tap and becomes its owner and holder, including whoever is already
 holding it. A book given away to a stranger simply never gets scanned again
 **(call: one rule meant to cover both "I gave it away for good" and "it's free
-to whoever has it"; James did not object when a shorter version was played
+to whoever has it"; no objection when a shorter version was played
 back)**.
 
 ### Who may do what
@@ -194,7 +194,7 @@ can manage her books from her collection by hand **(call)**.
 - Testing rule: an email allowlist, held in configuration, overrides the above.
   It is checked inside the app, not with an edge gate, so nobody logs in twice
   **(call)**.
-- Admins are named by email in configuration (James and Natalie to start). An
+- Admins are named by email in configuration (the maintainer and Natalie to start). An
   admin can remove a member, which ends their sessions and stops them logging
   in again; their past entries in book histories stay **(call)**.
 - Next to the bookshelf goes one ordinary printed QR code that opens the site,
@@ -202,14 +202,14 @@ can manage her books from her collection by hand **(call)**.
 
 ## How it gets made
 
-Decided by James: React; Cloudflare-native hosting; Google OAuth only; web only.
+Decided by the maintainer: React; Cloudflare-native hosting; Google OAuth only; web only.
 
 Designer's calls, open to the builder to revise with reason:
 
 - One TypeScript project. React 19 + Vite for the client, a Cloudflare Worker
   for the API, built and served together with Cloudflare's Vite plugin
   (single-page app with an integrated API is a documented use).
-- D1 for data, Drizzle for schema and migrations (James already uses Drizzle).
+- D1 for data, Drizzle for schema and migrations (the maintainer already uses Drizzle).
 - Hono for Worker routing.
 - Google login done with a small OAuth library and our own session table in
   D1, not a full auth framework.
@@ -218,7 +218,7 @@ Designer's calls, open to the builder to revise with reason:
   `@cloudflare/vitest-pool-workers` as the older package). The docs confirm D1
   bindings and `applyD1Migrations` are available in tests.
 - Book lookup from Open Library only for now (see Book lookup).
-- pnpm, matching James's other projects.
+- pnpm, matching the maintainer's other projects.
 
 ## Constraints
 
@@ -335,7 +335,7 @@ an API key (tested 2026-11-17); adding it later is one more adapter plus a key.
 In the same test Open Library missed two real books out of three, so typing the
 title is a normal path, not an edge case.
 
-*Update 2026-11-25:* Google Books is now the second source, asked only when Open Library has no answer and a `GOOGLE_BOOKS_API_KEY` secret is set. Its answer is cached and saved like Open Library's, with source `google-books` and its cover. Without the key, lookups are Open Library only. Google's API terms restrict keeping its content; James accepted that for this private app (see the "Revision 2" section of `2026-11-25-google-books-fallback-design.md`).
+*Update 2026-11-25:* Google Books is now the second source, asked only when Open Library has no answer and a `GOOGLE_BOOKS_API_KEY` secret is set. Its answer is cached and saved like Open Library's, with source `google-books` and its cover. Without the key, lookups are Open Library only. Google's API terms restrict keeping its content; the maintainer accepted that for this private app (see the "Revision 2" section of `2026-11-25-google-books-fallback-design.md`).
 
 ### Membership (worker)
 
@@ -376,7 +376,7 @@ Routes, `api.ts`, and screens are pass-throughs by design. They have no
 interface worth testing on their own; they are covered by a few end-to-end
 tests of the main flows (pair, claim, return).
 
-## Needed from James before step 1
+## Needed from the maintainer before step 1
 
 A Cloudflare account with `waffle.haus` on it, DNS for `books.waffle.haus`,
 and a Google OAuth client. The builder cannot create these.
@@ -385,7 +385,7 @@ and a Google OAuth client. The builder cannot create these.
 
 - Table and column design, within the model above.
 - Session lifetime, cookie details, rate limiting on lookups.
-- Visual design. James may want mockups before screens are built.
+- Visual design. The maintainer may want mockups before screens are built.
 - Library choices where this document says "a small library".
 
 ## Open before the big print run
@@ -438,7 +438,7 @@ Where the build departed from the text above. The text is left as written.
 - **StoryGraph columns.** The import's column map (`COLUMNS` and `OWNED_VALUE`
   in `src/client/storygraph/parse.ts`) is a guess from StoryGraph's public
   export format: Title, Authors, ISBN/UID, Format, Owned?. It is pending
-  James's check of the real header line; a missing column is named in the
+  the maintainer's check of the real header line; a missing column is named in the
   error, and a correction is a one-line change to that constant.
 - **Collection names.** Names also refuse control, format and separator
   characters (`\p{Cf}`, `\p{Zl}`, `\p{Zp}`) and lone surrogates, beyond the

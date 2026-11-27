@@ -36,7 +36,7 @@
   - Run `pnpm test:client` for each task. `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` must pass before each PR.
 - **Pull requests.**
   - Each PR is a branch off the previous one: `design-1-look` off `design-round`, `design-2-shell` off `design-1-look`, `design-3-walls` off `design-2-shell`, `design-4-book` off `design-3-walls`.
-  - Open each with `gh pr create --base <previous branch>`. When James merges the previous one, retarget with `gh pr edit <n> --base main`.
+  - Open each with `gh pr create --base <previous branch>`. When the maintainer merges the previous one, retarget with `gh pr edit <n> --base main`.
   - Never push to `main`, merge, tag, deploy or run a remote write (`AGENTS.md`).
   - PR bodies end with the session's attribution lines.
 - **Releasable after every merge.** CI deploys the newest annotated tag on `main`, so after each PR the app works end to end.
@@ -163,7 +163,7 @@ Branch `design-1-look` off `design-round`.
 - [ ] **Step 5: Do the sharpness check.**
   - Screenshot the preview at 375px wide with a device scale factor of 3: `--headless --screenshot --window-size=375,812 --force-device-scale-factor=3`.
   - Judge the `hero` size. If the covers look soft, add `largerCover(url: string): string` in `src/client/covers.ts`, which rewrites Open Library `-M.jpg` to `-L.jpg` and passes every other URL through. Use it only for `size="hero"`, with `onError` falling back to the stored URL before showing the failed tile. Add a test for the fallback.
-  - Record what you decided, and attach a screenshot, in the PR body for James.
+  - Record what you decided, and attach a screenshot, in the PR body for the maintainer.
 - [ ] **Step 6: Verify.**
   - `pnpm test:client`: all pass.
   - Screenshots of `?view=covers` at 320, 375, 414 and 768px, light and dark (`--force-dark-mode`), show no sideways scroll and the long title wrapping.
@@ -610,7 +610,7 @@ Branch `design-4-book` off `design-3-walls`.
 **PR 4:**
 - Run the Hallmark gates, the print check and the preview screenshots.
 - Then `gh pr create --base design-3-walls` with the title "Design round 4: book page, the rest, phone setup".
-- In the body, list **James's phone checks**:
+- In the body, list **the maintainer's phone checks**:
   - the label sheet on real Avery sheets;
   - the A–Z rail drag on an iPhone;
   - whether the home-screen icon opens in Safari or as a separate web app (iOS 26). If it opens as a web app, a follow-up adds the one-line tip to More, per the spec.

@@ -443,7 +443,7 @@ test("without replace=1, ?copy= still labels an unlabelled copy as before", asyn
   - Expected: all pass.
 - [ ] **Step 6: Commit.** `feat: pairing replaces a label; roadmap updated`
 
-## Release notes for James (not a task)
+## Release notes for the maintainer (not a task)
 
 The migration adds two columns and one index. Before applying it in production, run this read-only check, which should return no rows:
 

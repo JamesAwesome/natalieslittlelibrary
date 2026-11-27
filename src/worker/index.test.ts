@@ -480,12 +480,12 @@ describe("same-site check", () => {
     [{}, 200], // not a browser
   ])("a claim with headers %j is %s, and a refused one records nothing", async (headers, status) => {
     const { cookie } = await signInAs(env.DB, natalie);
-    const james = await signInAs(env.DB, { ...natalie, subject: "james", email: "james@example.com", name: "James" });
+    const robin = await signInAs(env.DB, { ...natalie, subject: "robin", email: "robin@example.com", name: "Robin" });
     const minted = (await (await post("/api/labels", cookie, { count: 1 })).json()) as { labels: { code: string }[] };
     const code = minted.labels[0].code;
     await post("/api/copies", cookie, { code, title: "T", authors: ["A"] });
 
-    const res = await post(`/api/labels/${code}/claim`, james.cookie, undefined, headers);
+    const res = await post(`/api/labels/${code}/claim`, robin.cookie, undefined, headers);
     expect(res.status).toBe(status);
     if (status === 403) expect(await res.json()).toEqual({ rejected: "not-allowed" });
 

@@ -20,7 +20,7 @@
 - A cover address is stored only if it is `https` on `covers.openlibrary.org`.
 - Label codes: 10 characters from `23456789abcdefghjkmnpqrstuvwxyz`, drawn with `crypto.getRandomValues` and rejection sampling. Codes are case-insensitive on input and stored lowercase.
 - A label link is `<SITE_URL>/b/<code>`. The server builds label links; the client never assembles one from `location`.
-- The default label is 1×1 inch (James's decision). The label sheet is chosen from a list of common pre-cut sheets, and the printed code scales to the label.
+- The default label is 1×1 inch (decided by the maintainer). The label sheet is chosen from a list of common pre-cut sheets, and the printed code scales to the label.
 - Sheet measurements (margins, pitch) are never guessed or recalled: each comes from the manufacturer's own template or a measured sheet, with its source recorded beside it. A sheet whose numbers cannot be sourced is not offered.
 - Members see each other's names and pictures, never email addresses. Anything describing another person uses `Person`, not `Member`.
 - Someone who is not signed in sees a book's title, authors, and cover only: no people, no history.
@@ -107,7 +107,7 @@ export type Rejection = { rejected: RejectionReason };
 - Produces: `resetDatabase(db: D1Database): Promise<void>` in `test/reset.ts`.
 
 - [ ] **Step 1: Amend the spec.** In the design document:
-  - Labels section: the default label is 1×1 inch (James's decision), and the sheet is picked from a list of common pre-cut sheets or entered as a custom one, with the code scaled to the label and a nudge for printer alignment. The sheet is printed from a page laid out in inches with the browser's own print, not from a PDF library (call: fewer moving parts, exact sizes).
+  - Labels section: the default label is 1×1 inch (decided by the maintainer), and the sheet is picked from a list of common pre-cut sheets or entered as a custom one, with the code scaled to the label and a nudge for printer alignment. The sheet is printed from a page laid out in inches with the browser's own print, not from a PDF library (call: fewer moving parts, exact sizes).
   - Flows → Pairing: a barcode is accepted only after three matching frames, and the looked-up title is confirmed by the person before saving; say why (the iPhone result).
   - Constraints: in-browser ISBN scanning was tested on an iPhone and works with a bundled decoder at about 55 ms a frame; iOS has no built-in one; a browser can advertise a built-in decoder that never answers, so it is proven on a code the page draws itself before being trusted.
   - Structure: `booklookup` owns its own cache table; the ledger copies book facts when a copy is added. The client uses a small hand-written route matcher, not a routing library (call).
@@ -533,10 +533,10 @@ test("print, pair, claim, return", async () => {
   // Natalie mints 3 labels → 200, 3 codes
   // Natalie adds a book by title to the first → 200, home true
   // signed out, GET the label → kind "public", and the body contains neither "Natalie" nor "@"
-  // James GETs the label → kind "copy", actions ["claim"]
-  // James claims → holder James; claims again → 403
+  // Robin GETs the label → kind "copy", actions ["claim"]
+  // Robin claims → holder is Robin; claims again → 403
   // Natalie GETs → actions ["return"]; returns → home true
-  // history, newest first: returned (Natalie), claimed (James), labelled, added
+  // history, newest first: returned (Natalie), claimed (Robin), labelled, added
 });
 ```
 
@@ -803,7 +803,7 @@ test("on a round label the code's corners stay inside the circle", …); // qrIn
 
 - [ ] **Step 3: Run.** Expected: FAIL.
 - [ ] **Step 4: Implement.**
-- [ ] **Step 5: Verify the real print.** Add a dev-only preview at `src/client/labelsheet/preview.html` (not linked, not in the production build) that renders `Sheet` for each entry in `SHEETS` with made-up labels. Print it to PDF with headless Chrome (`--print-to-pdf`, `--no-pdf-header-footer`) into the scratchpad, open the PDF, and check for every sheet: the page is Letter; the label count matches; nothing touches the page edge; the first label's left and top match the layout's margins against the 8.5-inch page width. Record what you saw. What this cannot show is whether a real printer lands on a real sheet; that is what the alignment test is for, and it is James's check.
+- [ ] **Step 5: Verify the real print.** Add a dev-only preview at `src/client/labelsheet/preview.html` (not linked, not in the production build) that renders `Sheet` for each entry in `SHEETS` with made-up labels. Print it to PDF with headless Chrome (`--print-to-pdf`, `--no-pdf-header-footer`) into the scratchpad, open the PDF, and check for every sheet: the page is Letter; the label count matches; nothing touches the page edge; the first label's left and top match the layout's margins against the 8.5-inch page width. Record what you saw. What this cannot show is whether a real printer lands on a real sheet; that is what the alignment test is for, and it is the maintainer's check.
 - [ ] **Step 6: Run** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`.
 - [ ] **Step 7: Commit.** `feat: print labels on common sheets, with alignment`
 
@@ -820,7 +820,7 @@ test("on a round label the code's corners stay inside the circle", …); // qrIn
 - [ ] **Step 4: Run everything CI runs**, in order, from a clean install: `pnpm install --frozen-lockfile`, `pnpm wrangler types --check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 - [ ] **Step 5: Commit.** `docs: step 2 in the README and roadmap`
 
-The roadmap's "done when" for this step (Natalie labels five books, James claims one by scanning it with his camera, Natalie sees that he has it) needs the app deployed and two phones. It is James's check, after a release tag.
+The roadmap's "done when" for this step (Natalie labels five books, the maintainer claims one by scanning it with a camera, Natalie sees who has it) needs the app deployed and two phones. It is the maintainer's check, after a release tag.
 
 ## Departures from this plan (2026-11-25)
 

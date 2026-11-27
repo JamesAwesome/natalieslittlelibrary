@@ -72,7 +72,7 @@ cut or merge the entries whose shape has not recurred.
 - **"The layout audit passed."** Geometry audits never look at colour; compute
   the WCAG ratio of computed link colour against background under
   `prefers-color-scheme` (default blue on dark was 1.89:1).
-- **"The README setting is covered."** An env var the README tells James to set
+- **"The README setting is covered."** An env var the README tells the maintainer to set
   locally must be pinned in `miniflare.bindings`, or a real key changes tests.
 
 ## Standing facts about this codebase's tools

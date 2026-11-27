@@ -18,7 +18,7 @@ afterEach(async () => {
 
 test("print, pair, claim, return", async () => {
   const natalie = await signInAs(env.DB, person("natalie", "Natalie"));
-  const james = await signInAs(env.DB, person("james", "James"));
+  const robin = await signInAs(env.DB, person("robin", "Robin"));
   const call = (path: string, cookie: string | null, init: RequestInit = {}) =>
     app.request(`https://books.test${path}`, { ...init, headers: { ...(cookie ? { cookie } : {}), "content-type": "application/json" } }, env);
   const post = (path: string, cookie: string, body?: unknown) =>
@@ -42,15 +42,15 @@ test("print, pair, claim, return", async () => {
   expect(publicText).not.toContain("Natalie");
   expect(publicText).not.toContain("@");
 
-  const jamesView = (await (await call(`/api/labels/${code}`, james.cookie)).json()) as Extract<LabelView, { kind: "copy" }>;
-  expect(jamesView.kind).toBe("copy");
-  expect(jamesView.copy.actions).toEqual(["claim"]);
+  const robinView = (await (await call(`/api/labels/${code}`, robin.cookie)).json()) as Extract<LabelView, { kind: "copy" }>;
+  expect(robinView.kind).toBe("copy");
+  expect(robinView.copy.actions).toEqual(["claim"]);
 
-  const claimed = await post(`/api/labels/${code}/claim`, james.cookie);
+  const claimed = await post(`/api/labels/${code}/claim`, robin.cookie);
   expect(claimed.status).toBe(200);
   const afterClaim = (await claimed.json()) as CopyView;
-  expect(afterClaim.holder).toMatchObject({ kind: "member", person: { name: "James" } });
-  expect((await post(`/api/labels/${code}/claim`, james.cookie)).status).toBe(403);
+  expect(afterClaim.holder).toMatchObject({ kind: "member", person: { name: "Robin" } });
+  expect((await post(`/api/labels/${code}/claim`, robin.cookie)).status).toBe(403);
 
   const nView = (await (await call(`/api/labels/${code}`, natalie.cookie)).json()) as Extract<LabelView, { kind: "copy" }>;
   expect(nView.copy.actions).toEqual(["return", "move", "relabel", "lend", "give", "release"]);
@@ -60,7 +60,7 @@ test("print, pair, claim, return", async () => {
   const final = (await returned.json()) as CopyView;
   expect(final.home).toBe(true);
   expect(final.history.map((h) => [h.type, h.actor.name])).toEqual([
-    ["returned", "Natalie"], ["claimed", "James"], ["labelled", "Natalie"], ["added", "Natalie"],
+    ["returned", "Natalie"], ["claimed", "Robin"], ["labelled", "Natalie"], ["added", "Natalie"],
   ]);
 });
 

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Only the ISBN and the key go to Google. Nothing about a member, and never James's email (also not in a User-Agent).
+- Only the ISBN and the key go to Google. Nothing about a member, and never the maintainer's email (also not in a User-Agent).
 - Requests the shipped app makes send `User-Agent: NataliesLittleLibrary/1 (+https://github.com/JamesAwesome/natalieslittlelibrary)`; requests an agent makes by hand use a generic client name.
 - The key is a secret: never committed, never in a fixture, a cached row, a cover URL, a log line, or a test name. Tests use the literal `test-key`.
 - No key set means lookups behave exactly as today (Open Library only, no Google request).
@@ -138,7 +138,7 @@ test("no cached row and no stored cover contain the key", …); // select * from
   - Spec, "Lookup sources": record the change with a dated note.
 - [ ] **Step 7: Commit.** `feat: Google Books answers when Open Library has no book`
 
-After the merge, James creates the key and runs `wrangler secret put GOOGLE_BOOKS_API_KEY`. Agents don't.
+After the merge, the maintainer creates the key and runs `wrangler secret put GOOGLE_BOOKS_API_KEY`. Agents don't.
 
 ---
 
@@ -185,7 +185,7 @@ The design was revised after the antagonist pass found Google's API terms forbid
 
 ### Task 4: Back to automatic fill (revision 2, 2026-11-25)
 
-James: this is a small private app, so Google's terms are not a concern, and he chose automatic fill again. It saves books with their ISBN and a cover, so later scans and the step-3 import match them. This brings back Tasks 1–2 behaviour and keeps every fix made since.
+Decided: this is a small private app, so Google's terms are not a concern, and automatic fill is back. It saves books with their ISBN and a cover, so later scans and the step-3 import match them. This brings back Tasks 1–2 behaviour and keeps every fix made since.
 
 **Behaviour:**
 - Lookup asks Open Library, then Google Books when a key is set (`lookupSources(apiKey)`). A Google answer is cached and saved like an Open Library answer, with `source = "google-books"`.
@@ -199,7 +199,7 @@ James: this is a small private app, so Google's terms are not a concern, and he 
 - Kept from Tasks 2–3: the ISBN-13/ISBN-10 match against `industryIdentifiers`, the `URLSearchParams` URL, a non-2xx throws, the shared `withLimit` helper, `GOOGLE_BOOKS_API_KEY: ""` pinned in `miniflare.bindings`, a route test with a key set (miss at Open Library, found at Google, cached as `google-books`), the fixtures without the impossible ISBN-10, and the setup and `.dev.vars.example` lines.
 - New: cover `<img>` elements get `referrerPolicy="no-referrer"` (BookCard.tsx), so a cover request does not tell Google or Open Library which page it came from. Add a test.
 - Docs:
-  - The design doc gains a "Revision 2" section saying the terms risk was accepted by James for a private app, with the referrer mitigation.
+  - The design doc gains a "Revision 2" section saying the terms risk was accepted by the maintainer for a private app, with the referrer mitigation.
   - README item 7: lookups ask Open Library, then Google Books when keyed; neither knows every book, so typing is normal; covers may come from either.
   - The main spec's "Lookup sources" note is updated.
 

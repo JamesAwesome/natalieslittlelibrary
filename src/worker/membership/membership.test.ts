@@ -82,7 +82,7 @@ test("someone not on the allowlist is refused and gets no session", async () => 
 });
 
 test("allowlist matching ignores case, spaces, and empty entries", async () => {
-  const m = make({ config: { ...config, allowlist: " Natalie@Example.com , ,james@example.com," } });
+  const m = make({ config: { ...config, allowlist: " Natalie@Example.com , ,robin@example.com," } });
   expect((await signIn(m)).headers.get("location")).toBe("/");
 });
 

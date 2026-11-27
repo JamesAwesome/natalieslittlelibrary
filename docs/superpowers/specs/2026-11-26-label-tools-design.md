@@ -1,10 +1,10 @@
 # Label tools: print at once, past sheets, the owner's code, replace a label
 
-Drafted 2026-11-26 from James's answers. It is the first of two releases for
+Drafted 2026-11-26 from the maintainer's answers. It is the first of two releases for
 roadmap step 4 ("Owner tools"); the second carries lending to a name, giving,
 requests, release and adopt. It extends the main spec,
 `docs/superpowers/specs/2026-11-16-little-library-design.md`. Calls made
-without James are marked **(call)**.
+without the maintainer are marked **(call)**.
 
 ## Why
 
@@ -18,15 +18,15 @@ way on the first night:
 "Replace a label", already in step 4, belongs with these: it is the fix for a
 label that is damaged or lost for good.
 
-## What James decided
+## What the maintainer decided
 
 - Two releases for step 4, labels first.
 - Printing opens immediately after the labels are made.
 - A list of previous sheets, so a sheet can be printed again.
-- Re-printing may include labels already on a book, as an option: "sometimes
-  labels fall off".
+- Re-printing may include labels already on a book, as an option, for when
+  labels fall off.
 - The label code is shown after pairing. **(call: to the copy's owner only;
-  James did not object when this was played back.)**
+  no objection when this was played back.)**
 - A cover photo for books with none is wanted later, not in this release.
 
 ## Goals

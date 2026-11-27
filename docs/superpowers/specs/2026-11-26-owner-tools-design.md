@@ -1,11 +1,11 @@
 # Owner tools: lend, give, ask to keep, release and take
 
-Drafted 2026-11-26 from James's answers. It is the second of two releases for
+Drafted 2026-11-26 from the maintainer's answers. It is the second of two releases for
 roadmap step 4 ("Owner tools"); the first, label tools
 (`2026-11-26-label-tools-design.md`), is live as v0.4.0. It extends the main
 spec, `docs/superpowers/specs/2026-11-16-little-library-design.md`, whose
 "Flows" and "Who may do what" sections already fix most rules here. Calls made
-without James are marked **(call)**.
+without the maintainer are marked **(call)**.
 
 ## Why
 
@@ -18,7 +18,7 @@ So the heart of this release is Natalie recording a loan herself, at the
 moment she hands the book over, to anyone. Giving, asking to keep, releasing
 and taking a released book complete the ownership half of the main spec.
 
-## What James decided
+## What the maintainer decided
 
 - The owner can record a loan herself, to a member or to a person with no
   account.
@@ -30,8 +30,7 @@ and taking a released book complete the ownership half of the main spec.
   their account and what they hold moves over.
 - Placeholders are built as their own kind of person (approach 1 below), not
   as members who cannot sign in.
-- The proposals played back were accepted as a whole ("that sounds good",
-  "good"): giving with no accept step, asking to keep with approve, decline
+- The proposals played back were accepted as a whole: giving with no accept step, asking to keep with approve, decline
   and withdraw, open requests shown on her collection, release and take, and
   the placeholder rules below.
 
@@ -61,8 +60,8 @@ and taking a released book complete the ownership half of the main spec.
   holding it. This is the main spec's "adopt".
 - **Tombstones for removed members.** Removing a member keeps their row
   (`removed_at`), so their name stays in history; this release makes that
-  visible and unsticks their books (James: "a removed user does need a
-  tombstone", and yes to their books becoming takeable).
+  visible and unsticks their books (a removed user needs a tombstone, and
+  their books become takeable).
   - Wherever a removed member is named (owner, holder, history, a request, a
     linked placeholder), they show as "Sam (no longer a member)".
   - A copy whose owner was removed can be taken like a released one: any
@@ -74,7 +73,7 @@ and taking a released book complete the ownership half of the main spec.
     write to clear it in)**.
 - **Placeholders.**
   - Each member has their own placeholders. Natalie's "Sarah" is hers; if
-    James lends to the same Sarah he makes his own **(call: nobody's list of
+    the maintainer lends to the same Sarah, they make their own **(call: nobody's list of
     non-members is shown to anyone else)**.
   - A placeholder is made the first time a name is typed in Lend. Names are
     matched without regard to case, so "sarah" finds "Sarah".

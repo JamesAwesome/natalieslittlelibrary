@@ -2,7 +2,7 @@
 
 Design: [specs/2026-11-16-little-library-design.md](superpowers/specs/2026-11-16-little-library-design.md)
 
-Each step ends with something Natalie or James can use on a real phone. Don't
+Each step ends with something Natalie or the maintainer can use on a real phone. Don't
 start a step until the one before it has been tried for real.
 
 ## 0. Phone test (throwaway)
@@ -17,9 +17,8 @@ the test on an iPhone (2026-11-17):
   confirmation.
 - Labels default to 1×1 inch, on a sheet chosen from a list of common sizes.
 
-Dropped: the label size sheet (James chose 1×1 inch) and the test of matching
-ten of Natalie's books against her StoryGraph ISBNs (James: "we don't need to
-scan her personal books").
+Dropped: the label size sheet (1×1 inch was chosen) and the test of matching
+ten of Natalie's books against her StoryGraph ISBNs (not needed for her personal books).
 
 Still open: whether Google sign-in completes from inside another app's
 built-in browser (a link tapped in Instagram or Messenger, a third-party
@@ -47,13 +46,13 @@ cache.
 Built and released as v0.2.0 (2026-11-25): label sheets for six Avery layouts and plain paper, with
 an alignment test and nudge; pairing by ISBN scan or typed title; the copy page
 with claim, return and history; embedded-browser detection. Still to do:
-James's check below, which needs the app deployed and two phones, after a
+the maintainer's check below, which needs the app deployed and two phones, after a
 release tag. Not yet confirmed on a device: printer registration on real Avery
 sheets, phone decoding of printed labels, and the sign-in round trip back to
 `/pair?label=`.
 
-Done when: Natalie labels five books, James claims one by scanning it with his
-camera, and Natalie sees that he has it.
+Done when: Natalie labels five books, the maintainer claims one by scanning it with a
+camera, and Natalie sees who has it.
 
 Carry-overs from step 1:
 
@@ -70,7 +69,7 @@ My collection, what I'm holding, other members' shelves. StoryGraph import.
 Built and released as v0.3.0: collections with a default and a picker, shelves (mine, holding,
 friends'), copies by id, moving a copy, pairing into a collection, labelling an
 imported copy from its shelf, and the StoryGraph import parsed in the browser.
-Still to do: James's CSV header check (the column map is a guess from
+Still to do: the maintainer's CSV header check (the column map is a guess from
 StoryGraph's public format, in `src/client/storygraph/parse.ts`), then the check
 below, which needs the app deployed and Natalie's real export.
 
@@ -175,9 +174,16 @@ Done when: each has been done once with a real book.
 
 ## Design round (before step 5)
 
-Added 2026-11-26: James put step 5 on hold for a full design round, inspired
+Added 2026-11-26: step 5 was put on hold for a full design round, inspired
 by reading apps like Apple Books and Kindle. Handoff:
 `docs/superpowers/handoffs/2026-11-26-design-round.md`.
+
+Released as v0.6.0 (2026-11-27): walls of covers with an A–Z rail and filter
+chips, a tab bar (Books · Holding · Friends · More), a cover-first book page,
+warm light and dark looks in Fraunces and Geist, and a home-screen icon. Spec:
+`docs/superpowers/specs/2026-11-26-design-round-design.md`. Still to do: the maintainer's
+phone checks (listed in PR #18), including whether the home-screen icon opens in
+Safari or as a web app on iOS 26. Release 2 of the round is cover photos.
 
 ## 5. Open up
 
