@@ -85,6 +85,17 @@ test("one of a friend's shelves failing shows the rest with an alert and Try aga
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
+test("one failing shelf beside an empty one shows the alert, not the empty line", async () => {
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [beach, kids] });
+  vi.mocked(api.getShelf).mockImplementation(async (id) => {
+    if (id === "k8") throw new api.ApiError(500, null);
+    return shelfOf(beach, [], ann);
+  });
+  render(<Members id="2" member={me} returnTo="/members/2" />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Some books couldn't load.");
+  expect(screen.queryByText("No books here yet.")).not.toBeInTheDocument();
+});
+
 test("every one of a friend's shelves failing is trouble", async () => {
   vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [beach] });
   vi.mocked(api.getShelf).mockRejectedValue(new api.ApiError(500, null));

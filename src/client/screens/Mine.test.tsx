@@ -197,7 +197,7 @@ test("New collection… reveals the create form and puts the cursor in it", asyn
   expect(screen.getByLabelText("Name")).toHaveFocus();
 });
 
-test("creating a collection sends one request, trimmed, and re-reads", async () => {
+test("creating a collection sends one request, trimmed, re-reads, and says it worked", async () => {
   setup();
   vi.mocked(api.createCollection).mockResolvedValue(summary({ id: "k3", name: "Cabin" }));
   show();
@@ -206,7 +206,43 @@ test("creating a collection sends one request, trimmed, and re-reads", async () 
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
   expect(api.createCollection).toHaveBeenCalledExactlyOnceWith("Cabin");
   await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("status")).toHaveTextContent("Created Cabin.");
+  expect(within(screen.getByRole("status")).getByText("Cabin").tagName).toBe("BDI");
+  const manage = screen.getByRole("link", { name: "Manage Cabin" });
+  expect(manage).toHaveAttribute("href", "/collections/k3");
+  expect(manage).toHaveFocus();
+  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  // Opening the form again starts clean, without the old confirmation.
+  await openCreate();
   expect(screen.getByLabelText("Name")).toHaveValue("");
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+test("an empty wall still offers New collection…, and it creates", async () => {
+  setup([]);
+  vi.mocked(api.createCollection).mockResolvedValue(summary({ id: "k3", name: "Cabin" }));
+  show();
+  expect(await screen.findByText("You haven’t added any books yet.")).toBeInTheDocument();
+  await openCreate();
+  await userEvent.type(screen.getByLabelText("Name"), "Cabin");
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
+  expect(api.createCollection).toHaveBeenCalledExactlyOnceWith("Cabin");
+  expect(await screen.findByRole("status")).toHaveTextContent("Created Cabin.");
+  expect(screen.getByRole("link", { name: "Manage Cabin" })).toHaveAttribute("href", "/collections/k3");
+});
+
+test("a long collection name sits in bdi in the menu and the picked chip", async () => {
+  const long = summary({ id: "k2", name: "W".repeat(70), count: 1 });
+  vi.mocked(api.listRequests).mockResolvedValue({ requests: [] });
+  vi.mocked(api.myCollections).mockResolvedValue({ owner: { id: "1", name: "Natalie", pictureUrl: null }, collections: [long] });
+  vi.mocked(api.getShelf).mockResolvedValue(shelfOf(long, [item({ copyId: "w", collection: { id: "k2", name: long.name } })]));
+  show();
+  await userEvent.click(await screen.findByRole("button", { name: "Collection" }));
+  const radio = screen.getByRole("menuitemradio", { name: long.name });
+  expect(within(radio).getByText(long.name).tagName).toBe("BDI");
+  await userEvent.click(radio);
+  const chip = screen.getByRole("button", { name: `Collection: ${long.name}` });
+  expect(within(chip).getByText(long.name).tagName).toBe("BDI");
 });
 
 test("a double tap sends one request", async () => {
@@ -321,6 +357,7 @@ test("open requests show as a bar between the title and the chips, and it opens 
   expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   await userEvent.click(bar);
   expect(bar).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("list", { name: "Requests" })).toHaveAttribute("id", bar.getAttribute("aria-controls"));
   expect(screen.getByRole("link", { name: "Wanted" })).toHaveAttribute("href", "/copies/r1");
   expect(screen.getByText(asked("Ann asked to keep this"))).toBeInTheDocument();
   await userEvent.click(bar);

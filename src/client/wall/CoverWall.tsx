@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent
 import type { CollectionRef, ShelfItem } from "../../shared/types";
 import { Cover, holderLabel, Name, personLabel } from "../screens/BookCard";
 import { AlphaRail } from "./AlphaRail";
+import { WALL_ANCHOR } from "./memory";
 import { ALL, applyFilter, countLine, groupByLetter, showRail, type Status, type WallFilter } from "./model";
 
 export type WallKind = "mine" | "friend" | "holding" | "my-collection" | "friend-collection";
@@ -47,26 +48,31 @@ export function CoverWall(props: Props) {
   const shown = applyFilter(items, filter);
   const groups = groupByLetter(shown);
   const rail = !loading && items.length > 0 && showRail(shown.length, groups.length);
+  // Your own wall always has its chips, so Collection ▾ (New collection…, Manage) is there even with no books.
+  const chipsShown = chips && !loading && (items.length > 0 || kind === "mine");
   const pick = (letter: string) => document.getElementById(letterId(letter))?.scrollIntoView({ block: "start", behavior: "instant" });
 
   return (
-    <div className="wall" data-chips={chips && !loading && items.length > 0 ? "" : undefined} data-rail={rail ? "" : undefined}>
+    <div className="wall" data-chips={chipsShown ? "" : undefined} data-rail={rail ? "" : undefined}>
       <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
       {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
       {props.top && <div className="wall-top">{props.top}</div>}
+      {/* Where the chips row (or the grid) starts in the page: the place a wall restores to is measured from here,
+          so what sits above it (an open list, a form) can differ between visits. Not sticky, so never moves. */}
+      {!loading && <div {...{ [WALL_ANCHOR]: "" }} />}
       {loading ? (
         <div className="wall-grid wall-skeleton" aria-hidden="true">
           {Array.from({ length: 9 }, (_, i) => <div key={i} className="wall-skeleton-tile" />)}
         </div>
-      ) : items.length === 0 ? <div className="wall-empty">{props.empty}</div> : (
+      ) : items.length === 0 && !chipsShown ? <div className="wall-empty">{props.empty}</div> : (
         <>
-          {chips && (
+          {chipsShown && (
             <div className="wall-chips">
-              <StatusChips kind={kind} filter={filter} onFilter={onFilter} />
+              <StatusChips kind={kind as "mine" | "friend"} filter={filter} onFilter={onFilter} />
               <CollectionMenu {...props} />
             </div>
           )}
-          {groups.length === 0 ? (
+          {items.length === 0 ? <div className="wall-empty">{props.empty}</div> : groups.length === 0 ? (
             <div className="wall-none">
               <p>No books match.</p>
               <button type="button" onClick={() => onFilter(ALL)}>Show all</button>
@@ -191,7 +197,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
     onFilter({ ...filter, collectionId });
     close(true);
   };
-  const radio = (id: string | null, label: string) => (
+  const radio = (id: string | null, label: ReactNode) => (
     <button key={id ?? ""} type="button" role="menuitemradio" aria-checked={filter.collectionId === id} tabIndex={-1}
       className="wall-menu-item" onClick={() => choose(id)}>
       <span className="wall-menu-label">{label}</span>
@@ -204,7 +210,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
         data-active={picked ? "" : undefined} onClick={() => setOpen((o) => !o)}>
         <span className="chip-pill">
           {picked ? (
-            <span className="chip-label"><span className="visually-hidden">Collection:</span> {picked.name}</span>
+            <span className="chip-label"><span className="visually-hidden">Collection:</span> <Name>{picked.name}</Name></span>
           ) : <span className="chip-label">Collection</span>}
           <svg className="chip-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
         </span>
@@ -212,7 +218,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
       {open && (
         <div ref={menu} id={menuId} role="menu" aria-label="Collection" className="wall-menu" onKeyDown={onKeyDown}>
           {radio(null, "All collections")}
-          {collections.map((c) => radio(c.id, c.name))}
+          {collections.map((c) => radio(c.id, <Name>{c.name}</Name>))}
           {kind === "mine" && picked && (
             <a role="menuitem" tabIndex={-1} className="wall-menu-item" href={`/collections/${encodeURIComponent(picked.id)}`}>
               <span className="wall-menu-label">Manage <Name>{picked.name}</Name></span>

@@ -32,10 +32,18 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
   const { busy, guard, live } = useGuard();
   // Each "New collection…" from the menu bumps this: the form shows, and the cursor goes to its name.
   const [createAsked, setCreateAsked] = useState(0);
+  const [creating, setCreating] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (createAsked > 0) nameInput.current?.focus();
   }, [createAsked]);
+  // The collection just made. It has no books, so the wall alone wouldn't show it happened; this line does,
+  // and its Manage link takes focus as the form closes.
+  const [created, setCreated] = useState<CollectionSummary | null>(null);
+  const manageCreated = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (created) manageCreated.current?.focus();
+  }, [created]);
   const [showRequests, setShowRequests] = useState(false);
   const requestsId = useId();
 
@@ -49,8 +57,12 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
         return;
       }
       try {
-        await createCollection(clean.name);
-        if (live.current) setName("");
+        const made = await createCollection(clean.name);
+        if (live.current) {
+          setName("");
+          setCreating(false);
+          setCreated(made);
+        }
       } catch (err) {
         if (!live.current) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -131,7 +143,7 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
             <svg className="chip-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
           </button>
           {showRequests && (
-            <ul id={requestsId} className="plain-list wall-requests">
+            <ul id={requestsId} className="plain-list wall-requests" aria-label="Requests">
               {asks.map((r) => (
                 <li key={r.copyId}>
                   <a href={`/copies/${encodeURIComponent(r.copyId)}`}><Name>{r.book.title}</Name></a>
@@ -154,7 +166,13 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
           )}
         </>
       )}
-      {createAsked > 0 && (
+      {created && (
+        <>
+          <p role="status">Created <Name>{created.name}</Name>.</p>
+          <p><a ref={manageCreated} href={`/collections/${encodeURIComponent(created.id)}`}>Manage <Name>{created.name}</Name></a></p>
+        </>
+      )}
+      {creating && (
         <form className="new-collection" onSubmit={create}>
           <h2>New collection</h2>
           {error !== undefined && <p role="alert" className="refusal">{error}</p>}
@@ -177,7 +195,12 @@ export function Mine({ member, returnTo }: { member: Member | null; returnTo: st
       collections={wall?.collections ?? []}
       incomplete={(wall?.failed ?? 0) > 0}
       top={top}
-      onNewCollection={() => setCreateAsked((n) => n + 1)}
+      onNewCollection={() => {
+        setCreated(null);
+        setError(undefined);
+        setCreating(true);
+        setCreateAsked((n) => n + 1);
+      }}
       filter={filter}
       onFilter={setFilter}
       // With a shelf missing, an empty wall doesn't mean no books: the alert above says what happened.

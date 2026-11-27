@@ -359,8 +359,30 @@ test("the strip's trailing edge fades only while more chips lie past it", () => 
   scroll.mockRestore();
 });
 
-test("an empty wall shows empty, with no chips, count or rail", () => {
-  const { container } = wall({ items: [] });
+test("your own empty wall keeps its chips, so Collection ▾ can still create and manage, with empty below", () => {
+  const onNewCollection = vi.fn();
+  const { container } = wall({ items: [], onNewCollection });
+  expect(container.querySelector(".wall")).toHaveAttribute("data-chips");
+  const chip = screen.getByRole("button", { name: "Collection" });
+  expect(chip.compareDocumentPosition(screen.getByText("Nothing here yet.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByText("No books match.")).toBeNull();
+  expect(screen.queryByText(/\d+ book/)).toBeNull();
+  expect(container.querySelector(".alpha-rail")).toBeNull();
+  fireEvent.click(chip);
+  fireEvent.click(screen.getByRole("menuitem", { name: "New collection…" }));
+  expect(onNewCollection).toHaveBeenCalledTimes(1);
+});
+
+test("collection names in the menu and the picked chip sit in bdi", () => {
+  const long = { id: "k9", name: "W".repeat(70) };
+  wall({ collections: [home, long], filter: { status: "all", collectionId: "k9" } });
+  expect(within(screen.getByRole("button", { name: `Collection: ${long.name}` })).getByText(long.name).tagName).toBe("BDI");
+  fireEvent.click(screen.getByRole("button", { name: `Collection: ${long.name}` }));
+  expect(within(screen.getByRole("menuitemradio", { name: long.name })).getByText(long.name).tagName).toBe("BDI");
+});
+
+test("an empty wall that isn't yours shows empty, with no chips, count or rail", () => {
+  const { container } = wall({ kind: "friend", items: [] });
   expect(screen.getByText("Nothing here yet.")).toBeInTheDocument();
   expect(screen.queryAllByRole("button")).toHaveLength(0);
   expect(screen.queryByText(/\d+ book/)).toBeNull();

@@ -49,6 +49,11 @@ html:has(.wall[data-chips]) {
   margin: 0 0 var(--space-3);
 }
 
+/* Nothing to show above the chips: no gap either. */
+.wall-top:empty {
+  display: none;
+}
+
 /* "1 request": a full-width bar that opens the list under it. Ink on paper-2: 15.20:1 light, 13.82:1 dark. */
 .wall-top .wall-requests-bar {
   display: flex;
@@ -57,6 +62,8 @@ html:has(.wall[data-chips]) {
   gap: var(--space-2);
   width: 100%;
   min-height: 44px;
+  /* Its own margin, so it never takes the side margin of a button just before it (Try again). */
+  margin: var(--space-2) 0 0;
   padding: var(--space-2) var(--space-3);
   background: var(--color-paper-2);
   color: var(--color-ink);

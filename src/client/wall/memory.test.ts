@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { loadPlace, savePlace, useWallPlace } from "./memory";
+import { loadPlace, savePlace, useWallPlace, WALL_ANCHOR } from "./memory";
 import { ALL } from "./model";
 
 const KEY = "wall:/shelf";
@@ -14,7 +14,19 @@ afterEach(() => {
   if (scrollYOwn) Object.defineProperty(window, "scrollY", scrollYOwn);
   else Reflect.deleteProperty(window, "scrollY");
   Reflect.deleteProperty(document, "visibilityState");
+  document.querySelectorAll(`[${WALL_ANCHOR}]`).forEach((el) => el.remove());
 });
+
+const setScrollY = (y: number) => Object.defineProperty(window, "scrollY", { value: y, configurable: true });
+
+// A stand-in for CoverWall's anchor, whose page top is `top()` whatever the scroll.
+function anchorAt(top: () => number) {
+  const el = document.createElement("div");
+  el.setAttribute(WALL_ANCHOR, "");
+  document.body.append(el);
+  vi.spyOn(el, "getBoundingClientRect").mockImplementation(() => ({ top: top() - window.scrollY }) as DOMRect);
+  return el;
+}
 
 test("round trips a place", () => {
   savePlace(KEY, { filter: { status: "out", collectionId: "c1" }, scrollY: 120 });
@@ -32,6 +44,8 @@ test("a missing, corrupt or wrongly shaped value gives null", () => {
     { filter: { status: "all", collectionId: null }, scrollY: -1 },
     { filter: { status: "all", collectionId: null }, scrollY: "9" },
     { filter: { status: "all", collectionId: null }, scrollY: null },
+    { filter: { status: "all", collectionId: null }, scrollY: 0, anchor: "9" },
+    { filter: { status: "all", collectionId: null }, scrollY: 0, anchor: null },
     null,
     [],
   ]) {
@@ -162,4 +176,57 @@ test("does not overwrite a saved place before the wall is ready", () => {
   renderHook(() => useWallPlace(KEY, false, []));
   window.dispatchEvent(new Event("pagehide"));
   expect(loadPlace(KEY)?.scrollY).toBe(500);
+});
+
+test("an anchor offset round trips, negative too", () => {
+  savePlace(KEY, { filter: ALL, scrollY: 10, anchor: -40 });
+  expect(loadPlace(KEY)).toEqual({ filter: ALL, scrollY: 10, anchor: -40 });
+});
+
+// The area above the chips differs between visits; the covers you were looking at must come back.
+test.each([
+  ["the requests list was open when leaving", 600, 280],
+  ["the create form was open when leaving", 495, 280],
+  ["a request was answered elsewhere, so the bar is gone", 324, 280],
+])("saves against the chips row and restores against where it is now: %s", (_name, before, after) => {
+  let chipsTop = before;
+  anchorAt(() => chipsTop);
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const first = renderHook(() => useWallPlace(KEY, true, []));
+  setScrollY(before + 400);
+  window.dispatchEvent(new Event("scroll"));
+  window.dispatchEvent(new Event("pagehide"));
+  expect(loadPlace(KEY)).toEqual({ filter: ALL, scrollY: before + 400, anchor: 400 });
+  first.unmount();
+
+  setScrollY(0);
+  chipsTop = after;
+  renderHook(() => useWallPlace(KEY, true, []));
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, after + 400);
+});
+
+test("above the chips row when leaving lands at the top if that space has shrunk away", () => {
+  savePlace(KEY, { filter: ALL, scrollY: 100, anchor: -300 });
+  anchorAt(() => 280);
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  renderHook(() => useWallPlace(KEY, true, []));
+  expect(scrollTo).not.toHaveBeenCalled();
+});
+
+test("with no anchor on the page, the saved page offset is the fallback", () => {
+  savePlace(KEY, { filter: ALL, scrollY: 900, anchor: 400 });
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  renderHook(() => useWallPlace(KEY, true, []));
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 900);
+});
+
+test("an unmount save, with the wall already gone, keeps the anchor offset last measured", () => {
+  const el = anchorAt(() => 300);
+  const { unmount } = renderHook(() => useWallPlace(KEY, true, []));
+  setScrollY(800);
+  window.dispatchEvent(new Event("scroll"));
+  el.remove();
+  setScrollY(0);
+  unmount();
+  expect(loadPlace(KEY)).toEqual({ filter: ALL, scrollY: 800, anchor: 500 });
 });
