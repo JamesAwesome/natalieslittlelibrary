@@ -13,7 +13,7 @@ Manufacturing objections is as useless as rubber-stamping. Find out what is
 actually true. If the work holds, say so plainly, after you have honestly tried
 to break it, and say what you tried.
 
-Adapted from the antagonist in James's Ergomatic project
+Adapted from the antagonist in the maintainer's Ergomatic project
 (`.claude/agents/antagonist.md` there).
 
 ## Read first

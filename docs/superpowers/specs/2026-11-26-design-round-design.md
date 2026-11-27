@@ -1,21 +1,21 @@
 # Design round: walls of covers
 
-Drafted 2026-11-26 from James's answers in a brainstorm with mockups. It comes
+Drafted 2026-11-26 from the maintainer's answers in a brainstorm with mockups. It comes
 before roadmap step 5 ("Open up"). It is the first of two releases: this one
 is client-only; the second adds cover photos (see "Release 2" at the end).
-Calls made without James are marked **(call)**.
+Calls made without the maintainer are marked **(call)**.
 
 ## Why
 
-James wants the app to feel like reading apps such as Apple Books and Kindle.
-In his words, what he wants from them is "browsing walls of covers, simple
-filtering and quick scanning by alphabet". Today the app is a stack of eight
+The maintainer wants the app to feel like reading apps such as Apple Books and
+Kindle: browsing walls of covers, simple filtering and quick scanning by
+alphabet. Today the app is a stack of eight
 equal buttons on Home, and books appear only as small rows in lists.
 
 The genre is something to learn from, not copy: no names, icons, artwork or
 look taken from either app.
 
-## What James decided
+## What the maintainer decided
 
 - **Who lands where.** Everyone opens on their own wall of books.
 - **The wall.** Covers three across, grouped under letter headings (A, B,
@@ -26,8 +26,8 @@ look taken from either app.
 - **The look.** Near-white with warm greys and a rust highlight in the light
   setting. A warm dark brown "evening shelf" with an amber highlight in the
   dark setting. One colour family across both, so the app feels the same when
-  the phone flips (pair 2 of three; he first picked a cool light look, then
-  chose the warm pair once the mismatch was shown).
+  the phone flips (pair 2 of three; a cool light look was first picked, then
+  the warm pair was chosen once the mismatch was shown).
 - **Type.** Fraunces for titles, letter headings and screen titles; Geist for
   everything else; the same in both settings (pairing 1 of two).
 - **A book's page.** Cover first: a big cover at the top, then title, where
@@ -35,7 +35,7 @@ look taken from either app.
   history at the bottom (option A of two).
 - **Cover photos wait.** Taking a photo of a book with no cover is release 2.
   It is the only part that needs the server.
-- **The playback was accepted as a whole** ("good"). It covered the four tabs,
+- **The playback was accepted as a whole.** It covered the four tabs,
   Natalie's extras on her wall, the signed-out book page, the restyle of the
   other screens, the two cover states, phone setup and accessibility. All of
   those are below.
@@ -60,7 +60,7 @@ look taken from either app.
 
 - New data about books: no genres, tags, ratings or reading status. Filters
   use only what the app already knows.
-- Search by typing **(call)**. James asked for filtering and scanning by
+- Search by typing **(call)**. The maintainer asked for filtering and scanning by
   letter; a search box can come later.
 - Any server change. No new routes, tables or bindings in this release.
 - Cover photos (release 2).
@@ -114,7 +114,7 @@ look taken from either app.
   also used on a laptop for printing labels, where the column simply stays
   centred.
 - **Process.** Every change goes through a pull request from its own branch,
-  and only James merges or tags (`AGENTS.md`).
+  and only the maintainer merges or tags (`AGENTS.md`).
 
 ## Approaches considered
 
@@ -358,7 +358,7 @@ A cover sits in a fixed 2:3 box.
     works). It falls back to the stored URL on error, and the stored URL never
     changes.
   - If nothing larger is reliable, the book page's cover shrinks to what the
-    source supports. **Builder's call, shown to James in PR 1.**
+    source supports. **Builder's call, shown to the maintainer in PR 1.**
 
 ### A book's page
 
@@ -484,7 +484,7 @@ scanning a label. It is option A from the mockups.
   - **Manifest.** A `manifest.webmanifest` with name "Natalie's Little
     Library", short name "Little Library" and `display: "browser"`.
   - **Icons.** At 192 and 512, plus a 180px `apple-touch-icon`. The icon is a
-    simple mark in the tokens' rust and paper. The builder draws it, and James
+    simple mark in the tokens' rust and paper. The builder draws it, and the maintainer
     sees it in PR 4.
   - **Why `display: "browser"` (call).** An iOS home-screen web app keeps its
     own storage. It gets a copy of Safari's login cookies when it's added
@@ -500,7 +500,7 @@ scanning a label. It is option A from the mockups.
 
 ### Hallmark gates
 
-James asked for the Hallmark skill to keep this from looking generated. The
+The maintainer asked for the Hallmark skill to keep this from looking generated. The
 builders are agents that may not have the skill loaded, so the rules that
 apply are written here.
 
@@ -553,7 +553,7 @@ apply are written here.
 
 ## Delivery
 
-Four pull requests, merged in order, each green on `app` CI. James tags once,
+Four pull requests, merged in order, each green on `app` CI. The maintainer tags once,
 after trying the last one on a phone.
 
 **Each one must be releasable on its own.** CI deploys whatever annotated tag
@@ -633,9 +633,9 @@ here.
 
 ## Release 2: cover photos (later, not designed here)
 
-James's queued request: when a book has no cover, its owner can take a photo
+The maintainer's queued request: when a book has no cover, its owner can take a photo
 of it. This needs:
-- a storage bucket that James creates in Cloudflare;
+- a storage bucket that the maintainer creates in Cloudflare;
 - a binding in `wrangler.jsonc`;
 - an upload route with size and type limits;
 - shrinking the photo in the browser before upload.

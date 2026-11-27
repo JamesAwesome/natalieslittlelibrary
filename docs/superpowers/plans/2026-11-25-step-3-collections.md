@@ -577,7 +577,7 @@ Behaviour:
   - Neither the file nor its rows are written to `localStorage`.
 - The fixture is a synthetic export string in `fixture.ts`, written for this test, with the five columns above plus `Contributors`, `Read Status`, `Star Rating`, `Review`, and `Dates Read`. It has a BOM and CRLF line ends, and rows covering: owned hardcover with an ISBN-13; owned paperback with an ISBN-10; owned `digital`; owned `audio`; not owned; owned with no format and no ISBN; owned with a non-ISBN UID; a title with a quoted comma and doubled quotes; and a review spanning three lines that contains the sentinel `PRIVATE-REVIEW-7f3a`. Star ratings are `4.25` and dates are `2025/03/01`.
 
-- [ ] **Step 1: James confirms the header.** The spec does not list the export's columns, and agents must not open the file. Ask James to run `head -1 storygraph_export.csv` himself and paste only that line, and to say what the `Owned?` column holds for an owned book. If anything differs from `COLUMNS` or `OWNED_VALUE`, change the constants and the fixture to match before Step 2. Record what he confirmed in the report.
+- [ ] **Step 1: The maintainer confirms the header.** The spec does not list the export's columns, and agents must not open the file. Ask the maintainer to run `head -1 storygraph_export.csv` themselves and paste only that line, and to say what the `Owned?` column holds for an owned book. If anything differs from `COLUMNS` or `OWNED_VALUE`, change the constants and the fixture to match before Step 2. Record what was confirmed in the report.
 - [ ] **Step 2: Write the failing tests.**
 
 ```ts
@@ -619,7 +619,7 @@ test("a file that isn't an export names the missing columns and offers no Import
 - [ ] **Step 5: Run** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`. Confirm with `git status` that no `.csv` file is staged and `grep -r PRIVATE-REVIEW dist` finds nothing.
 - [ ] **Step 6: Commit.** `feat: import a StoryGraph export into a collection, parsed in the browser`
 
-James's check, not the agent's: open `/import` locally with the real export and read the preview. The spec counted 240 hardcover or paperback and 8 with no format among 290 owned, so expect `248 books to import.` and `42 digital or audio skipped.`
+The maintainer's check, not the agent's: open `/import` locally with the real export and read the preview. The spec counted 240 hardcover or paperback and 8 with no format among 290 owned, so expect `248 books to import.` and `42 digital or audio skipped.`
 
 ---
 
@@ -637,11 +637,11 @@ James's check, not the agent's: open `/import` locally with the real export and 
   - An imported ISBN the lookup can't find is kept on the copy as `import_isbn`, not on the shared book.
   - Imports ask only sources that take many ISBNs in one request.
   - A file with two copies of the same book imports one.
-  - The StoryGraph columns James confirmed.
+  - The StoryGraph columns the maintainer confirmed.
 - [ ] **Step 3: Roadmap.** Mark what step 3 delivered. Move the remaining step 2 carry-overs that this step did not touch to step 4's carry-overs: the scanner tidies (`bundledDecoder` export, `onRead` inside the detect try, the not-a-book message on hide/show, `visibilityState` in Scanner tests), the printing partial-mint message, and `fetched_at` never being read. On `fetched_at`, note that refreshing the cache would change no stored book, because the ledger copies facts when a copy is added; it needs a design, not a patch. Add a step 4 item: a migration that backfills any owned copy still with a null `collection_id` from the rollout window, creating defaults where missing. Add a step 4 item: give, adopt, and approve-request must ensure the new owner's default in the same batch and set both columns in one statement; release must null both.
 - [ ] **Step 4: README.** Collections, holding, friends' shelves, and the import, for a person: the file never leaves the browser except titles, authors, and ISBNs; re-running an import is safe.
 - [ ] **Step 5: Techniques.** Land this step's accepted antagonist proposals in `.claude/agents/antagonist-techniques.md`, keeping it under 100 lines.
 - [ ] **Step 6: Run everything CI runs**, from a clean install: `pnpm install --frozen-lockfile`, `pnpm wrangler types --check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 - [ ] **Step 7: Commit.** `docs: step 3 in the README, spec, and roadmap; small carry-overs`
 
-The roadmap's "done when" (Natalie's ~240 books show in her collection and she can label them without typing) needs the app deployed and her real export. It is James's check, after a release tag.
+The roadmap's "done when" (Natalie's ~240 books show in her collection and she can label them without typing) needs the app deployed and her real export. It is the maintainer's check, after a release tag.

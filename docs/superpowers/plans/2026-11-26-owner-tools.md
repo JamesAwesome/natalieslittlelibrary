@@ -80,7 +80,7 @@
 2. **"sarah " typed when "Sarah" exists.** The same placeholder is used, and no second row is made. (Task 3)
 3. **Giving to a member who owns nothing yet** (no collections). They get a default and the copy is in it. With a non-default "Home library" already theirs, the default is "Home library 2". (Task 4)
 4. **An open request, then the owner lends the book to someone else.** The request is gone, and the asker's page offers no Withdraw. (Task 3)
-5. **Natalie lent a book to her Sarah, then gave the book to James, and Natalie links Sarah to Sarah's account.** James's book is now held by member Sarah, and James's view shows her. (Task 5)
+5. **Natalie lent a book to her Sarah, then gave the book to Kim, and Natalie links Sarah to Sarah's account.** Kim's book is now held by member Sarah, and Kim's view shows her. (Task 5)
 
 ---
 
@@ -458,7 +458,7 @@ requests(member: Member): Promise<RequestItem[]>;            // open requests on
     - a clash with one's own other placeholder → `name-taken`;
     - an invalid name → `invalid`.
   - **"link moves every copy the placeholder holds to the member, whoever owns it".**
-    - Review Focus 5: Natalie lends to Sarah, then gives the book to James (use `kim` for James). Natalie links Sarah to Sam.
+    - Review Focus 5: Natalie lends to Sarah, then gives the book to Kim (use `kim`). Natalie links Sarah to Sam.
     - The copy is owned by Kim and held by Sam, and Kim's view shows Sam.
     - The `lent` event's subject now renders as Sam.
     - No event is written by linking.

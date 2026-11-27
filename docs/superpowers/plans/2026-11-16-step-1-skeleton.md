@@ -42,7 +42,7 @@ Inputs the spec implies and a person will hit. Each has a named test in the task
 
 1. A `returnTo` that points off-site (`//evil.example`, `https://evil.example`, `/\evil.example`): the person lands on `/`, never off-site. (Task 2)
 2. The callback opened without a matching login cookie, or with the wrong `state` (reloaded tab, two tabs, a stale link): refused with `failed`, no session, no error page. (Task 2)
-3. Allowlist written sloppily (`" Nat@Example.com , ,james@example.com,"`) or empty: matching ignores case and spaces; an empty allowlist admits nobody. (Task 2)
+3. Allowlist written sloppily (`" Nat@Example.com , ,maintainer@example.com,"`) or empty: matching ignores case and spaces; an empty allowlist admits nobody. (Task 2)
 4. Google answers the token call with an error, non-JSON, or an unverified email: refused, never a 500. (Tasks 2 and 3)
 5. A garbage, expired, or removed member's session cookie: treated as signed out, never throws. (Task 2)
 
@@ -84,7 +84,7 @@ README.md
 **Interfaces:**
 - Produces: D1 binding `DB`. Tables `members`, `identities`, `sessions`. Worker entry `src/worker/index.ts` exporting a Hono app as default. Scripts `dev`, `build`, `deploy`, `lint`, `typecheck`, `test`, `test:worker`, `test:client`, `db:generate`. `GET /api/health` returning `{ ok: true }`.
 
-- [ ] **Step 1: Initial commit.** The repo has no commits. Commit `.gitignore` and `docs/` on `main` as `docs: design, roadmap, and step 1 plan`, after running `git status --short` and confirming `storygraph_export.csv` is not listed. Then create the GitHub repository and push: `gh repo create JamesAwesome/natalieslittlelibrary --private --source=. --remote=origin --push`. It starts private (James's call to make it public later, as his critter site is). Verify with `git ls-remote origin` that `main` is there and with `gh api repos/JamesAwesome/natalieslittlelibrary/contents` that no `.csv` file was pushed. Then create branch `step-1-skeleton`.
+- [ ] **Step 1: Initial commit.** The repo has no commits. Commit `.gitignore` and `docs/` on `main` as `docs: design, roadmap, and step 1 plan`, after running `git status --short` and confirming `storygraph_export.csv` is not listed. Then create the GitHub repository and push: `gh repo create JamesAwesome/natalieslittlelibrary --private --source=. --remote=origin --push`. It starts private (making it public later is the maintainer's call). Verify with `git ls-remote origin` that `main` is there and with `gh api repos/JamesAwesome/natalieslittlelibrary/contents` that no `.csv` file was pushed. Then create branch `step-1-skeleton`.
 
 - [ ] **Step 2: Install.** `pnpm init`, set `"type": "module"` and `"private": true`, then:
 
@@ -95,7 +95,7 @@ pnpm add -D vite @vitejs/plugin-react @cloudflare/vite-plugin wrangler typescrip
   "vitest@^4.1.0" @cloudflare/vitest-plugin eslint typescript-eslint
 ```
 
-Create `pnpm-workspace.yaml` with `allowBuilds:` listing `esbuild: true` and `workerd: true`, so their install scripts run. If pnpm refuses a package for being too recently published, add that exact `name@version` under `minimumReleaseAgeExclude` (as James's other project does); do not turn the rule off.
+Create `pnpm-workspace.yaml` with `allowBuilds:` listing `esbuild: true` and `workerd: true`, so their install scripts run. If pnpm refuses a package for being too recently published, add that exact `name@version` under `minimumReleaseAgeExclude` (as the maintainer's other project does); do not turn the rule off.
 
 - [ ] **Step 3: Configuration.** Values that are decisions:
 
@@ -271,7 +271,7 @@ test("someone not on the allowlist is refused and gets no session", async () => 
 });
 
 test("allowlist matching ignores case, spaces, and empty entries", async () => {
-  const m = make({ config: { ...config, allowlist: " Natalie@Example.com , ,james@example.com," } });
+  const m = make({ config: { ...config, allowlist: " Natalie@Example.com , ,maintainer@example.com," } });
   expect((await signIn(m)).headers.get("location")).toBe("/");
 });
 
@@ -524,7 +524,7 @@ test.each([
 
 ### Task 5: CI, deploy, and the real sign-in
 
-Steps marked **James** need his accounts and cannot be done by an agent.
+Steps marked **Maintainer** need their accounts and cannot be done by an agent.
 
 **Files:**
 - Create: `.github/workflows/ci.yml`, `README.md`
@@ -534,13 +534,13 @@ Steps marked **James** need his accounts and cannot be done by an agent.
 
 - [ ] **Step 2: README.** What the project is in two sentences, links to the design and roadmap, the commands, and the one-time setup below written as a checklist.
 
-- [ ] **Step 3: James: Cloudflare.** `pnpm wrangler login`, then `pnpm wrangler d1 create little-library`. Paste the returned id over `PLACEHOLDER` in `wrangler.jsonc`.
+- [ ] **Step 3: Maintainer: Cloudflare.** `pnpm wrangler login`, then `pnpm wrangler d1 create little-library`. Paste the returned id over `PLACEHOLDER` in `wrangler.jsonc`.
 
 - [ ] **Step 4: Custom domain.** Add to `wrangler.jsonc`: `"routes": [{ "pattern": "books.waffle.haus", "custom_domain": true }]`. This needs `waffle.haus` to be an active zone on the account and no existing CNAME on `books`.
 
-- [ ] **Step 5: James: Google.** In Google Cloud Console create an OAuth client of type "Web application" with redirect URIs `https://books.waffle.haus/auth/callback` and `http://localhost:5173/auth/callback`. Copy `.dev.vars.example` to `.dev.vars` and fill it in.
+- [ ] **Step 5: Maintainer: Google.** In Google Cloud Console create an OAuth client of type "Web application" with redirect URIs `https://books.waffle.haus/auth/callback` and `http://localhost:5173/auth/callback`. Copy `.dev.vars.example` to `.dev.vars` and fill it in.
 
-- [ ] **Step 6: James: secrets.** `pnpm wrangler secret put` for each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`. In GitHub, create the `production` environment with James as required reviewer and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- [ ] **Step 6: Maintainer: secrets.** `pnpm wrangler secret put` for each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWLIST_EMAILS`, `ADMIN_EMAILS`. In GitHub, create the `production` environment with the maintainer as required reviewer and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
 - [ ] **Step 7: Verify locally.** `pnpm wrangler d1 migrations apply DB --local`, `pnpm dev`, sign in at `http://localhost:5173` with an allowlisted account: `Hi, <name>` shows. Sign out. Sign in with an account that is not on the list: the invite-only message shows.
 

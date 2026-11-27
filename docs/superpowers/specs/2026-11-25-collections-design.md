@@ -1,19 +1,19 @@
 # Collections: a member's books in named places
 
-Drafted 2026-11-25 from James's answers. A builder check and an adversarial
+Drafted 2026-11-25 from the maintainer's answers. A builder check and an adversarial
 review (Codex) were folded in the same day. It belongs to roadmap step 3
 ("Collections") and extends the main spec,
 `docs/superpowers/specs/2026-11-16-little-library-design.md`. Calls made
-without James are marked **(call)**.
+without the maintainer are marked **(call)**.
 
 ## Why
 
-A person's books live in more than one place: James's examples are a
-"personal library", a "beach house library" and a "classroom library". Today a
+A person's books live in more than one place: for example a
+personal library, a beach house library and a classroom library. Today a
 member's collection is simply every copy they own, so the app cannot say where
 a book that is at home actually is, or show a place's shelf on its own.
 
-## What James decided
+## What the maintainer decided
 
 - A collection is a named place where some of one member's books live.
 - **One owner per collection.** Collections are never shared now.

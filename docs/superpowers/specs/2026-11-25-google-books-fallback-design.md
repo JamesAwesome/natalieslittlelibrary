@@ -5,7 +5,7 @@
 > included. The pre-fill design, goals, non-goals and anti-goals below are
 > kept as the record of the detour.
 
-Approved by James, 2026-11-25. Revised the same day, after the antagonist pass,
+Approved by the maintainer, 2026-11-25. Revised the same day, after the antagonist pass,
 from "Google Books fills in the book" to "Google Books pre-fills the typing
 form" (see Approaches).
 
@@ -105,9 +105,9 @@ it refuses requests without an API key (spec, "Lookup sources").
 How the route test sets a key, and the exact wording around the attribution
 line, which must contain "Google Books" and link to the book's page.
 
-## Revision 2 (James, 2026-11-25): automatic fill again
+## Revision 2 (maintainer, 2026-11-25): automatic fill again
 
-James decided this is a small private app and Google's API terms (no permanent
+The maintainer decided this is a small private app and Google's API terms (no permanent
 copies, attribution, per-book links) are not a concern for it, so Google
 Books answers are saved automatically, with their covers, as in the first
 design. The pre-fill suggestion (Revision 1) is removed. Saving by ISBN means
