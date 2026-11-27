@@ -241,6 +241,19 @@ test("with a collection picked, the button names it and your menu offers Manage 
   expect(screen.getByRole("menuitem", { name: "Manage Kids" })).toHaveAttribute("href", "/collections/k2");
 });
 
+// On a narrow phone wall.css swaps the word for the icon; the word stays as the button's name either way.
+test("with no collection picked, the button carries a hidden icon beside the word", () => {
+  wall();
+  const button = screen.getByRole("button", { name: "Collection" });
+  expect(button.querySelector(".chip-icon")).toHaveAttribute("aria-hidden", "true");
+  expect(within(button).getByText("Collection")).toHaveClass("chip-word");
+});
+
+test("with a collection picked, the button shows its name and no icon", () => {
+  wall({ filter: { status: "all", collectionId: "k2" } });
+  expect(screen.getByRole("button", { name: "Collection: Kids" }).querySelector(".chip-icon")).toBeNull();
+});
+
 test("an unknown collection id reads as Collection", () => {
   wall({ filter: { status: "all", collectionId: "gone" } });
   expect(screen.getByRole("button", { name: "Collection" })).toBeInTheDocument();
@@ -446,6 +459,18 @@ test("the rail counts what the filter shows", () => {
   const items = many(30).map((it, i) => (i < 20 ? { ...it, home: false } : it));
   const { container } = wall({ items, filter: { status: "out", collectionId: null } satisfies WallFilter });
   expect(container.querySelector(".alpha-rail")).toBeNull();
+});
+
+// The rail's room (data-rail) follows the whole wall, not the filter: a filter tap that hides the rail must not
+// slide the chips row and the grid 28px sideways.
+test("the rail's room stays while a filter hides the rail, and is never kept for a wall too small for one", () => {
+  const items = many(30).map((it, i) => (i < 20 ? { ...it, home: false } : it));
+  const { container, unmount } = wall({ items, filter: { status: "home", collectionId: null } satisfies WallFilter });
+  expect(container.querySelector(".alpha-rail")).toBeNull();
+  expect(container.querySelector(".wall")).toHaveAttribute("data-rail");
+  unmount();
+  const small = wall({ items: many(24) });
+  expect(small.container.querySelector(".wall")).not.toHaveAttribute("data-rail");
 });
 
 test("picking a letter on the rail scrolls its heading to the top instantly", () => {
