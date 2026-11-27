@@ -1,0 +1,51 @@
+/* The Friends list: a picture or initial, a name, a book count. Rows are at least 44px with a hairline between. */
+.friend-list {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.friend-list li + li {
+  border-top: 1px solid var(--color-rule);
+}
+
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) 0;
+}
+
+.friend-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.friend-row .count {
+  flex: none;
+  color: var(--color-muted);
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.avatar {
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* paper on accent is 6.81:1 in light and 8.40:1 in dark (tokens.test.ts) */
+.avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1;
+}

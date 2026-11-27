@@ -3,6 +3,7 @@
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Book, Cover, type CoverSize } from "../screens/BookCard";
+import { FriendRows } from "../screens/Members";
 import { TabBar } from "../TabBar";
 import "../styles/index.css";
 import { CoverWall, type WallKind } from "../wall/CoverWall";
@@ -88,7 +89,24 @@ function WallView() {
   );
 }
 
-const VIEWS: Record<string, () => React.JSX.Element> = { covers: Covers, tabbar: TabBarView, wall: WallView };
+function FriendsView() {
+  document.getElementById("root")?.classList.add("has-tab-bar");
+  const people = [
+    { id: "2", name: "Ann", pictureUrl: "data:image/png;base64,AAAA" },
+    { id: "3", name: "Bob", pictureUrl: null },
+    { id: "4", name: "W".repeat(60), pictureUrl: null },
+    { id: "5", name: "Sam", pictureUrl: null, removed: true as const },
+    { id: "6", name: "Émile", pictureUrl: null },
+  ];
+  return (
+    <>
+      <main><div className="shelf-page"><h1>Friends</h1><FriendRows people={people} counts={{ "2": 12, "3": 1, "4": 0, "5": 3 }} /></div></main>
+      <TabBar active="friends" />
+    </>
+  );
+}
+
+const VIEWS: Record<string, () => React.JSX.Element> = { friends: FriendsView, covers: Covers, tabbar: TabBarView, wall: WallView };
 const name = new URLSearchParams(location.search).get("view") ?? "";
 const View = VIEWS[name];
 

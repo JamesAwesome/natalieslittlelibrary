@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as api from "../api";
@@ -11,6 +11,7 @@ vi.mock("../api", async () => {
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(api.memberCollections).mockResolvedValue({ owner: ann, collections: [] }); // the friends list reads one per member
   sessionStorage.clear();
   Element.prototype.scrollIntoView = vi.fn();
 });
@@ -180,4 +181,78 @@ test("a member page's h1 is the app name until the name is known, and when gone 
   render(<Members id="2" member={me} returnTo="/members/2" />);
   await screen.findByText("That member isn't here.");
   expect(screen.getByRole("heading", { level: 1, name: "Natalie's Little Library" })).toBeInTheDocument();
+});
+
+const bob = { id: "3", name: "Bob", pictureUrl: null };
+const counted = (n: number) => ({ owner: ann, collections: [summary({ id: "a", name: "A", count: n }), summary({ id: "b", name: "B", count: 1 })] });
+
+test("each friend row shows the sum of their collection counts, loaded after the list", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [natalie, ann, bob] });
+  vi.mocked(api.memberCollections).mockImplementation(async (id) => (id === "2" ? counted(2) : { owner: bob, collections: [summary({ id: "c", name: "C", count: 1 })] }));
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("link", { name: "Ann" })).toHaveAttribute("href", "/members/2");
+  expect(await screen.findByText("3 books")).toBeInTheDocument();
+  expect(await screen.findByText("1 book")).toBeInTheDocument();
+  expect(api.memberCollections).not.toHaveBeenCalledWith("1");
+  expect(screen.getByRole("link", { name: "Bob" })).toHaveAccessibleDescription("1 book");
+});
+
+test("a row whose count fails shows none; the others keep theirs", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [ann, bob] });
+  vi.mocked(api.memberCollections).mockImplementation(async (id) => {
+    if (id === "3") throw new api.ApiError(500, null);
+    return counted(2);
+  });
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByText("3 books")).toBeInTheDocument();
+  expect(screen.getAllByText(/books?$/)).toHaveLength(1);
+  expect(screen.getByRole("link", { name: "Bob" })).toBeInTheDocument();
+});
+
+test("a 401 on a count read sends the whole screen to sign-in", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [ann, bob] });
+  vi.mocked(api.memberCollections).mockImplementation(async (id) => {
+    if (id === "3") throw new api.ApiError(401, null);
+    return counted(2);
+  });
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("link", { name: "Sign in with Google" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Ann" })).not.toBeInTheDocument();
+});
+
+test("the list does not wait for the counts", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [ann] });
+  vi.mocked(api.memberCollections).mockReturnValue(new Promise(() => {}));
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("link", { name: "Ann" })).toBeInTheDocument();
+  expect(screen.queryByText(/books?$/)).not.toBeInTheDocument();
+});
+
+test("a picture that fails to load shows the initial; a missing one does too", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [{ ...ann, pictureUrl: "https://example.com/a.jpg" }, bob] });
+  vi.mocked(api.memberCollections).mockResolvedValue(counted(0));
+  const { container } = render(<Members member={me} returnTo="/members" />);
+  await screen.findByRole("link", { name: "Ann" });
+  const img = container.querySelector("img.avatar")!;
+  expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+  expect(img).toHaveAttribute("alt", "");
+  expect(container.querySelectorAll(".avatar-initial")).toHaveLength(1);
+  expect(screen.getByText("B")).toHaveAttribute("aria-hidden", "true");
+  fireEvent.error(img);
+  await waitFor(() => expect(container.querySelector("img.avatar")).toBeNull());
+  expect(screen.getByText("A")).toHaveAttribute("aria-hidden", "true");
+});
+
+test("a removed member reads as removed in the row", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [{ ...bob, removed: true }] });
+  vi.mocked(api.memberCollections).mockResolvedValue(counted(0));
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByRole("link", { name: "Bob (no longer a member)" })).toBeInTheDocument();
+});
+
+test("with no one else, it says so", async () => {
+  vi.mocked(api.listMembers).mockResolvedValue({ members: [natalie] });
+  render(<Members member={me} returnTo="/members" />);
+  expect(await screen.findByText("No one else is here yet.")).toBeInTheDocument();
+  expect(api.memberCollections).not.toHaveBeenCalled();
 });
