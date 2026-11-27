@@ -7,7 +7,7 @@ Design: [docs/superpowers/specs/2026-11-16-little-library-design.md](docs/superp
 ## How it works
 
 1. **Print.** On a computer, open Print labels, pick your sheet (or plain paper), run the alignment test on plain paper, then print the labels at 100% scale.
-2. **Pair.** Stick a label in a book. Open Pair a book on a phone, scan the book's ISBN barcode (three matching reads, then confirm the title) or type the title, then scan the label. Open it from the plus beside My books; after each book, the scanner comes back for the next one.
+2. **Pair.** Stick a label in a book. Open Pair a book on a phone, scan the book's ISBN barcode (three matching reads, then confirm the title) or type the title, then scan the label. Open it from the Pair tab; after each book, the scanner comes back for the next one.
 3. **Scan.** Anyone who scans the label with their phone camera lands on the book's page.
 4. **Claim.** Signed in, they tap "I have this book". Everyone sees who holds it.
 5. **Return.** The owner taps "Mark as returned". The page keeps the history.

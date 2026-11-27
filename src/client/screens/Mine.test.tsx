@@ -104,8 +104,7 @@ test("no collections: the empty line with pair, import, friends and holding link
   setup([]);
   show();
   expect(await screen.findByText("You haven’t added any books yet.")).toBeInTheDocument();
-  // The plus beside the title, and the link in the empty line.
-  expect(screen.getAllByRole("link", { name: "Pair a book" }).map((a) => a.getAttribute("href"))).toEqual(["/pair", "/pair"]);
+  expect(screen.getByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
   expect(screen.getByRole("link", { name: "Import from StoryGraph" })).toHaveAttribute("href", "/import");
   expect(screen.getByRole("link", { name: "Friends" })).toHaveAttribute("href", "/members");
   expect(screen.getByRole("link", { name: "Holding" })).toHaveAttribute("href", "/holding");
@@ -555,7 +554,7 @@ test("headings run h1, then a letter h2 for each group", async () => {
   await screen.findByRole("link", { name: "Emma, An Author" });
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["D", "E"]);
   expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
-  const wall = screen.getByRole("heading", { level: 1 }).closest<HTMLElement>(".wall")!;
+  const wall = screen.getByRole("heading", { level: 1 }).parentElement!;
   expect(within(wall).getAllByRole("listitem")).toHaveLength(2);
 });
 

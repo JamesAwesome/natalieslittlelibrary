@@ -46,10 +46,14 @@ export function applyFilter(items: ShelfItem[], f: WallFilter): ShelfItem[] {
 
 export const RAIL_MARKS: readonly string[] = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"];
 
+// The mark above A: not a letter, it goes back to the top. The strip is what the rail draws; RAIL_MARKS stays the letters.
+export const RAIL_TOP = "↑";
+export const RAIL_STRIP: readonly string[] = [RAIL_TOP, ...RAIL_MARKS];
+
 export function markAt(offsetY: number, height: number): string {
-  if (!(height > 0)) return RAIL_MARKS[0];
-  const i = Math.floor((offsetY / height) * RAIL_MARKS.length);
-  return RAIL_MARKS[Math.min(RAIL_MARKS.length - 1, Math.max(0, i))];
+  if (!(height > 0)) return RAIL_STRIP[0];
+  const i = Math.floor((offsetY / height) * RAIL_STRIP.length);
+  return RAIL_STRIP[Math.min(RAIL_STRIP.length - 1, Math.max(0, i))];
 }
 
 export function targetLetter(mark: string, present: string[]): string | null {

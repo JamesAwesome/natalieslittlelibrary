@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { item, ann } from "../screens/shelfFixtures";
-import { ALL, RAIL_MARKS, applyFilter, countLine, groupByLetter, letterOf, markAt, showRail, sortKey, targetLetter } from "./model";
+import { ALL, RAIL_MARKS, RAIL_STRIP, applyFilter, countLine, groupByLetter, letterOf, markAt, showRail, sortKey, targetLetter } from "./model";
 
 const titled = (copyId: string, title: string) => item({ copyId, book: { isbn: null, title, authors: [], coverUrl: null } });
 
@@ -90,15 +90,21 @@ describe("rail", () => {
     expect(RAIL_MARKS[25]).toBe("Z");
     expect(RAIL_MARKS[26]).toBe("#");
   });
+  test("the strip is the up mark then the 27 letters", () => {
+    expect(RAIL_STRIP).toHaveLength(28);
+    expect(RAIL_STRIP[0]).toBe("↑");
+    expect(RAIL_STRIP[1]).toBe("A");
+    expect(RAIL_STRIP[27]).toBe("#");
+  });
   test("markAt clamps", () => {
-    expect(markAt(0, 270)).toBe("A");
-    expect(markAt(269, 270)).toBe("#");
-    expect(markAt(-5, 270)).toBe("A");
-    expect(markAt(999, 270)).toBe("#");
-    expect(markAt(9.9, 270)).toBe("A");
-    expect(markAt(10, 270)).toBe("B");
-    expect(markAt(15, 270)).toBe("B");
-    expect(markAt(0, 0)).toBe("A");
+    expect(markAt(0, 280)).toBe("↑");
+    expect(markAt(9.9, 280)).toBe("↑");
+    expect(markAt(10, 280)).toBe("A");
+    expect(markAt(20, 280)).toBe("B");
+    expect(markAt(279, 280)).toBe("#");
+    expect(markAt(-5, 280)).toBe("↑");
+    expect(markAt(999, 280)).toBe("#");
+    expect(markAt(0, 0)).toBe("↑");
   });
   test("targetLetter", () => {
     expect(targetLetter("C", ["A", "D"])).toBe("D");

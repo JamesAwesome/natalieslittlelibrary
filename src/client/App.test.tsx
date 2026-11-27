@@ -233,11 +233,11 @@ test("an unknown path renders the not-found screen", async () => {
   expect(await screen.findByText("We couldn't find that page.")).toBeInTheDocument();
 });
 
-test("signed in at /more, the screen links to pairing", async () => {
+test("signed in at /more, the screen links to the label printer", async () => {
   at("/more");
   vi.mocked(api.getMe).mockResolvedValue(natalie);
   render(<App />);
-  expect(await screen.findByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
+  expect(await screen.findByRole("link", { name: "Print labels" })).toHaveAttribute("href", "/labels");
 });
 
 test("signed in at /, the My books screen shows and More does not", async () => {
@@ -349,7 +349,7 @@ test("signed in at /holding, the Main navigation is there and Holding is current
   render(<App />);
   const nav = await screen.findByRole("navigation", { name: "Main" });
   expect(within(nav).getByRole("link", { name: "Holding" })).toHaveAttribute("aria-current", "page");
-  expect(within(nav).getAllByRole("link")).toHaveLength(4);
+  expect(within(nav).getAllByRole("link")).toHaveLength(5);
 });
 
 test("signed out at /, there is no Main navigation", async () => {

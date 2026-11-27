@@ -60,14 +60,7 @@ export function CoverWall(props: Props) {
 
   return (
     <div className="wall" data-chips={chipsShown ? "" : undefined} data-rail={railRoom ? "" : undefined}>
-      <div className="wall-head">
-        <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
-        {kind === "mine" && (
-          <a className="wall-pair" href="/pair" aria-label="Pair a book">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg>
-          </a>
-        )}
-      </div>
+      <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
       {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
       {props.top && <div className="wall-top">{props.top}</div>}
       {/* Where the chips row (or the grid) starts in the page: the place a wall restores to is measured from here,
@@ -98,7 +91,7 @@ export function CoverWall(props: Props) {
               </ul>
             </section>
           ))}
-          {rail && <AlphaRail present={groups.map((g) => g.letter)} onPick={pick} />}
+          {rail && <AlphaRail present={groups.map((g) => g.letter)} onPick={pick} onTop={() => window.scrollTo({ top: 0, behavior: "instant" })} />}
         </>
       )}
     </div>

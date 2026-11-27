@@ -88,6 +88,23 @@ cut or merge the entries whose shape has not recurred.
   async answer that leaving the page used to throw away. Drive each one across
   the reset with a deferred promise, and mutate each removal on its own.
   (Pair kept `stale`, `linked` and `afterGone`'s late notice.)
+- **"The label lines up and the decoration stays inside the bar."** Eyeballed
+  crops at two widths can't settle a claim that is off by a pixel or two.
+  Measure with `getBoundingClientRect` against the container's border box,
+  across width × scheme × root font size × safe-area inset
+  (`Emulation.setSafeAreaInsetsOverride`). Then do the arithmetic to see
+  whether all the constraints can hold at once. For the 40px Pair disc in a
+  4rem bar, they couldn't.
+- **"Drawing every other mark keeps the drawn glyphs apart."** When a mark is
+  added to a thinned list, check that the drawn marks are still apart, not
+  only which marks are drawn. Measure each drawn mark's text box
+  (`Range.getBoundingClientRect` on its contents) against its band at the
+  shortest landscape heights. A new first mark on the rail put "↑" next to
+  "A", and at 568×320 their boxes overlapped by 6.6px.
+- **"The tap is only taken over on the tab's own page."** `matchRoute` keys on
+  the pathname, but screens read the query. List every link into the route
+  that carries a query (`/pair?copy=`, `/pair?label=`) and probe each one. A
+  pathname-only guard swallowed the Pair tab on all of them.
 
 ## Standing facts about this codebase's tools
 

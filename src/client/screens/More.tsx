@@ -4,7 +4,6 @@ import { Name } from "./BookCard";
 import { SignIn } from "./SignIn";
 
 const tools = [
-  { href: "/pair", label: "Pair a book" },
   { href: "/labels", label: "Print labels" },
   { href: "/people", label: "People" },
   { href: "/import", label: "Import from StoryGraph" },

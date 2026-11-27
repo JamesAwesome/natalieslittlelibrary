@@ -32,6 +32,7 @@ beforeEach(() => {
 // A failed expectation must not leave a layout spy behind for the next test.
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 test("shows the title as the h1 and the count line, and hides the count line when incomplete", () => {
@@ -477,10 +478,21 @@ test("picking a letter on the rail scrolls its heading to the top instantly", ()
   const { container } = wall({ items: many(26) });
   const rail = container.querySelector<HTMLElement>(".alpha-rail")!;
   rail.setPointerCapture = vi.fn();
-  rail.getBoundingClientRect = () => ({ top: 0, height: 270, bottom: 270, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
-  fireEvent.pointerDown(rail, { clientY: 25, pointerId: 1 }); // the third mark, C
+  rail.getBoundingClientRect = () => ({ top: 0, height: 280, bottom: 280, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerDown(rail, { clientY: 35, pointerId: 1 }); // the fourth band, C
   expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "instant" });
   expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(document.getElementById("letter-C"));
+});
+
+test("the rail's top band scrolls the page to the top instantly", () => {
+  const scrollTo = vi.fn();
+  vi.stubGlobal("scrollTo", scrollTo);
+  const { container } = wall({ items: many(26) });
+  const rail = container.querySelector<HTMLElement>(".alpha-rail")!;
+  rail.setPointerCapture = vi.fn();
+  rail.getBoundingClientRect = () => ({ top: 0, height: 280, bottom: 280, left: 0, right: 44, width: 44, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerDown(rail, { clientY: 5, pointerId: 1 });
+  expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "instant" });
 });
 
 test("while loading it shows nine tile-shaped blocks, hidden, with no images, chips or rail", () => {
@@ -491,24 +503,17 @@ test("while loading it shows nine tile-shaped blocks, hidden, with no images, ch
   expect(skeleton.children).toHaveLength(9);
   expect(container.querySelector("img")).toBeNull();
   expect(screen.queryAllByRole("button")).toHaveLength(0);
-  // The only link while loading is the Pair a book plus beside the title.
-  expect(screen.getAllByRole("link")).toEqual([screen.getByRole("link", { name: "Pair a book" })]);
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
   expect(container.querySelector(".alpha-rail")).toBeNull();
   expect(screen.queryByText(/books ·|^\d+ books?$/)).toBeNull();
 });
 
-test("your own wall has a Pair a book link beside the title, loading, empty or full", () => {
-  for (const over of [{}, { items: [] }, { loading: true }]) {
-    const { unmount } = wall(over);
-    expect(screen.getByRole("link", { name: "Pair a book" })).toHaveAttribute("href", "/pair");
-    unmount();
-  }
-});
-
-test("no Pair a book link on a friend's wall, Holding or a collection", () => {
-  for (const kind of ["friend", "friend-collection", "holding", "my-collection"] as WallKind[]) {
-    const { unmount } = wall({ kind });
-    expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
-    unmount();
+test("no wall draws a Pair a book link", () => {
+  for (const kind of ["mine", "friend", "holding", "my-collection", "friend-collection"] as WallKind[]) {
+    for (const over of [{}, { loading: true }]) {
+      const { unmount } = wall({ kind, ...over });
+      expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
+      unmount();
+    }
   }
 });

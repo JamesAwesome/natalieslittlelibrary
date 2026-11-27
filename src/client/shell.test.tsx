@@ -10,7 +10,7 @@ test.each<[Route, Tab | null]>([
   [{ name: "members" }, "friends"],
   [{ name: "member", id: "m1" }, "friends"],
   [{ name: "more" }, "more"],
-  [{ name: "pair" }, "more"],
+  [{ name: "pair" }, "pair"],
   [{ name: "labels" }, "more"],
   [{ name: "import" }, "more"],
   [{ name: "people" }, "more"],

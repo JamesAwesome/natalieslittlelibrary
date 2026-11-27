@@ -11,11 +11,15 @@ test("signed in shows the heading, the greeting and the tools in order", () => {
   expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Hi, Natalie")).toBeInTheDocument();
   const links = screen.getAllByRole("link");
   expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([
-    ["Pair a book", "/pair"],
     ["Print labels", "/labels"],
     ["People", "/people"],
     ["Import from StoryGraph", "/import"],
   ]);
+});
+
+test("Pair a book is not here: it has its own tab", () => {
+  render(<More member={natalie} onLogout={() => {}} returnTo="/more" />);
+  expect(screen.queryByRole("link", { name: "Pair a book" })).not.toBeInTheDocument();
 });
 
 test("Sign out calls onLogout", async () => {
