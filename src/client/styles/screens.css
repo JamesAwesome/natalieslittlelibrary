@@ -70,6 +70,44 @@
   color: var(--color-ink);
 }
 
+/* The heading is focused by script after each pair, so a screen reader lands above the note. It isn't a control. */
+.pair-page h1:focus {
+  outline: none;
+}
+
+/* "Paired <title>" after each book on plain /pair: cover, text and See it in a row. The region is always there, so
+   it is announced when it fills; it takes no room while empty. Links on paper-2: 6.05:1 light, 7.49:1 dark;
+   visited 6.50:1 light, 6.94:1 dark. */
+.pair-page .pair-done:not(:empty) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border-radius: 8px;
+  background: var(--color-paper-2);
+}
+
+.pair-page .pair-done-text {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+
+.pair-page .pair-done-text p {
+  margin: 0;
+}
+
+.pair-page .pair-done .pair-tally {
+  margin-top: var(--space-1);
+  color: var(--color-muted); /* 5.74:1 light, 7.13:1 dark on paper-2 */
+  font-size: var(--text-sm);
+}
+
+.pair-page .pair-done > a {
+  flex: none;
+}
+
 /* The shelf screens' forms and lists, also used in a wall's top and empty slots (never its chips or menu). */
 :is(.shelf-page, .wall-top, .wall-empty) h2 {
   overflow-wrap: anywhere;

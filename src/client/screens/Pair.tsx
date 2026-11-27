@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { BookInfo, CollectionSummary, Member, ShelfItem } from "../../shared/types";
+import type { BookInfo, CollectionSummary, CopyView, Member, ShelfItem } from "../../shared/types";
 import { cleanCollectionName } from "../../shared/collectionName";
 import { toIsbn13 } from "../../shared/isbn";
 import { parseLabelLink } from "../../shared/labelCode";
 import { addCopy, ApiError, createCollection, getCandidates, getCopy, labelCopy, lookupBook, myCollections, relabelCopy } from "../api";
 import { Scanner, type ScannerProblem } from "../scanner";
-import { Book, Name } from "./BookCard";
+import { Book, Cover, Name } from "./BookCard";
 import { APP_NAME } from "../shell";
 import { SignIn } from "./SignIn";
 
@@ -68,6 +68,10 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [copyId] = useState<string | null>(() => new URLSearchParams(location.search).get("copy"));
   // With replace=1 the copy already has a label, and the one read takes its place.
   const [replace] = useState(() => copyId !== null && new URLSearchParams(location.search).get("replace") === "1");
+  // A ?label= link came from a book's page, even when its code doesn't parse.
+  const [fromLabel] = useState(() => new URLSearchParams(location.search).get("label") !== null);
+  // Plain /pair comes back to scanning after each save; a pair started from a book or a label ends on the book's page.
+  const loops = copyId === null && !fromLabel;
   const [step, setStep] = useState<Step>(copyId !== null ? "copyloading" : "isbn");
   const [forCopy, setForCopy] = useState<{ title: string; authors: string[]; coverUrl: string | null } | null>(null);
   const [imported, setImported] = useState<ShelfItem | null>(null);
@@ -93,6 +97,12 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const [stays, setStays] = useState<{ name: string; label: string } | null>(null);
   // The label read and the payload it was read for, held together until the person confirms the replace.
   const [toReplace, setToReplace] = useState<{ label: string; p: Pending } | null>(null);
+  // The book just paired on plain /pair, and how many this visit.
+  const [last, setLast] = useState<{ title: string; authors: string[]; coverUrl: string | null; label: string; stays: string | null } | null>(null);
+  const [count, setCount] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // A camera the person refused is not asked for again after each book.
+  const cameraDenied = useRef(false);
   const inFlight = useRef(false);
   // A refused label still in front of the camera must not be saved again until another is read or typed.
   const refused = useRef<string | null>(null);
@@ -184,8 +194,14 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   // A new copy cannot be filed while the member's collections are unknown: they may have several.
   const unknown = (p: Pending) => p.stays === null && cols === null;
 
+  const onProblem = (p: ScannerProblem) => {
+    if (p === "denied") cameraDenied.current = true;
+    setProblem(p);
+  };
+
+  // A refused camera stays refused across steps, so no step asks for it again; Start over is the way back to it.
   const go = (next: Step) => {
-    setProblem(null);
+    setProblem(cameraDenied.current ? "denied" : null);
     setStep(next);
   };
 
@@ -201,9 +217,17 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     setSimilar([]);
     setAfter(null);
     setToReplace(null);
+    // A code held for the last book is not used for the next, unless it came from the address.
+    if (!fromLabel) setLinked(null);
     refused.current = null;
     setNotice(undefined);
     go("isbn");
+  }
+
+  // The Start over button: the person's own fresh start, which also tries the camera again.
+  function restart() {
+    cameraDenied.current = false;
+    startOver();
   }
 
   async function look(raw: string) {
@@ -253,14 +277,31 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
     go("saving");
     try {
       let stayed: { name: string } | null = null;
-      if ("replacing" in p.how) await relabelCopy(p.how.copyId, label, p.how.replacing);
-      else if ("copyId" in p.how) await labelCopy(p.how.copyId, label);
+      let saved: CopyView;
+      if ("replacing" in p.how) saved = await relabelCopy(p.how.copyId, label, p.how.replacing);
+      else if ("copyId" in p.how) saved = await labelCopy(p.how.copyId, label);
       else {
-        const saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
+        saved = await addCopy({ code: label, ...p.how, ...(collectionId !== undefined ? { collectionId } : {}) });
         // A scan that found an imported copy labels it where it is; the collection that was picked did not apply.
         if (collectionId !== undefined && saved.collection != null && saved.collection.id !== collectionId) stayed = { name: saved.collection.name };
       }
       if (collectionId !== undefined && member !== null && stayed === null) writePick(member.id, collectionId);
+      if (loops) {
+        // The page stays open, so a stale answer must not leave it unable to save.
+        inFlight.current = false;
+        if (mine === seq.current && live.current) {
+          // Back to the barcode for the next book. The label just used stays refused: it may still be in front of the camera.
+          startOver();
+          refused.current = label;
+          setLinked(null);
+          setStale(false);
+          // An existing copy (same-ISBN import, or one picked from a list) stays in its collection, as does one that landed elsewhere.
+          setLast({ title: saved.book.title, authors: saved.book.authors, coverUrl: saved.book.coverUrl, label, stays: stayed?.name ?? p.stays?.name ?? null });
+          setCount((n) => n + 1);
+          heading.current?.focus();
+        }
+        return;
+      }
       if (stayed !== null) {
         if (mine === seq.current && live.current) setStays({ name: stayed.name, label });
         return;
@@ -328,8 +369,9 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   }
 
   async function afterGone() {
+    const mine = seq.current;
     const list = await loadCollections(true);
-    if (list === LOST || !live.current) return;
+    if (list === LOST || mine !== seq.current || !live.current) return;
     if (list !== null && list.length >= 2) setNotice("That collection was just deleted. Pick another.");
     else if (list !== null && list.length === 1) setNotice(`That collection was just deleted, so this goes in ${list[0].name}.`);
     else setNotice("That collection was just deleted.");
@@ -470,13 +512,28 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
   const unavailable = problem !== null;
   return (
     <div className="pair-page">
-      <h1>Pair a book</h1>
+      <h1 ref={heading} tabIndex={-1}>Pair a book</h1>
       {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
+      {/* Mounted empty on every step, so it is announced when it fills; it shows only on the barcode step. */}
+      {loops && (
+        <div role="status" aria-live="polite" className="pair-done">
+          {step === "isbn" && last !== null && (
+            <>
+              <Cover url={last.coverUrl} title={last.title} authors={last.authors} size="row" />
+              <div className="pair-done-text">
+                <p>Paired <Name>{last.title}</Name>.{last.stays !== null && <> It stays in <Name>{last.stays}</Name>.</>}</p>
+                <p className="pair-tally">{count} paired this time</p>
+              </div>
+              <a href={`/b/${last.label}`}>See it</a>
+            </>
+          )}
+        </div>
+      )}
       {step === "isbn" && (
         <>
-          <p>Scan the barcode on the back of the book.</p>
+          <p>{last !== null ? "Scan the barcode on the back of the next book." : "Scan the barcode on the back of the book."}</p>
           {unavailable ? <p>{problemText[problem]}</p> : (
-            <Scanner key="isbn" want="isbn" onProblem={setProblem} onRead={(r) => {
+            <Scanner key="isbn" want="isbn" onProblem={onProblem} onRead={(r) => {
               if (r.kind !== "isbn") return;
               void look(r.isbn);
             }} />
@@ -484,6 +541,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           {unavailable ? <TypeForm typed={typed} isbn={isbn} onSubmit={onTyped} /> : (
             <p><button type="button" className="link" onClick={() => go("type")}>No barcode? Type it in</button></p>
           )}
+          {last !== null && <p><a href="/">Done</a></p>}
         </>
       )}
       {step === "looking" && <p>Looking that up…</p>}
@@ -594,7 +652,7 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
           ) : (
             <>
               {unavailable ? <p>{problemText[problem]}</p> : (
-                <Scanner key="label" want="label" onProblem={setProblem} onRead={(r) => {
+                <Scanner key="label" want="label" onProblem={onProblem} onRead={(r) => {
                   if (r.kind !== "label") return;
                   const c = parseLabelLink(r.code);
                   if (c === null || c === refused.current) return;
@@ -631,10 +689,11 @@ export function Pair(props: { member: Member | null; returnTo: string }) {
       {step === "failed" && code !== null && pending !== null && (
         <p><button type="button" onClick={() => withLabel(code, pending)}>Try again</button></p>
       )}
-      {step !== "isbn" && step !== "saving" && step !== "cannot" && step !== "copyloading" && (replace && copyId !== null ? (
+      {/* On plain /pair a book that can't be labelled ends only that book, not the run. */}
+      {step !== "isbn" && step !== "saving" && (step !== "cannot" || loops) && step !== "copyloading" && (replace && copyId !== null ? (
         // Replace mode never opens the add flow: it cannot find a labelled copy, so it would make a second one.
         <p><a href={`/copies/${encodeURIComponent(copyId)}`}>Back to the book</a></p>
-      ) : <p><button type="button" className="link" onClick={startOver}>Start over</button></p>)}
+      ) : <p><button type="button" className="link" onClick={restart}>Start over</button></p>)}
     </div>
   );
 }

@@ -75,6 +75,20 @@ cut or merge the entries whose shape has not recurred.
 - **"The README setting is covered."** An env var the README tells the maintainer to set
   locally must be pinned in `miniflare.bindings`, or a real key changes tests.
 
+## Pair faster (2026-11-27)
+
+- **"The link's colour beats the global `:visited` rule."** A fresh browser
+  profile has never visited the link, and `getComputedStyle` hides visited
+  colours. Click the link in the probe profile first, then sample rendered
+  pixels. Then swap the two stylesheets' import order and sample again: if
+  the colour changes, the win was source order on a specificity tie.
+- **"Nothing from the last item leaks into the next."** A screen that used to
+  navigate away after a save, and now resets in place, keeps whatever its
+  reset function doesn't list. Inventory every piece of state and every late
+  async answer that leaving the page used to throw away. Drive each one across
+  the reset with a deferred promise, and mutate each removal on its own.
+  (Pair kept `stale`, `linked` and `afterGone`'s late notice.)
+
 ## Standing facts about this codebase's tools
 
 - D1 state is shared between tests in one file and isolated between files.
