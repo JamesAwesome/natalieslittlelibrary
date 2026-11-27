@@ -483,8 +483,8 @@ html:has(.wall[data-chips]) {
      mapping, does not. */
   .alpha-rail-mark:first-child {
     align-items: flex-start;
-    font-size: calc(var(--text-xs) * 0.7);
-    transform: translateY(-0.4rem);
+    font-size: calc(var(--text-xs) * 0.6);
+    transform: translateY(-5px);
   }
 
   .alpha-rail-mark:nth-child(odd):not(:first-child) {
