@@ -100,7 +100,15 @@ export const BOOK_OWNERLESS: CopyView = {
   history: [{ at: day(21), type: "released", actor: sam }, { at: day(2), type: "added", actor: sam }],
 };
 export const BOOK_LONG: CopyView = {
-  ...base(NO_COVER_LONG), copyId: "p8", code: "ghi", ownerCode: null, owner: { ...natalie, removed: true }, holder: { kind: "member", person: sam }, home: false,
-  collection: WALL_COLLECTIONS[2], request: { by: sam, at: day(23) }, actions: ["withdraw"],
+  ...base(NO_COVER_LONG), copyId: "p8", code: null, ownerCode: null, owner: { ...natalie, removed: true }, holder: { kind: "member", person: sam }, home: false,
+  collection: WALL_COLLECTIONS[2], request: { by: sam, at: day(23) }, actions: [],
   history: [{ at: day(23), type: "requested", actor: sam }, { at: day(14), type: "claimed", actor: sam }],
 };
+
+// Google Books thumbnails are about 128px wide; drawn here at 128x192 and 128x160, the sizes that used to move the page.
+const googleSized = (h: number) => `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="${h}" viewBox="0 0 128 ${h}"><rect width="128" height="${h}" fill="#33506b"/>` +
+  `<rect x="10" y="${h - 46}" width="108" height="30" fill="#e9dcc2"/><text x="64" y="${h - 26}" font-family="Georgia" font-size="12" text-anchor="middle" fill="#33506b">Emma</text></svg>`,
+)}`;
+export const BOOK_GOOGLE: CopyView = { ...BOOK_FRIEND, book: { ...BOOK_FRIEND.book, title: "Emma", coverUrl: googleSized(192) } };
+export const BOOK_GOOGLE_SHORT: CopyView = { ...BOOK_FRIEND, book: { ...BOOK_FRIEND.book, title: "Emma", coverUrl: googleSized(160) } };

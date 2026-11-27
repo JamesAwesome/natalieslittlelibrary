@@ -1,11 +1,15 @@
 import { describe, expect, test } from "vitest";
 import type { CopyView } from "../../shared/types";
 import { tabRoot } from "../shell";
-import { backFor, MAIN_ORDER, mainAction } from "./model";
+import { backFor, MAIN_ORDER, mainAction, storedBack } from "./model";
 
 describe("mainAction", () => {
-  test("the order is claim, return, take, approve, lend, ask, withdraw", () => {
-    expect(MAIN_ORDER).toEqual(["claim", "return", "adopt", "approve", "lend", "request", "withdraw"]);
+  test("the order is claim, approve, return, take, lend, ask, withdraw", () => {
+    expect(MAIN_ORDER).toEqual(["claim", "approve", "return", "adopt", "lend", "request", "withdraw"]);
+  });
+  test("an open request is answered first: Approve beats Mark as returned", () => {
+    expect(mainAction(["return", "lend", "approve", "decline"], "c")).toBe("approve");
+    expect(mainAction(["return", "approve", "claim"], "c")).toBe("claim");
   });
   test("picks the first allowed in that order", () => {
     expect(mainAction(["lend", "give"], "c")).toBe("lend");
@@ -56,5 +60,27 @@ describe("backFor", () => {
     expect(backFor(`${origin}/b/abc`, origin, copy(), "books")).toEqual(tabRoot.books);
     expect(backFor(`${origin}/pair?copy=c1`, origin, copy(), "books")).toEqual(tabRoot.books);
     expect(backFor(`${origin}/members`, origin, copy(), "more")).toEqual(tabRoot.more);
+  });
+});
+
+describe("storedBack", () => {
+  test("takes a target backFor could have produced for this copy", () => {
+    expect(storedBack({ back: { href: "/members/2", label: "Ann’s books" } }, copy())).toEqual({ href: "/members/2", label: "Ann’s books" });
+    expect(storedBack({ other: 1, back: { href: "/collections/k1", label: "Home library" } }, copy())).toEqual({ href: "/collections/k1", label: "Home library" });
+    expect(storedBack({ back: { href: "/holding", label: "Holding" } }, copy())).toEqual({ href: "/holding", label: "Holding" });
+    expect(storedBack({ back: tabRoot.friends }, null)).toEqual(tabRoot.friends);
+  });
+  test("ignores anything else", () => {
+    expect(storedBack(null, copy())).toBeNull();
+    expect(storedBack("x", copy())).toBeNull();
+    expect(storedBack({}, copy())).toBeNull();
+    expect(storedBack({ back: null }, copy())).toBeNull();
+    expect(storedBack({ back: { href: 1, label: "My books" } }, copy())).toBeNull();
+    expect(storedBack({ back: { href: "https://elsewhere.test/", label: "My books" } }, copy())).toBeNull();
+    expect(storedBack({ back: { href: "/", label: "<b>Hi</b>" } }, copy())).toBeNull();
+    expect(storedBack({ back: { href: "/members/9", label: "Ann’s books" } }, copy())).toBeNull();
+    expect(storedBack({ back: { href: "/members/2", label: "Ann’s books" } }, copy({ owner: null }))).toBeNull();
+    expect(storedBack({ back: { href: "/collections/k1", label: "Home library" } }, null)).toBeNull();
+    expect(storedBack({ back: tabRoot.more }, copy())).toBeNull();
   });
 });

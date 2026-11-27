@@ -12,7 +12,7 @@ import { ALL, type Status, type WallFilter } from "../wall/model";
 import type { CopyView } from "../../shared/types";
 import { tabRoot, type Tab } from "../shell";
 import {
-  BOOK_COLLECTIONS, BOOK_FRIEND, BOOK_LONG, BOOK_OWNER, BOOK_OWNERLESS, BOOK_VIEWER, FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG,
+  BOOK_COLLECTIONS, BOOK_FRIEND, BOOK_GOOGLE, BOOK_GOOGLE_SHORT, BOOK_LONG, BOOK_OWNER, BOOK_OWNERLESS, BOOK_VIEWER, FAILED, FAILED_LONG, LOADED, LONG_TITLE, NO_COVER, NO_COVER_LONG,
   WALL, WALL_COLLECTIONS, type FixtureBook,
 } from "./fixtures";
 
@@ -113,13 +113,15 @@ function FriendsView() {
   );
 }
 
-// &v=owner|friend|public|ownerless|long shows one book page; with none, all of them one after another.
+// &v=owner|friend|public|ownerless|long|google|google-short shows one book page; with none, all of them one after another.
 const BOOKS: Record<string, { copy: CopyView | null; viewer: string | null; tab: Tab | null; back: { href: string; label: string } | null }> = {
   owner: { copy: BOOK_OWNER, viewer: BOOK_VIEWER.natalie, tab: "books", back: tabRoot.books },
   friend: { copy: BOOK_FRIEND, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/members/1", label: "Natalie’s books" } },
   public: { copy: null, viewer: null, tab: null, back: null },
   ownerless: { copy: BOOK_OWNERLESS, viewer: BOOK_VIEWER.ann, tab: "friends", back: tabRoot.friends },
   long: { copy: BOOK_LONG, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/collections/k3", label: WALL_COLLECTIONS[2].name } },
+  google: { copy: BOOK_GOOGLE, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/members/1", label: "Natalie’s books" } },
+  "google-short": { copy: BOOK_GOOGLE_SHORT, viewer: BOOK_VIEWER.ann, tab: "friends", back: { href: "/members/1", label: "Natalie’s books" } },
 };
 
 function BookPage({ name }: { name: string }) {

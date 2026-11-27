@@ -66,8 +66,10 @@
   line-height: 1.15;
 }
 
-/* Headings are focused by script after an action, so the page doesn't drop a keyboard user at the top. They aren't controls. */
-.copy-page h1:focus {
+/* Headings and notices are focused by script after an action, so the page doesn't drop a keyboard user at the top.
+   They aren't controls. */
+.copy-page h1:focus,
+.copy-page .refusal:focus {
   outline: none;
 }
 

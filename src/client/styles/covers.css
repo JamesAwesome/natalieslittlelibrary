@@ -19,7 +19,9 @@
   height: 96px;
 }
 
-/* Reserved at 2:3 until the image has loaded (and for the tiles), then the cover's own proportions. */
+/* A fixed 160 by 240 box, before and after the image loads, so nothing below it ever moves.
+   Once loaded, the cover keeps its own proportions inside the box, bottom-aligned and centred, and the shadow and corners
+   move from the box to the image. A full-size Open Library cover fills the box; a small Google one sits at its own size. */
 .cover-hero {
   width: 160px;
   max-width: 100%;
@@ -27,9 +29,12 @@
 }
 
 .cover-hero[data-ready] {
-  width: fit-content;
-  aspect-ratio: auto;
-  max-height: 240px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
 }
 
 .cover {
@@ -54,8 +59,12 @@
 .cover-hero[data-ready] .cover {
   width: auto;
   height: auto;
-  max-width: 160px;
-  max-height: 240px;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  box-shadow: var(--cover-shadow);
 }
 
 /* No cover: a plain cloth binding, not an error. */

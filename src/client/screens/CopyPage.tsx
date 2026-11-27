@@ -4,7 +4,7 @@ import {
   adoptCopy, ApiError, approveRequest, claim, declineRequest, getCopy, getLabel, giveCopy, lendCopy, listMembers, moveCopy, myCollections,
   releaseCopy, requestCopy, returnCopy, withdrawRequest,
 } from "../api";
-import { backFor, mainAction } from "../book/model";
+import { backFor, mainAction, storedBack, type Back } from "../book/model";
 import { Cover, holderLabel, Name, personLabel } from "./BookCard";
 import { APP_NAME, tabRoot, useTab, type Tab } from "../shell";
 import { LendBox } from "./LendBox";
@@ -311,17 +311,34 @@ function Page(props: Props) {
   }
   // The tab and the way back are decided once, when the view first comes in, and stay for the visit:
   // a claim that makes me the holder doesn't move the page to Holding, and a move or a give doesn't change where Back goes.
-  const [pinned, setPinned] = useState<{ tab: Tab; back: { href: string; label: string } } | undefined>(undefined);
+  // The way back is also saved with this history entry: a reload (App reloads a page restored from the back-forward cache)
+  // has the page itself as its referrer, so the saved one is preferred, if it is one this page could have made.
+  const [pinned, setPinned] = useState<{ tab: Tab; back: Back } | undefined>(undefined);
   if (pinned === undefined && tab !== undefined && view !== undefined) {
-    setPinned({ tab, back: view.kind === "copy" ? backFor(document.referrer, location.origin, view.copy, tab) : tabRoot[tab] });
+    const copy = view.kind === "copy" ? view.copy : null;
+    const back = storedBack(history.state, copy) ?? (copy !== null ? backFor(document.referrer, location.origin, copy, tab) : tabRoot[tab]);
+    setPinned({ tab, back });
   }
   useTab(pinned?.tab ?? tab);
+  const savedBack = pinned?.back;
+  useEffect(() => {
+    if (savedBack === undefined) return;
+    const state: unknown = history.state;
+    try {
+      history.replaceState({ ...(typeof state === "object" ? state : null), back: savedBack }, "");
+    } catch {
+      // A history entry that can't be written only means a reload falls back to the referrer.
+    }
+  }, [savedBack]);
 
-  // After an action, focus goes to the page's heading, so nobody is left at the top of the document when the page redraws.
+  // After an action, focus goes where the news is: the notice, when there is one, else the page's heading.
+  // Nobody is left at the top of the document, or scrolled away from what went wrong, when the page redraws.
   const page = useRef<HTMLDivElement>(null);
   const [acted, setActed] = useState(0);
   useEffect(() => {
-    if (acted > 0) page.current?.querySelector<HTMLElement>("h1")?.focus();
+    if (acted === 0) return;
+    const alert = page.current?.querySelector<HTMLElement>('[role="alert"]');
+    (alert ?? page.current?.querySelector<HTMLElement>("h1"))?.focus();
   }, [acted]);
 
   const load = useCallback(async () => {
@@ -448,7 +465,7 @@ function Page(props: Props) {
     return (
       <div className="copy-page" ref={page}>
         {heading}
-        <p role="alert" className="refusal">The library is having trouble right now. Please try again later.</p>
+        <p role="alert" className="refusal" tabIndex={-1}>The library is having trouble right now. Please try again later.</p>
         <button type="button" onClick={() => { setView(undefined); void load(); }}>Try again</button>
       </div>
     );
@@ -458,7 +475,7 @@ function Page(props: Props) {
       <div className="copy-page" ref={page}>
         {heading}
         {gone && <p>That book isn't here.</p>}
-        {lost && !gone && <SignIn returnTo={returnTo} />}
+        {lost && !gone && <div className="book-main"><SignIn returnTo={returnTo} /></div>}
       </div>
     );
   }
@@ -470,15 +487,17 @@ function Page(props: Props) {
     <div className="copy-page" ref={page}>
       {back && <BookBack {...back} />}
       {view.kind !== "copy" && view.kind !== "public" && heading}
-      {notice !== undefined && <p role="alert" className="refusal">{notice}</p>}
+      {notice !== undefined && <p role="alert" className="refusal" tabIndex={-1}>{notice}</p>}
       {view.kind === "unknown" && <p>This label isn't one of ours.</p>}
       {view.kind === "retired" && <p>This label has been replaced.</p>}
       {view.kind === "blank" && (
         <>
           <p>This label isn't on a book yet.</p>
-          {signedIn ? (
-            <a className="button" href={`/pair?label=${encodeURIComponent(view.code)}`}>Pair it with a book</a>
-          ) : <SignIn returnTo={returnTo} />}
+          <div className="book-main">
+            {signedIn ? (
+              <a className="button" href={`/pair?label=${encodeURIComponent(view.code)}`}>Pair it with a book</a>
+            ) : <SignIn returnTo={returnTo} />}
+          </div>
         </>
       )}
       {view.kind === "public" && <PublicBook book={view.book} returnTo={returnTo} />}

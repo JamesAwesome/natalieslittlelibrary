@@ -4,7 +4,8 @@ import { personLabel } from "../screens/BookCard";
 import { tabRoot, type Tab } from "../shell";
 
 // Which allowed action gets the page's one main button, first match wins. Every other allowed action is a row.
-export const MAIN_ORDER: ActionType[] = ["claim", "return", "adopt", "approve", "lend", "request", "withdraw"];
+// Approve comes before return: an open request always comes with return, and the request is what needs an answer.
+export const MAIN_ORDER: ActionType[] = ["claim", "approve", "return", "adopt", "lend", "request", "withdraw"];
 
 // Claim and take go through the label's code, so a copy reached by id (code null) never offers them.
 export function mainAction(actions: ActionType[], code: string | null): ActionType | null {
@@ -12,7 +13,7 @@ export function mainAction(actions: ActionType[], code: string | null): ActionTy
 }
 
 // Where the back link goes: the wall this visit came from, when the referrer says so; otherwise the root of the page's tab.
-export function backFor(referrer: string, origin: string, copy: CopyView, tab: Tab): { href: string; label: string } {
+export function backFor(referrer: string, origin: string, copy: CopyView, tab: Tab): Back {
   let url: URL;
   try {
     url = new URL(referrer);
@@ -35,4 +36,20 @@ export function backFor(referrer: string, origin: string, copy: CopyView, tab: T
       break;
   }
   return tabRoot[tab];
+}
+
+export type Back = { href: string; label: string };
+
+// A way back saved with this history entry (so it outlives a reload, whose referrer is the page itself).
+// Only a target backFor could have produced for this copy is taken; anything else is ignored.
+export function storedBack(state: unknown, copy: CopyView | null): Back | null {
+  if (typeof state !== "object" || state === null || !("back" in state)) return null;
+  const back = (state as { back: unknown }).back;
+  if (typeof back !== "object" || back === null) return null;
+  const { href, label } = back as { href?: unknown; label?: unknown };
+  if (typeof href !== "string" || typeof label !== "string") return null;
+  const possible: Back[] = [tabRoot.books, tabRoot.holding, tabRoot.friends, { href: "/", label: "My books" }, { href: "/holding", label: "Holding" }];
+  if (copy?.owner) possible.push({ href: `/members/${copy.owner.id}`, label: `${personLabel(copy.owner)}’s books` });
+  if (copy?.collection) possible.push({ href: `/collections/${copy.collection.id}`, label: copy.collection.name });
+  return possible.find((p) => p.href === href && p.label === label) ?? null;
 }
