@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent
 import type { CollectionRef, ShelfItem } from "../../shared/types";
 import { Cover, holderLabel, Name, personLabel } from "../screens/BookCard";
 import { AlphaRail } from "./AlphaRail";
-import { WALL_ANCHOR } from "./memory";
+import { anchorTop, WALL_ANCHOR } from "./memory";
 import { ALL, applyFilter, countLine, groupByLetter, showRail, type Status, type WallFilter } from "./model";
 
 export type WallKind = "mine" | "friend" | "holding" | "my-collection" | "friend-collection";
@@ -56,10 +56,12 @@ export function CoverWall(props: Props) {
   const railRoom = !loading && showRail(items.length, groupByLetter(items).length);
   // Your own wall always has its chips, so Collection ▾ (New collection…, Manage) is there even with no books.
   const chipsShown = chips && !loading && (items.length > 0 || kind === "mine");
+  // The find box rides in the chips row, under the chips on a phone; with no books there is nothing to find.
+  const find = chipsShown && items.length > 0;
   const pick = (letter: string) => document.getElementById(letterId(letter))?.scrollIntoView({ block: "start", behavior: "instant" });
 
   return (
-    <div className="wall" data-chips={chipsShown ? "" : undefined} data-rail={railRoom ? "" : undefined}>
+    <div className="wall" data-chips={chipsShown ? "" : undefined} data-find={find ? "" : undefined} data-rail={railRoom ? "" : undefined}>
       <h1 ref={props.headingRef} tabIndex={props.headingRef ? -1 : undefined}><Name>{title}</Name></h1>
       {!props.incomplete && !loading && items.length > 0 && <p className="wall-count">{countLine(shown, owner)}</p>}
       {props.top && <div className="wall-top">{props.top}</div>}
@@ -76,6 +78,7 @@ export function CoverWall(props: Props) {
             <div className="wall-chips">
               <StatusChips kind={kind as "mine" | "friend"} filter={filter} onFilter={onFilter} />
               <CollectionMenu {...props} />
+              {find && <FindBox filter={filter} onFilter={onFilter} found={shown.length} />}
             </div>
           )}
           {items.length === 0 ? <div className="wall-empty">{props.empty}</div> : groups.length === 0 ? (
@@ -135,6 +138,40 @@ function StatusChips({ kind, filter, onFilter }: { kind: "mine" | "friend"; filt
           <span className="chip-pill">{label}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+// Narrows the wall as you type, on top of the chips. It lives in the chips row, so it stays mounted (and keeps
+// focus) whatever it matches, "No books match." included.
+function FindBox({ filter, onFilter, found }: { filter: WallFilter; onFilter(f: WallFilter): void; found: number }) {
+  const input = useRef<HTMLInputElement>(null);
+  const q = filter.q ?? "";
+  const set = (next: string) => {
+    onFilter({ ...filter, q: next });
+    // Typing deep in the wall would leave you looking at the gap where covers were: bring the row's top back to
+    // where the covers start. Only from the handler, so it never fights the place a wall restores to on arrival.
+    const top = anchorTop();
+    if (top !== null && window.scrollY > top) window.scrollTo({ top, behavior: "instant" });
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape" && q !== "") { e.preventDefault(); set(""); }
+    // Enter has nothing to submit: it just puts the phone's keyboard away, so the matches show.
+    else if (e.key === "Enter") { e.preventDefault(); input.current?.blur(); }
+  };
+  return (
+    <div className="wall-find">
+      <svg className="wall-find-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" /></svg>
+      <input ref={input} type="search" aria-label="Find a book" placeholder="Title or author" value={q}
+        autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="search"
+        onChange={(e) => set(e.target.value)} onKeyDown={onKeyDown} />
+      {q !== "" && (
+        <button type="button" className="wall-find-clear" aria-label="Clear" onClick={() => { set(""); input.current?.focus(); }}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      )}
+      {/* The count line scrolls away with the h1; this says how many match, to a screen reader, while typing. */}
+      <span className="visually-hidden" role="status">{q.trim() === "" ? "" : found === 1 ? "1 book" : `${found} books`}</span>
     </div>
   );
 }

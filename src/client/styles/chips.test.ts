@@ -48,3 +48,24 @@ test("below 400px the Collection chip swaps its word for the icon", () => {
   expect(decls(".chip-icon", narrow).display).toBe("block");
   expect(decls(".chip-word", narrow)).toMatchObject({ position: "absolute", "clip-path": "inset(50%)" });
 });
+
+test("on a phone the find box takes a line of its own, and the row (and all that clears it) grows to fit", () => {
+  const narrow = css.indexOf("@media (max-width: 39.99rem)");
+  expect(narrow).toBeGreaterThanOrEqual(0);
+  expect(decls("html:has(.wall[data-find])", narrow)["--wall-chips-full"]).toBe("calc(2 * 44px + var(--space-1) + var(--space-3))");
+  expect(decls(".wall[data-find] .wall-chips", narrow)).toMatchObject({ "flex-wrap": "wrap", "align-content": "center" });
+  // A zero base, so a long picked name shortens on the chips' line instead of wrapping to one of its own.
+  expect(decls(".wall[data-find] .wall-collection", narrow).flex).toBe("1 1 0");
+  expect(decls(".wall[data-find] .wall-menu", narrow).top).toBe("calc(50% - var(--space-1) / 2)");
+});
+
+test("from 40rem the find box grows into the chips' line and never squeezes Collection", () => {
+  const wide = css.indexOf("@media (min-width: 40rem)");
+  expect(wide).toBeGreaterThanOrEqual(0);
+  expect(decls(".wall-find", wide)).toMatchObject({ flex: "1 1 9rem", "min-width": "9rem", "max-width": "16rem" });
+  expect(decls(".wall[data-find] .wall-menu", wide)).toMatchObject({ right: "0", "max-width": "20rem" });
+});
+
+test("the find box's text is 16px, so iOS does not zoom when it is tapped", () => {
+  expect(decls('.wall-find input[type="search"]')["font-size"]).toBe("var(--text-base)");
+});

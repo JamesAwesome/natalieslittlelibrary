@@ -33,6 +33,13 @@ test("round trips a place", () => {
   expect(loadPlace(KEY)).toEqual({ filter: { status: "out", collectionId: "c1" }, scrollY: 120 });
 });
 
+test("round trips what was typed in the find box; a place saved before the box has none", () => {
+  savePlace(KEY, { filter: { status: "all", collectionId: null, q: "hobbit" }, scrollY: 0 });
+  expect(loadPlace(KEY)?.filter).toEqual({ status: "all", collectionId: null, q: "hobbit" });
+  sessionStorage.setItem(KEY, JSON.stringify({ filter: { status: "home", collectionId: null }, scrollY: 5 }));
+  expect(loadPlace(KEY)).toEqual({ filter: { status: "home", collectionId: null }, scrollY: 5 });
+});
+
 test("a missing, corrupt or wrongly shaped value gives null", () => {
   expect(loadPlace(KEY)).toBeNull();
   sessionStorage.setItem(KEY, "{nope");
@@ -46,6 +53,8 @@ test("a missing, corrupt or wrongly shaped value gives null", () => {
     { filter: { status: "all", collectionId: null }, scrollY: null },
     { filter: { status: "all", collectionId: null }, scrollY: 0, anchor: "9" },
     { filter: { status: "all", collectionId: null }, scrollY: 0, anchor: null },
+    { filter: { status: "all", collectionId: null, q: 5 }, scrollY: 0 },
+    { filter: { status: "all", collectionId: null, q: null }, scrollY: 0 },
     null,
     [],
   ]) {

@@ -1,4 +1,4 @@
-import type { ShelfItem } from "../../shared/types";
+import type { BookInfo, ShelfItem } from "../../shared/types";
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 
@@ -31,12 +31,26 @@ export function groupByLetter<T extends { book: { title: string } }>(items: T[])
 }
 
 export type Status = "all" | "home" | "out" | "unlabelled";
-export type WallFilter = { status: Status; collectionId: string | null };
+/** `q` is what's typed in the find box; absent or blank, it matches every book. */
+export type WallFilter = { status: Status; collectionId: string | null; q?: string };
 export const ALL: WallFilter = { status: "all", collectionId: null };
+
+// Lower case, accents dropped, apostrophes (straight, curly, modifier) gone: iOS types ’ where titles often hold '.
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").replace(/['‘’ʼ]/g, "").toLowerCase();
+
+/** Every word of the query is found in the title or in one author's name, in any order. */
+export function matchesQuery(book: BookInfo, q: string): boolean {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  // Separate fields, so a word never matches across the join between the title and an author.
+  const fields = [book.title, ...book.authors].map(fold);
+  return words.every((w) => fields.some((f) => f.includes(w)));
+}
 
 export function applyFilter(items: ShelfItem[], f: WallFilter): ShelfItem[] {
   return items.filter((i) => {
     if (f.collectionId !== null && i.collection?.id !== f.collectionId) return false;
+    if (f.q && !matchesQuery(i.book, f.q)) return false;
     if (f.status === "home") return i.home;
     if (f.status === "out") return !i.home;
     if (f.status === "unlabelled") return !i.labelled;

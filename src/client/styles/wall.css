@@ -6,6 +6,15 @@
   --wall-chips-full: calc(44px + 2 * var(--space-2));
 }
 
+/* Narrower than 40rem the find box takes a second line under the chips, so the row grows: two 44px lines, the
+   wrap's gap and 6px above and below. Everything that clears the row (the rail, scroll-padding-top) reads this one
+   value. Wider, the box sits in the line beside the chips. */
+@media (max-width: 39.99rem) {
+  html:has(.wall[data-find]) {
+    --wall-chips-full: calc(2 * 44px + var(--space-1) + var(--space-3));
+  }
+}
+
 /* Focus moving up the wall (Shift+Tab) and the rail's jumps stop below the sticky chips row, not under it,
    with room for the focus ring (2px, offset 2px). */
 html:has(.wall[data-chips]) {
@@ -138,6 +147,106 @@ html:has(.wall[data-chips]) {
   justify-content: flex-end;
   min-width: 0;
   margin-left: auto;
+}
+
+/* The find box. On a phone it wraps onto a line of its own under the chips; from 40rem it shares their line. */
+.wall-find {
+  position: relative;
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+}
+
+@media (max-width: 39.99rem) {
+  .wall[data-find] .wall-chips {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  /* No size of its own to wrap by: it takes what the status chips leave on their line, and a long picked name
+     shortens there as it did before the box, rather than dropping to a line of its own. */
+  .wall[data-find] .wall-collection {
+    flex: 1 1 0;
+  }
+
+  /* The Collection menu hangs from the bottom of the chips' line, the middle of the wrap's gap, over the box. */
+  .wall[data-find] .wall-menu {
+    top: calc(50% - var(--space-1) / 2);
+  }
+}
+
+@media (min-width: 40rem) {
+  /* The box now ends the line, so the menu hangs from Collection itself, not from the row's right edge. 20rem
+     keeps its left edge on screen at 40rem, where Collection's right edge sits furthest left. */
+  .wall[data-find] .wall-collection {
+    position: relative;
+  }
+
+  .wall[data-find] .wall-menu {
+    top: calc(100% + var(--space-2));
+    right: 0;
+    max-width: 20rem;
+  }
+
+  /* Grows from 9rem into what's spare rather than shrinking from 16rem: any shrink at all is shared with
+     Collection, and a fraction of a pixel off its label shows as "Collecti…". */
+  .wall-find {
+    flex: 1 1 9rem;
+    min-width: 9rem;
+    max-width: 16rem;
+    margin-left: var(--space-2);
+  }
+}
+
+/* 16px text, or iOS zooms the page on focus. Room on the left for the glass and on the right for Clear. */
+.wall-find input[type="search"] {
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0 44px 0 36px;
+  font-size: var(--text-base);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* The browser's own clear and decoration: there is a Clear button already. */
+.wall-find input[type="search"]::-webkit-search-cancel-button,
+.wall-find input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.wall-find-icon,
+.wall-find-clear svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* Muted on paper: 6.46:1 light, 7.99:1 dark. */
+.wall-find-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
+.wall-find .wall-find-clear {
+  position: absolute;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-muted);
 }
 
 .wall-collection > .chip {

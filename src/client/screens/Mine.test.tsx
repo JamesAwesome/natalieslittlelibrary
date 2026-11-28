@@ -187,12 +187,15 @@ test("a 404 from myCollections is trouble, not the empty wall", async () => {
   expect(screen.queryByText("You haven’t added any books yet.")).not.toBeInTheDocument();
 });
 
+// The screen's own status line; the find box keeps a status of its own for its count.
+const statusLine = () => screen.getAllByRole("status").find((el) => el.classList.contains("wall-status-line"))!;
+
 test("New collection… reveals the create form and puts the cursor in it", async () => {
   setup();
   show();
   expect(await screen.findByRole("link", book("c"))).toBeInTheDocument();
   // The status line is there, empty, before anything is created, so it is announced when it fills.
-  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  expect(statusLine()).toBeEmptyDOMElement();
   expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   await openCreate();
   expect(screen.getByRole("heading", { level: 2, name: "New collection" })).toBeInTheDocument();
@@ -208,8 +211,8 @@ test("creating a collection sends one request, trimmed, re-reads, and says it wo
   await userEvent.click(screen.getByRole("button", { name: "Create" }));
   expect(api.createCollection).toHaveBeenCalledExactlyOnceWith("Cabin");
   await waitFor(() => expect(api.myCollections).toHaveBeenCalledTimes(2));
-  expect(screen.getByRole("status")).toHaveTextContent("Created Cabin.");
-  expect(within(screen.getByRole("status")).getByText("Cabin").tagName).toBe("BDI");
+  expect(statusLine()).toHaveTextContent("Created Cabin.");
+  expect(within(statusLine()).getByText("Cabin").tagName).toBe("BDI");
   const manage = screen.getByRole("link", { name: "Manage Cabin" });
   expect(manage).toHaveAttribute("href", "/collections/k3");
   expect(manage).toHaveFocus();
@@ -220,7 +223,7 @@ test("creating a collection sends one request, trimmed, re-reads, and says it wo
   // Opening the form again starts clean, without the old confirmation.
   await openCreate();
   expect(screen.getByLabelText("Name")).toHaveValue("");
-  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  expect(statusLine()).toBeEmptyDOMElement();
 });
 
 test("an empty wall still offers New collection…, and it creates", async () => {

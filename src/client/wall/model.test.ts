@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { item, ann } from "../screens/shelfFixtures";
-import { ALL, RAIL_MARKS, RAIL_STRIP, applyFilter, countLine, groupByLetter, letterOf, markAt, showRail, sortKey, targetLetter } from "./model";
+import { ALL, RAIL_MARKS, RAIL_STRIP, applyFilter, countLine, groupByLetter, letterOf, markAt, matchesQuery, showRail, sortKey, targetLetter } from "./model";
 
 const titled = (copyId: string, title: string) => item({ copyId, book: { isbn: null, title, authors: [], coverUrl: null } });
 
@@ -80,6 +80,47 @@ describe("applyFilter", () => {
     expect(ids({ status: "out", collectionId: "k2" })).toEqual(["4"]);
     expect(ids({ status: "all", collectionId: "nope" })).toEqual([]);
     expect(ids({ status: "home", collectionId: "k2" })).toEqual(["3"]);
+  });
+  test("a query narrows whatever the chips show", () => {
+    const books = [
+      item({ copyId: "a", book: { isbn: null, title: "The Hobbit", authors: ["J. R. R. Tolkien"], coverUrl: null } }),
+      item({ copyId: "b", home: false, book: { isbn: null, title: "Dune", authors: ["Frank Herbert"], coverUrl: null } }),
+    ];
+    const q = (status: "all" | "out", query: string) => applyFilter(books, { status, collectionId: null, q: query }).map((i) => i.copyId);
+    expect(q("all", "hob")).toEqual(["a"]);
+    expect(q("all", "   ")).toEqual(["a", "b"]);
+    expect(q("out", "hobbit")).toEqual([]);
+    expect(q("out", "herbert")).toEqual(["b"]);
+  });
+});
+
+describe("matchesQuery", () => {
+  const book = (title: string, authors: string[] = []) => ({ isbn: null, title, authors, coverUrl: null });
+  test("an empty or blank query matches everything", () => {
+    expect(matchesQuery(book("Dune"), "")).toBe(true);
+    expect(matchesQuery(book("Dune"), "  ")).toBe(true);
+  });
+  test("any part of the title or an author, ignoring case and accents", () => {
+    expect(matchesQuery(book("The Hobbit"), "HOBB")).toBe(true);
+    expect(matchesQuery(book("Émile"), "emile")).toBe(true);
+    expect(matchesQuery(book("Emile"), "émile")).toBe(true);
+    expect(matchesQuery(book("Dune", ["Frank Herbert"]), "herb")).toBe(true);
+    expect(matchesQuery(book("Dune", ["Frank Herbert"]), "tolkien")).toBe(false);
+  });
+  test("every word must match somewhere, in any order", () => {
+    const b = book("The Left Hand of Darkness", ["Ursula K. Le Guin"]);
+    expect(matchesQuery(b, "le guin darkness")).toBe(true);
+    expect(matchesQuery(b, "darkness  left")).toBe(true);
+    expect(matchesQuery(b, "darkness tolkien")).toBe(false);
+  });
+  test("apostrophes, straight or curly, are ignored on both sides", () => {
+    expect(matchesQuery(book("'Salem's Lot"), "salem’s")).toBe(true);
+    expect(matchesQuery(book("Salem’s Lot"), "salems lot")).toBe(true);
+    expect(matchesQuery(book("Charlotte's Web"), "charlotte's")).toBe(true);
+  });
+  test("a word may not straddle the title and an author", () => {
+    expect(matchesQuery(book("Dune", ["Frank Herbert"]), "dunefrank")).toBe(false);
+    expect(matchesQuery(book("Dune", ["Frank Herbert", "Brian Herbert"]), "herbertbrian")).toBe(false);
   });
 });
 
