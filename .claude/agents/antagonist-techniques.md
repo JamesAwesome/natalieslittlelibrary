@@ -105,6 +105,12 @@ cut or merge the entries whose shape has not recurred.
   the pathname, but screens read the query. List every link into the route
   that carries a query (`/pair?copy=`, `/pair?label=`) and probe each one. A
   pathname-only guard swallowed the Pair tab on all of them.
+- **"Making the sticky row taller changes nothing outside the row."** Every
+  check at scroll 0 agrees. Once the row is stuck, the larger
+  `scroll-padding-top` makes each programmatic `focus()` on something in the
+  row (a menu's first item, Clear, the button a menu hands focus back to) jump
+  the page. Scroll deep into the wall, run each focus path, and diff `scrollY`
+  against main. The find box's taller row made opening Collection jump 280px.
 
 ## Standing facts about this codebase's tools
 

@@ -1,6 +1,6 @@
 import { createRef } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ShelfItem } from "../../shared/types";
 import { ann, item } from "../screens/shelfFixtures";
 import { CoverWall, type WallKind } from "./CoverWall";
@@ -516,4 +516,134 @@ test("no wall draws a Pair a book link", () => {
       unmount();
     }
   }
+});
+
+describe("the find box", () => {
+  const books = [
+    item({ copyId: "h", book: { isbn: null, title: "The Hobbit", authors: ["J. R. R. Tolkien"], coverUrl: null } }),
+    item({ copyId: "d", home: false, book: { isbn: null, title: "Dune", authors: ["Frank Herbert"], coverUrl: null } }),
+  ];
+  const box = () => screen.getByRole("searchbox", { name: "Find a book" });
+  const covers = () => screen.queryAllByRole("link").map((a) => a.getAttribute("href"));
+
+  test("sits in the pinned row on your own wall and a friend's, and on no other wall", () => {
+    for (const kind of ["mine", "friend"] as WallKind[]) {
+      const { container, unmount: u } = wall({ kind, title: "T", items: books });
+      expect(container.querySelector(".wall-chips")).toContainElement(box());
+      // What wall.css grows the pinned row by, for the rail and scroll-padding.
+      expect(container.querySelector(".wall")).toHaveAttribute("data-find");
+      u();
+    }
+    for (const kind of ["holding", "my-collection", "friend-collection"] as WallKind[]) {
+      const { unmount: u } = wall({ kind, title: "T", items: books });
+      expect(screen.queryByRole("searchbox")).toBeNull();
+      u();
+    }
+  });
+
+  test("is not there while loading or when your wall has no books", () => {
+    wall({ loading: true, items: books }).unmount();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    const { container } = wall({ items: [] });
+    expect(screen.getByRole("button", { name: "Collection" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(container.querySelector(".wall")).not.toHaveAttribute("data-find");
+  });
+
+  test("typing sets the query and keeps the chips' choice", () => {
+    const filter: WallFilter = { status: "out", collectionId: "k2" };
+    const { props } = wall({ items: books, filter });
+    fireEvent.change(box(), { target: { value: "dun" } });
+    expect(props.onFilter).toHaveBeenLastCalledWith({ status: "out", collectionId: "k2", q: "dun" });
+  });
+
+  test("a chip or a collection picked keeps what was typed", () => {
+    const { props } = wall({ items: books, filter: { ...ALL, q: "dune" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lent out" }));
+    expect(props.onFilter).toHaveBeenLastCalledWith({ status: "out", collectionId: null, q: "dune" });
+    fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Kids" }));
+    expect(props.onFilter).toHaveBeenLastCalledWith({ status: "all", collectionId: "k2", q: "dune" });
+  });
+
+  test("shows only the books that match, and counts them", () => {
+    wall({ items: books, filter: { ...ALL, q: "tolkien" } });
+    expect(box()).toHaveValue("tolkien");
+    expect(covers()).toEqual(["/copies/h"]);
+    expect(screen.getByText("1 book", { selector: ".wall-count" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("1 book");
+  });
+
+  test("says nothing to a screen reader until something is typed", () => {
+    wall({ items: books });
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  test("with no match it stays put, focused, above No books match, and Show all clears it too", () => {
+    const { props, rerender } = wall({ items: books, filter: { ...ALL, q: "dun" } });
+    box().focus();
+    rerender(<CoverWall {...props} filter={{ ...ALL, q: "dunx" }} />);
+    expect(screen.getByText("No books match.")).toBeInTheDocument();
+    expect(box()).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(props.onFilter).toHaveBeenLastCalledWith(ALL);
+  });
+
+  test("Clear shows once something is typed, empties it and hands focus back to it", () => {
+    const { props, rerender } = wall({ items: books });
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    rerender(<CoverWall {...props} filter={{ status: "home", collectionId: null, q: "dune" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(props.onFilter).toHaveBeenLastCalledWith({ status: "home", collectionId: null, q: "" });
+    expect(box()).toHaveFocus();
+  });
+
+  test("Escape empties it, and does nothing when it is empty; Enter puts the keyboard away, but not mid-word", () => {
+    const { props, rerender } = wall({ items: books });
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(props.onFilter).not.toHaveBeenCalled();
+    rerender(<CoverWall {...props} filter={{ ...ALL, q: "dune" }} />);
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(props.onFilter).toHaveBeenLastCalledWith({ ...ALL, q: "" });
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Enter", isComposing: true });
+    expect(box()).toHaveFocus();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(box()).not.toHaveFocus();
+  });
+
+  test("typing while scrolled down the wall brings the first match up under the row; above it, the page stays", () => {
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
+    rects({ "[data-wall-anchor]": { top: -900 } });
+    vi.stubGlobal("scrollY", 1200);
+    wall({ items: books });
+    fireEvent.change(box(), { target: { value: "d" } });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 300, behavior: "instant" });
+    vi.restoreAllMocks();
+    scrollTo.mockClear();
+    rects({ "[data-wall-anchor]": { top: 50 } });
+    vi.stubGlobal("scrollY", 0);
+    fireEvent.change(box(), { target: { value: "du" } });
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // Things in the pinned row sit inside the page's scroll-padding-top, so a plain focus() scrolls the page.
+  test("focus moved to the box, the Collection button or a menu item never scrolls the page", () => {
+    const calls: [string, FocusOptions | undefined][] = [];
+    const real = HTMLElement.prototype.focus;
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, o?: FocusOptions) {
+      calls.push([this.getAttribute("aria-label") ?? this.textContent ?? "", o]);
+      real.call(this, o);
+    });
+    const { props, rerender } = wall({ items: books, filter: { ...ALL, q: "dune" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    rerender(<CoverWall {...props} filter={ALL} />);
+    fireEvent.click(screen.getByRole("button", { name: "Collection" }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(calls.map(([who]) => who)).toEqual(["Find a book", "All collections", "Home library", "Collection"]);
+    for (const [, o] of calls) expect(o).toEqual({ preventScroll: true });
+  });
 });

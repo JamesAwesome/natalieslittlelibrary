@@ -1,4 +1,4 @@
-import type { ShelfItem } from "../../shared/types";
+import type { BookInfo, ShelfItem } from "../../shared/types";
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 
@@ -31,12 +31,31 @@ export function groupByLetter<T extends { book: { title: string } }>(items: T[])
 }
 
 export type Status = "all" | "home" | "out" | "unlabelled";
-export type WallFilter = { status: Status; collectionId: string | null };
+/** `q` is what's typed in the find box; absent or blank, it matches every book. */
+export type WallFilter = { status: Status; collectionId: string | null; q?: string };
 export const ALL: WallFilter = { status: "all", collectionId: null };
+
+// Letters NFD leaves whole, spelled as an English keyboard would type them: "nesbo" finds Nesbø.
+const PLAIN: Record<string, string> = { ø: "o", ł: "l", æ: "ae", œ: "oe", ß: "ss", đ: "d", ð: "d", þ: "th", ı: "i" };
+
+// Lower case, accents dropped, and apostrophes (straight, curly, modifier) and hyphens gone: iOS types ’ where titles
+// often hold ', and "spiderman" or "spider man" should both find Spider-Man.
+const fold = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/['‘’ʼ\-‐‑]/g, "").replace(/[øłæœßđðþı]/g, (c) => PLAIN[c]);
+
+/** Every word of the query is found in the title or in one author's name, in any order. */
+export function matchesQuery(book: BookInfo, q: string): boolean {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  // Separate fields, so a word never matches across the join between the title and an author.
+  const fields = [book.title, ...book.authors].map(fold);
+  return words.every((w) => fields.some((f) => f.includes(w)));
+}
 
 export function applyFilter(items: ShelfItem[], f: WallFilter): ShelfItem[] {
   return items.filter((i) => {
     if (f.collectionId !== null && i.collection?.id !== f.collectionId) return false;
+    if (f.q && !matchesQuery(i.book, f.q)) return false;
     if (f.status === "home") return i.home;
     if (f.status === "out") return !i.home;
     if (f.status === "unlabelled") return !i.labelled;

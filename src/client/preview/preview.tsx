@@ -72,13 +72,14 @@ function TabBarView() {
 }
 
 // &kind=friend|holding|… picks another wall, &loading shows the skeleton, &empty shows an empty wall,
-// &status=out|home|unlabelled and &collection=<id> start with that filter.
+// &status=out|home|unlabelled, &collection=<id> and &q=<words> start with that filter.
 function WallView() {
   document.getElementById("root")?.classList.add("has-tab-bar");
   const params = new URLSearchParams(location.search);
   const kind = (params.get("kind") ?? "mine") as WallKind;
   const [filter, setFilter] = useState<WallFilter>({
     status: (params.get("status") as Status | null) ?? ALL.status, collectionId: params.get("collection") ?? ALL.collectionId,
+    q: params.get("q") ?? undefined,
   });
   return (
     <>

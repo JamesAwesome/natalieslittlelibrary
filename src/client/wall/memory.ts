@@ -11,8 +11,8 @@ export type WallPlace = { filter: WallFilter; scrollY: number; anchor?: number }
 /** The attribute CoverWall puts on the element that marks where its chips row (or grid) starts. */
 export const WALL_ANCHOR = "data-wall-anchor";
 
-// The anchor's top in page coordinates, or null when no wall is on the page.
-function anchorTop(): number | null {
+/** The anchor's top in page coordinates, or null when no wall is on the page. */
+export function anchorTop(): number | null {
   const el = typeof document === "undefined" ? null : document.querySelector(`[${WALL_ANCHOR}]`);
   return el ? el.getBoundingClientRect().top + window.scrollY : null;
 }
@@ -29,12 +29,15 @@ function parse(raw: string | null): WallPlace | null {
     if (typeof v !== "object" || v === null) return null;
     const { filter, scrollY, anchor } = v as { filter?: unknown; scrollY?: unknown; anchor?: unknown };
     if (typeof filter !== "object" || filter === null) return null;
-    const { status, collectionId } = filter as { status?: unknown; collectionId?: unknown };
+    const { status, collectionId, q } = filter as { status?: unknown; collectionId?: unknown; q?: unknown };
     if (typeof status !== "string" || !STATUSES.includes(status)) return null;
     if (collectionId !== null && typeof collectionId !== "string") return null;
+    // Absent in places saved before the find box.
+    if (q !== undefined && typeof q !== "string") return null;
     if (typeof scrollY !== "number" || !Number.isFinite(scrollY) || scrollY < 0) return null;
     if (anchor !== undefined && (typeof anchor !== "number" || !Number.isFinite(anchor))) return null;
     const place: WallPlace = { filter: { status: status as WallFilter["status"], collectionId }, scrollY };
+    if (q !== undefined) place.filter.q = q;
     if (anchor !== undefined) place.anchor = anchor;
     return place;
   } catch {
