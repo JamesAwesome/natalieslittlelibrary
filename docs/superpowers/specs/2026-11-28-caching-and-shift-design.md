@@ -3,7 +3,8 @@
 Drafted 2026-11-28, after v0.9.0. It follows the handoff
 `docs/superpowers/handoffs/2026-11-28-caching-and-shift.md`, whose plan the
 maintainer approved in the brainstorm. A builder check and an antagonist pass
-have read it. Calls made without the maintainer are marked **(call)**.
+have read it, and the maintainer approved it on 2026-11-28. Calls made without
+the maintainer are marked **(call)**.
 
 ## Why
 
