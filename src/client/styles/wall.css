@@ -6,10 +6,11 @@
   --wall-chips-full: calc(44px + 2 * var(--space-2));
 }
 
-/* Narrower than 40rem the find box takes a second line under the chips, so the row grows: two 44px lines, the
-   wrap's gap and 6px above and below. Everything that clears the row (the rail, scroll-padding-top) reads this one
-   value. Wider, the box sits in the line beside the chips. */
-@media (max-width: 39.99rem) {
+/* Narrower than 35.5rem (every phone held upright) the find box takes a second line under the chips, so the row
+   grows: two 44px lines, the wrap's gap and 6px above and below. Everything that clears the row (the rail,
+   scroll-padding-top) reads this one value. From 35.5rem (568px, the smallest phone on its side) the box sits in
+   the line beside the chips, so a landscape rail keeps its height. */
+@media (width < 35.5rem) {
   html:has(.wall[data-find]) {
     --wall-chips-full: calc(2 * 44px + var(--space-1) + var(--space-3));
   }
@@ -149,7 +150,7 @@ html:has(.wall[data-chips]) {
   margin-left: auto;
 }
 
-/* The find box. On a phone it wraps onto a line of its own under the chips; from 40rem it shares their line. */
+/* The find box. On an upright phone it wraps onto a line of its own under the chips; from 35.5rem it shares theirs. */
 .wall-find {
   position: relative;
   display: flex;
@@ -159,7 +160,7 @@ html:has(.wall[data-chips]) {
   height: 44px;
 }
 
-@media (max-width: 39.99rem) {
+@media (width < 35.5rem) {
   .wall[data-find] .wall-chips {
     flex-wrap: wrap;
     align-content: center;
@@ -177,9 +178,9 @@ html:has(.wall[data-chips]) {
   }
 }
 
-@media (min-width: 40rem) {
+@media (width >= 35.5rem) {
   /* The box now ends the line, so the menu hangs from Collection itself, not from the row's right edge. 20rem
-     keeps its left edge on screen at 40rem, where Collection's right edge sits furthest left. */
+     keeps its left edge on screen at 35.5rem, where Collection's right edge sits furthest left. */
   .wall[data-find] .wall-collection {
     position: relative;
   }

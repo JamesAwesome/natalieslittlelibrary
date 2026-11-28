@@ -106,6 +106,14 @@ describe("matchesQuery", () => {
     expect(matchesQuery(book("Emile"), "émile")).toBe(true);
     expect(matchesQuery(book("Dune", ["Frank Herbert"]), "herb")).toBe(true);
     expect(matchesQuery(book("Dune", ["Frank Herbert"]), "tolkien")).toBe(false);
+    expect(matchesQuery(book("Good Omens", ["Terry Pratchett", "Neil Gaiman"]), "gaiman")).toBe(true);
+  });
+  test("letters accents can't be dropped from are spelled plain, and hyphens are ignored", () => {
+    expect(matchesQuery(book("The Snowman", ["Jo Nesbø"]), "nesbo")).toBe(true);
+    expect(matchesQuery(book("Solaris", ["Stanisław Lem"]), "stanislaw")).toBe(true);
+    expect(matchesQuery(book("Ægypt"), "aegypt")).toBe(true);
+    expect(matchesQuery(book("Spider-Man"), "spiderman")).toBe(true);
+    expect(matchesQuery(book("Spider-Man"), "spider man")).toBe(true);
   });
   test("every word must match somewhere, in any order", () => {
     const b = book("The Left Hand of Darkness", ["Ursula K. Le Guin"]);
@@ -117,6 +125,8 @@ describe("matchesQuery", () => {
     expect(matchesQuery(book("'Salem's Lot"), "salem’s")).toBe(true);
     expect(matchesQuery(book("Salem’s Lot"), "salems lot")).toBe(true);
     expect(matchesQuery(book("Charlotte's Web"), "charlotte's")).toBe(true);
+    expect(matchesQuery(book("Charlotte‘s Web"), "charlottes")).toBe(true);
+    expect(matchesQuery(book("Charlotteʼs Web"), "charlottes")).toBe(true);
   });
   test("a word may not straddle the title and an author", () => {
     expect(matchesQuery(book("Dune", ["Frank Herbert"]), "dunefrank")).toBe(false);

@@ -50,7 +50,7 @@ test("below 400px the Collection chip swaps its word for the icon", () => {
 });
 
 test("on a phone the find box takes a line of its own, and the row (and all that clears it) grows to fit", () => {
-  const narrow = css.indexOf("@media (max-width: 39.99rem)");
+  const narrow = css.indexOf("@media (width < 35.5rem)");
   expect(narrow).toBeGreaterThanOrEqual(0);
   expect(decls("html:has(.wall[data-find])", narrow)["--wall-chips-full"]).toBe("calc(2 * 44px + var(--space-1) + var(--space-3))");
   expect(decls(".wall[data-find] .wall-chips", narrow)).toMatchObject({ "flex-wrap": "wrap", "align-content": "center" });
@@ -59,11 +59,15 @@ test("on a phone the find box takes a line of its own, and the row (and all that
   expect(decls(".wall[data-find] .wall-menu", narrow).top).toBe("calc(50% - var(--space-1) / 2)");
 });
 
-test("from 40rem the find box grows into the chips' line and never squeezes Collection", () => {
-  const wide = css.indexOf("@media (min-width: 40rem)");
+// 35.5rem is 568px, the smallest phone on its side: every upright phone gets two lines, every landscape one, so a
+// landscape rail keeps its height. Range syntax, so no width falls between the two queries.
+test("from 35.5rem the find box grows into the chips' line and never squeezes Collection", () => {
+  const wide = css.indexOf("@media (width >= 35.5rem)");
   expect(wide).toBeGreaterThanOrEqual(0);
   expect(decls(".wall-find", wide)).toMatchObject({ flex: "1 1 9rem", "min-width": "9rem", "max-width": "16rem" });
   expect(decls(".wall[data-find] .wall-menu", wide)).toMatchObject({ right: "0", "max-width": "20rem" });
+  // The menu hangs from Collection, not from the row's right edge, where the box now is.
+  expect(decls(".wall[data-find] .wall-collection", wide).position).toBe("relative");
 });
 
 test("the find box's text is 16px, so iOS does not zoom when it is tapped", () => {

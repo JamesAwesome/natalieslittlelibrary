@@ -35,8 +35,13 @@ export type Status = "all" | "home" | "out" | "unlabelled";
 export type WallFilter = { status: Status; collectionId: string | null; q?: string };
 export const ALL: WallFilter = { status: "all", collectionId: null };
 
-// Lower case, accents dropped, apostrophes (straight, curly, modifier) gone: iOS types ’ where titles often hold '.
-const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").replace(/['‘’ʼ]/g, "").toLowerCase();
+// Letters NFD leaves whole, spelled as an English keyboard would type them: "nesbo" finds Nesbø.
+const PLAIN: Record<string, string> = { ø: "o", ł: "l", æ: "ae", œ: "oe", ß: "ss", đ: "d", ð: "d", þ: "th", ı: "i" };
+
+// Lower case, accents dropped, and apostrophes (straight, curly, modifier) and hyphens gone: iOS types ’ where titles
+// often hold ', and "spiderman" or "spider man" should both find Spider-Man.
+const fold = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/['‘’ʼ\-‐‑]/g, "").replace(/[øłæœßđðþı]/g, (c) => PLAIN[c]);
 
 /** Every word of the query is found in the title or in one author's name, in any order. */
 export function matchesQuery(book: BookInfo, q: string): boolean {

@@ -157,7 +157,8 @@ function FindBox({ filter, onFilter, found }: { filter: WallFilter; onFilter(f: 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape" && q !== "") { e.preventDefault(); set(""); }
     // Enter has nothing to submit: it just puts the phone's keyboard away, so the matches show.
-    else if (e.key === "Enter") { e.preventDefault(); input.current?.blur(); }
+    // Not the Enter that commits a word mid-composition (Japanese, Chinese input), which isn't a request to finish.
+    else if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); input.current?.blur(); }
   };
   return (
     <div className="wall-find">
@@ -166,7 +167,7 @@ function FindBox({ filter, onFilter, found }: { filter: WallFilter; onFilter(f: 
         autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="search"
         onChange={(e) => set(e.target.value)} onKeyDown={onKeyDown} />
       {q !== "" && (
-        <button type="button" className="wall-find-clear" aria-label="Clear" onClick={() => { set(""); input.current?.focus(); }}>
+        <button type="button" className="wall-find-clear" aria-label="Clear" onClick={() => { set(""); input.current?.focus({ preventScroll: true }); }}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
         </button>
       )}
@@ -194,6 +195,18 @@ function Tile({ kind, item }: { kind: WallKind; item: ShelfItem }) {
 // Eats the next click anywhere, once, and returns a function that disarms it. A gesture that ends with no click (a
 // scroll's pointercancel) disarms it, as does the next pointerdown or key, so it never eats a later tap or Enter.
 // Added during the pointerdown's own dispatch, its pointerdown listener does not hear that same event.
+// Focus for things in the pinned row, or the menu hanging from it. They are always on screen, but sit inside the
+// page's scroll-padding-top (which clears the row), so a plain focus() would scroll the page to "reveal" them.
+// Only the menu's own scroll moves, to keep a focused item inside it.
+function focusInRow(el: HTMLElement | null | undefined) {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  const box = el.closest<HTMLElement>(".wall-menu");
+  if (!box) return;
+  if (el.offsetTop < box.scrollTop) box.scrollTop = el.offsetTop;
+  else if (el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = el.offsetTop + el.offsetHeight - box.clientHeight;
+}
+
 function swallowNextClick(): () => void {
   const click = (e: Event) => {
     e.preventDefault();
@@ -223,7 +236,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
 
   const close = (refocus: boolean) => {
     setOpen(false);
-    if (refocus) button.current?.focus();
+    if (refocus) focusInRow(button.current);
   };
   const entries = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
 
@@ -235,7 +248,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
       const floor = document.querySelector(".tab-bar")?.getBoundingClientRect().top ?? innerHeight;
       m.style.maxHeight = `${Math.max(88, floor - m.getBoundingClientRect().top - 8)}px`;
     }
-    (entries()[0])?.focus();
+    focusInRow(entries()[0]);
     // A tap outside only closes the menu: the click it goes on to make (on a cover, a tab) is swallowed, once.
     const outside = (e: Event) => {
       if (root.current?.contains(e.target as Node)) return;
@@ -250,7 +263,7 @@ function CollectionMenu({ kind, collections = [], filter, onFilter, onNewCollect
   const onKeyDown = (e: KeyboardEvent) => {
     const all = entries();
     const at = all.indexOf(document.activeElement as HTMLElement);
-    const move = (i: number) => { e.preventDefault(); all[(i + all.length) % all.length]?.focus(); };
+    const move = (i: number) => { e.preventDefault(); focusInRow(all[(i + all.length) % all.length]); };
     if (e.key === "Escape") { e.preventDefault(); close(true); }
     // Back to the button first, so the browser's own Tab moves on from there rather than from a removed item.
     else if (e.key === "Tab") close(true);
