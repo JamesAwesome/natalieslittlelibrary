@@ -265,7 +265,8 @@ Expected: FAIL, because the module doesn't exist.
 - Modify: `src/worker/index.ts`
   - Register `app.all("/covers/*", …)`, so HEAD and POST reach the module. Hono answers HEAD from a GET route.
   - Register it before the `servicesFor` middleware, or exempt `/covers/*` from it, so no services are built for a cover.
-  - The handler is `(c) => proxy.handle(c.req.raw, (p) => c.executionCtx.waitUntil(p))`, with `proxy = createCoverProxy({ fetch, cache: caches.default })` built once at module level.
+  - The handler is `(c) => createCoverProxy({ fetch: (i, init) => fetch(i, init), cache: caches.default }).handle(c.req.raw, (p) => c.executionCtx.waitUntil(p))`.
+    - Both `fetch` and `caches.default` are resolved at request time, never captured at module load, so a test's `vi.stubGlobal("fetch", …)` reaches the route.
 - Modify: `wrangler.jsonc`: `"run_worker_first": ["/api/*", "/auth/*", "/covers/*"]`
 - Test: `src/worker/index.test.ts`
 
@@ -278,6 +279,7 @@ Expected: FAIL, because the module doesn't exist.
   - **`POST /covers/ol/b/id/1-M.jpg is 405`**
   - **`a cross-site cover request is 403`**
   - **`a signed-out cover request is never 401`** (Review Focus 5). Use a request with no cookie, a scripted upstream through `vi.stubGlobal("fetch", …)` returning a direct 200 `image/jpeg`, and assert 200. Unstub afterwards.
+    - This test writes to the real `caches.default`, so use a cover id no other test uses (`/b/id/999000001-M.jpg`).
 
 - [ ] **Step 2: Run them and see them fail.** Run: `pnpm vitest run --config vitest.worker.config.ts src/worker/index.test.ts`. Expected: the new tests FAIL, with a 404 text from `app.notFound`.
 
@@ -494,8 +496,15 @@ export function useLoaded<T>(load: () => Promise<T>, enabled: boolean, memory?: 
 - Produces: `useKeepInView(filter: WallFilter, loading: boolean): void`, called in `CoverWall`.
   - It does nothing where `CSS.supports("overflow-anchor", "auto")` is true. The browser's own anchoring does the job there, and a correction on top moved a cover 161px in the probe.
   - It does nothing while the page sits above the wall's anchor (`window.scrollY <= anchorTop()`).
-  - Otherwise, it records the first `.wall-tile[data-copy-id]` whose rect bottom is below the pinned row (`--wall-chips-h`, or just `> 0`, the builder's call) and its `top`, after every commit and on every scroll.
-  - In a `useLayoutEffect` with no deps: when `filter` is the same object as at the last commit, find that `copyId` again and `window.scrollBy(0, newTop - oldTop)` if the difference is non-zero.
+  - Otherwise, after every commit and on every scroll, it records three things:
+    - the first `.wall-tile[data-copy-id]` whose rect bottom is below the pinned row (`--wall-chips-h`, or just `> 0`, the builder's call)
+    - that tile's `top`
+    - `window.scrollY`
+  - In a `useLayoutEffect` with no deps, it corrects only when all of these hold:
+    - `filter` is the same object as at the last commit
+    - `window.scrollY` still equals the recorded value (a scroll whose event hasn't arrived yet is never fought)
+    - the same `copyId` is found again
+  - The correction is `window.scrollBy(0, newTop - oldTop)`, when the difference is non-zero.
   - A filter change never scrolls, because the find box and the chips have their own rules. The tile is never the chips row.
 - **The preview.**
   - `&remember` loads the wall through `useLoaded` with `{ key: "read:preview:wall", member: "preview" }`. The loader resolves after 600ms. It also uses `useWallPlace(wallKey(), ready, ids)`.
@@ -511,6 +520,7 @@ export function useLoaded<T>(load: () => Promise<T>, enabled: boolean, memory?: 
     - **`where overflow-anchor is supported, nothing scrolls`**
     - **`above the anchor (at the top), nothing scrolls`**
     - **`a filter change never scrolls`**
+    - **`a scroll whose event hasn't fired yet is not fought`**: change `window.scrollY` with no scroll event, rerender with the same filter and moved tiles, and expect no `scrollBy`.
 
 - [ ] **Step 2: Run them and see them fail.** Run: `pnpm vitest run --config vitest.client.config.ts src/client/wall/keepInView.test.tsx`. Expected: FAIL.
 
